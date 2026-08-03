@@ -98,6 +98,20 @@ module.exports.PAGE = String.raw`<!doctype html>
   .flash.err { background: color-mix(in srgb, var(--err) 15%, transparent); color: var(--err); }
   .empty { color: var(--dim); padding: 6px 0; }
   .muted { color: var(--dim); font-size: 12px; }
+  .filterbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .filterbar select { width: auto; min-width: 190px; }
+  .filterbar .spacer { flex: 1; }
+  label.inline {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin: 0; font-size: 13px; color: var(--dim); cursor: pointer;
+  }
+  label.inline input { width: auto; margin: 0; }
+  button.small { padding: 5px 11px; font-size: 12px; }
+  tr.off td:not(.pick) { opacity: .42; }
+  tr.pickable { cursor: pointer; }
+  tr.pickable:hover td { background: var(--panel2); }
+  td.pick { width: 30px; }
+  td.pick input { width: auto; margin: 0; cursor: pointer; }
   code {
     font: 12px ui-monospace, Consolas, monospace;
     background: var(--panel2); padding: 1px 5px; border-radius: 4px;
@@ -130,14 +144,29 @@ module.exports.PAGE = String.raw`<!doctype html>
   </div>
 
   <div class="card">
-    <h2>Was in der Datei steht</h2>
+    <h2>Was hochgeladen wird</h2>
+    <p class="sub" style="margin-top:-6px">
+      Häkchen weg = dieser Raid-Abend wird nicht gesendet. Die Auswahl bleibt gespeichert.
+    </p>
+    <div class="filterbar">
+      <select id="f-raid"><option value="">Alle Raids</option></select>
+      <label class="inline"><input type="checkbox" id="f-new"> nur noch nie hochgeladene</label>
+      <label class="inline"><input type="checkbox" id="f-sel"> nur ausgewählte</label>
+      <span class="spacer"></span>
+      <button type="button" class="ghost small" id="b-all">Alle auswählen</button>
+      <button type="button" class="ghost small" id="b-none">Alle abwählen</button>
+    </div>
     <div class="tablewrap">
       <table id="sessions">
-        <thead><tr><th>Datum</th><th>Zeit</th><th>Instanz</th><th class="num">Items</th></tr></thead>
+        <thead><tr>
+          <th></th><th>Datum</th><th>Zeit</th><th>Raid</th>
+          <th class="num">Items</th><th class="num">Spieler</th><th>Quelle</th><th>Zuletzt gesendet</th>
+        </tr></thead>
         <tbody></tbody>
       </table>
     </div>
     <div class="empty" id="sessions-empty" hidden></div>
+    <p class="sub" id="sessions-foot"></p>
   </div>
 
   <div class="card">
@@ -218,6 +247,128 @@ function pill(text, kind) {
   return '<span class="pill ' + kind + '">' + text + "</span>";
 }
 
+// Filter leben nur im Fenster, nicht in der Konfiguration: sie beantworten eine
+// Frage von Sekunden ("welche Karazhan-Abende?"), keine Dauereinstellung.
+const filter = { raid: "", onlyNew: false, onlySelected: false };
+let lastSessions = [];
+
+function visible(sessions) {
+  return sessions.filter((s) => {
+    const raid = s.instance || "unbekannt";
+    if (filter.raid && raid !== filter.raid) return false;
+    if (filter.onlyNew && s.lastUpload) return false;
+    if (filter.onlySelected && s.excluded) return false;
+    return true;
+  });
+}
+
+function describeUpload(u) {
+  if (!u) return "noch nie";
+  const when = new Date(u.at).toLocaleDateString("de-DE");
+  if (u.status === "appended") return when + " — " + u.added + " ergänzt zu „" + (u.eventLabel || "?") + "“";
+  if (u.status === "updated") return when + " — " + u.added + " neu in der Inbox";
+  if (u.status === "pending") return when + " — in der Inbox";
+  if (u.status === "dismissed") return when + " — im Menü verworfen";
+  return when;
+}
+
+function renderSessions(d) {
+  lastSessions = d.sessions || [];
+  const tbody = document.querySelector("#sessions tbody");
+  tbody.innerHTML = "";
+
+  // Raid-Auswahl aus dem, was tatsächlich da ist.
+  const raids = [...new Set(lastSessions.map((s) => s.instance || "unbekannt"))].sort();
+  const sel = $("f-raid");
+  if (sel.dataset.built !== raids.join("|")) {
+    sel.dataset.built = raids.join("|");
+    sel.innerHTML = "";
+    const all = document.createElement("option");
+    all.value = ""; all.textContent = "Alle Raids";
+    sel.appendChild(all);
+    for (const r of raids) {
+      const o = document.createElement("option");
+      o.value = r; o.textContent = r;
+      sel.appendChild(o);
+    }
+    sel.value = filter.raid;
+  }
+
+  const shown = visible(lastSessions);
+  if (!lastSessions.length) {
+    $("sessions").hidden = true;
+    $("sessions-empty").hidden = false;
+    $("sessions-empty").textContent = d.file
+      ? "Keine Raid-Abende in der Datei. Im Spiel mit /ehs diag prüfen, woran es liegt."
+      : "Noch keine Datei gefunden.";
+    $("sessions-foot").textContent = "";
+    return;
+  }
+
+  $("sessions").hidden = false;
+  $("sessions-empty").hidden = shown.length > 0;
+  if (!shown.length) $("sessions-empty").textContent = "Kein Raid-Abend passt zu den Filtern.";
+
+  for (const s of shown) {
+    const tr = document.createElement("tr");
+    tr.className = "pickable" + (s.excluded ? " off" : "");
+
+    const pick = document.createElement("td");
+    pick.className = "pick";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = !s.excluded;
+    pick.appendChild(box);
+    tr.appendChild(pick);
+
+    const day = new Date(s.startedAt);
+    const wd = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"][day.getDay()];
+    const t = (ms) => new Date(ms).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+    const quelle = s.gargul && s.rclc ? "RCLC " + s.rclc + " · Gargul " + s.gargul
+      : s.gargul ? "Gargul " + s.gargul : "RCLootcouncil " + s.rclc;
+
+    const cells = [
+      [wd + " " + day.toLocaleDateString("de-DE"), ""],
+      [t(s.startedAt) + "–" + t(s.endedAt), ""],
+      [s.instance || "unbekannt", ""],
+      [String(s.items), "num"],
+      [String(s.players), "num"],
+      [quelle, ""],
+      [describeUpload(s.lastUpload), ""],
+    ];
+    for (const [text, cls] of cells) {
+      const td = document.createElement("td");
+      td.textContent = text;
+      if (cls) td.className = cls;
+      tr.appendChild(td);
+    }
+
+    const toggle = () => setExcluded([s.sessionId], !s.excluded);
+    tr.addEventListener("click", (ev) => { if (ev.target !== box) toggle(); });
+    box.addEventListener("change", toggle);
+    tbody.appendChild(tr);
+  }
+
+  const aus = lastSessions.filter((s) => s.excluded).length;
+  const items = lastSessions.filter((s) => !s.excluded).reduce((n, s) => n + s.items, 0);
+  $("sessions-foot").textContent =
+    shown.length + " von " + lastSessions.length + " Abenden angezeigt · "
+    + (lastSessions.length - aus) + " ausgewählt (" + items + " Items) · " + aus + " abgewählt";
+}
+
+async function setExcluded(ids, excluded) {
+  try {
+    await api("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionIds: ids, excluded }),
+    });
+    refresh();
+  } catch (e) {
+    flash(e.message, "err");
+  }
+}
+
 function render(d) {
   $("version").textContent = "v" + d.version;
 
@@ -268,35 +419,7 @@ function render(d) {
   $("btn-upload").disabled = d.uploading || !d.file;
   $("btn-upload").textContent = d.uploading ? "Lädt hoch …" : "Jetzt hochladen";
 
-  // Sessions
-  const tbody = document.querySelector("#sessions tbody");
-  tbody.innerHTML = "";
-  if (!d.sessions.length) {
-    $("sessions").hidden = true;
-    $("sessions-empty").hidden = false;
-    $("sessions-empty").textContent = d.file
-      ? "Keine Raid-Abende in der Datei. Im Spiel unter /ehs prüfen, ob etwas gefunden wird."
-      : "Noch keine Datei gefunden.";
-  } else {
-    $("sessions").hidden = false;
-    $("sessions-empty").hidden = true;
-    for (const s of d.sessions) {
-      const tr = document.createElement("tr");
-      const day = new Date(s.startedAt).toLocaleDateString("de-DE");
-      const from = new Date(s.startedAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-      const to = new Date(s.endedAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-      for (const v of [day, from + "–" + to, s.instance || "unbekannt"]) {
-        const td = document.createElement("td");
-        td.textContent = v;
-        tr.appendChild(td);
-      }
-      const td = document.createElement("td");
-      td.className = "num";
-      td.textContent = s.items;
-      tr.appendChild(td);
-      tbody.appendChild(tr);
-    }
-  }
+  renderSessions(d);
 
   // Einstellungen — nur füllen, solange niemand darin tippt.
   if (!editing) {
@@ -356,6 +479,15 @@ async function refresh() {
     $("s-conn").textContent = "Oberfläche nicht erreichbar: " + e.message;
   }
 }
+
+$("f-raid").addEventListener("change", (e) => { filter.raid = e.target.value; renderSessions({ sessions: lastSessions, file: true }); });
+$("f-new").addEventListener("change", (e) => { filter.onlyNew = e.target.checked; renderSessions({ sessions: lastSessions, file: true }); });
+$("f-sel").addEventListener("change", (e) => { filter.onlySelected = e.target.checked; renderSessions({ sessions: lastSessions, file: true }); });
+
+// Die Sammelknöpfe wirken auf das, was der Filter gerade zeigt — sonst wäre
+// "alle Karazhan-Abende abwählen" bei fünfzig Abenden fünfzig Klicks.
+$("b-all").addEventListener("click", () => setExcluded(visible(lastSessions).map((s) => s.sessionId), false));
+$("b-none").addEventListener("click", () => setExcluded(visible(lastSessions).map((s) => s.sessionId), true));
 
 $("settings").addEventListener("input", () => { editing = true; });
 $("settings").addEventListener("submit", async (ev) => {

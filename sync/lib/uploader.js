@@ -79,21 +79,29 @@ async function postSession(config, payload) {
 }
 
 /**
- * Eine SavedVariables-Datei komplett hochladen.
- * @returns {Promise<{ sessions: number, results: object[] }>}
+ * Eine SavedVariables-Datei hochladen — ohne die hier abgewählten Abende.
+ *
+ * Die Abwahl ist die letzte Instanz vor dem Absenden: was hier aussortiert
+ * wird, erreicht den Server gar nicht erst und taucht folglich auch nicht in
+ * seiner Inbox auf, wo es sonst jemand von Hand verwerfen müsste.
+ *
+ * @returns {Promise<{ sessions: number, skipped: number, results: object[] }>}
  */
 async function uploadFile(config, file) {
     const envelope = readEnvelope(file);
-    if (!envelope) return { sessions: 0, results: [] };
+    if (!envelope) return { sessions: 0, skipped: 0, results: [] };
 
+    const excluded = new Set(Array.isArray(config.excludedSessions) ? config.excludedSessions : []);
     const sessions = Array.isArray(envelope.sessions) ? envelope.sessions : [];
     const results = [];
+    let skipped = 0;
     for (const session of sessions) {
         if (!session || !Array.isArray(session.items) || !session.items.length) continue;
+        if (excluded.has(session.sessionId)) { skipped += 1; continue; }
         const answer = await postSession(config, envelopeForSession(envelope, session));
         results.push(...((answer && answer.results) || []));
     }
-    return { sessions: sessions.length, results };
+    return { sessions: sessions.length, skipped, results };
 }
 
 /** Eine Ergebniszeile des Servers als Satz für die Konsole. */

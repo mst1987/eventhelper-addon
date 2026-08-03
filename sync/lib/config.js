@@ -27,6 +27,17 @@ const DEFAULTS = {
     // Der Client schreibt sie nur beim Ausloggen oder /reload — häufiger als
     // alle paar Sekunden nachzusehen bringt daher nichts.
     pollSeconds: 15,
+    // Raid-Abende, die hier nicht hochgeladen werden sollen (sessionId).
+    //
+    // Absichtlich eine zweite Stelle neben der Abwahl im Addon: dort entscheidet
+    // man beim Spielen, hier vor dem Absenden — und hier sieht man, was die
+    // Uploads bisher bewirkt haben. Was das Addon schon weggelassen hat, kommt
+    // ohnehin nicht an; diese Liste ist die letzte Instanz davor.
+    excludedSessions: [],
+    // Was der Server zuletzt zu einem Abend gesagt hat:
+    // { [sessionId]: { at, status, added, skipped } }. Nur zur Anzeige — der
+    // Server dedupliziert selbst, das hier ersetzt keine Prüfung.
+    uploadLog: {},
 };
 
 function load() {

@@ -73,30 +73,33 @@ Die Ausgabe nennt beide Quellen und die gefundenen Raid-Sessions:
 Der Knopf an der **Minimap** öffnet es — oder `/ehs`. Es beantwortet auf einen Blick, was sonst niemand sieht:
 
 ```
- ┌─ EventHelper Sync ───────────────────────────────────────────┐
- │ Quellen:  RCLootcouncil gefunden    Gargul gefunden          │
- │                                                              │
- │ 2 Raid-Abende, 5 Items exportbereit.                         │
- │ 5 Item(s) liegen noch nicht auf der Platte.                  │
- │                                                              │
- │ [ Jetzt speichern (5) ]   [ Export anzeigen ]                │
- │                                                              │
- │ Gefundene Raid-Abende                                        │
- │ Häkchen weg = dieser Abend wird nicht hochgeladen.           │
- │ ┌──────────────────────────────────────────────────────────┐ │
- │ │ ☑ 02.08.2026  20:40–21:10  Tempest Keep        2 Item(s) │ │
- │ │ ☐ 01.08.2026  21:03–22:03  Serpentshrine C.    3 Item(s) │ │
- │ └──────────────────────────────────────────────────────────┘ │
- │                                                              │
- │ Einstellungen                                                │
- │ Zeitraum (Tage)          [ 21 ]                              │
- │ Neuer Abend ab (Std.)    [  6 ]                              │
- │ ☑ Upload-Knopf anzeigen                                      │
- │ ☑ Minimap-Knopf anzeigen                                     │
- │ ☑ Bank- und Entzauber-Items weglassen                        │
- │    Zuletzt 574 Item(s) übersprungen (486 RCLC, 88 Gargul).   │
- └──────────────────────────────────────────────────────────────┘
+ ┌─ EventHelper Sync ──────────────────────────────────────────────────────────────────┐
+ │ Quellen:  RCLootcouncil gefunden    Gargul gefunden                                 │
+ │ 58 Raid-Abende, 1535 Items exportbereit.          [   Jetzt speichern (34)       ]  │
+ │ 34 Item(s) liegen noch nicht auf der Platte.      [ Export als Text anzeigen     ]  │
+ │                                                                                     │
+ │ Filter: [Alle Raids ▾]  ☐ nur ungespeicherte  ☐ nur ausgewählte                     │
+ │                                          [ Alle auswählen ] [ Alle abwählen ]      │
+ │   Datum         Zeit          Raid                     Items Spieler Bosse Quelle   │
+ │  ───────────────────────────────────────────────────────────────────────────────    │
+ │ ☑ So 02.08.26   19:39–21:18   unbekannt                   34      19     –  Gargul  │
+ │ ☑ Mo 27.07.26   21:05–21:24   Gruul's Lair                35      15     2  RCLC    │
+ │ ☐ So 26.07.26   20:03–21:33   unbekannt                   33      17     –  Gargul  │
+ │ ☑ Mo 20.07.26   21:03–21:20   Serpentshrine Cavern        41      19     2  RCLC    │
+ │  …                                                                                  │
+ │ 58 Raid-Abende.                                                                     │
+ │                                                                                     │
+ │ Einstellungen                                                                       │
+ │ Zeitraum (Tage)       [ 21 ]   Neuer Abend ab (Std.)  [ 6 ]                         │
+ │ ☑ Bank- und Entzauber-Items weglassen                                               │
+ │ ☑ Upload-Knopf anzeigen        ☑ Minimap-Knopf anzeigen                             │
+ │   Zuletzt 574 Item(s) übersprungen (486 RCLootcouncil, 88 Gargul).                  │
+ └─────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+Jede Zeile beantwortet für sich, ob dieser Abend hochgehört: **Wochentag** (Raids haben feste Tage), Zeitspanne, Raid, wie viele **Items** an wie viele **Spieler**, wie viele **Bosse**, aus welcher **Quelle** und wie viel davon noch **offen** ist. Mehr steht im Tooltip.
+
+**Filter und Sammelauswahl**, weil eine Gilde nach ein paar Monaten bei fünfzig Abenden landet: nach Raid filtern, nur ungespeicherte zeigen — und „Alle abwählen" wirkt auf *das, was der Filter gerade zeigt*. „Alle Karazhan-Abende abwählen" sind damit zwei Klicks statt fünfzig.
 
 **Bank und Entzaubern fliegen raus.** Items, die gar nicht an einen Raider gingen, gehören nicht in die Loot-Historie. Erkannt wird das nicht am Antworttext — den benennt jede Gilde anders — sondern an dem, was die Addons selbst dazu sagen:
 
@@ -163,9 +166,12 @@ Dabei öffnet sich die **Oberfläche im Browser**:
  │   Letzter Upload   vor 3 min — 2 Session(s)                  │
  │   [ Jetzt hochladen ]  [ Verbindung testen ]                 │
  │                                                              │
- │ WAS IN DER DATEI STEHT                                       │
- │   02.08.2026  20:40–21:10  Tempest Keep              2       │
- │   01.08.2026  21:03–22:03  Serpentshrine Cavern      3       │
+ │ WAS HOCHGELADEN WIRD                                         │
+ │  [Alle Raids ▾] ☐ nur noch nie hochgeladene ☐ nur ausgewählte│
+ │                        [Alle auswählen] [Alle abwählen]      │
+ │   ☑ So 02.08.2026 19:39–21:18 SSC + TK    34  19  zuletzt … │
+ │   ☐ Mo 27.07.2026 21:05–21:24 Gruul's L.  35  15  noch nie  │
+ │   23 von 58 angezeigt · 41 ausgewählt (1204 Items)           │
  │                                                              │
  │ EINSTELLUNGEN                                                │
  │   Adresse des EventHelper  [https://pulse-gdkp.de:3005 ]     │
@@ -180,6 +186,10 @@ Dabei öffnet sich die **Oberfläche im Browser**:
 ```
 
 Das Fenster darf jederzeit zu — der Upload läuft im Hintergrund weiter. Wieder aufrufen: die Adresse steht in der Konsole.
+
+**Hier fällt die letzte Entscheidung.** Was in dieser Liste abgewählt ist, wird nicht gesendet — es erreicht den Server also gar nicht erst und muss dort auch nicht von Hand verworfen werden. Die Auswahl bleibt gespeichert, und die Spalte „Zuletzt gesendet" sagt, was der Server beim letzten Mal daraus gemacht hat („12 neu in der Inbox", „7 ergänzt zu SSC Mittwoch", „noch nie").
+
+> Das ist bewusst eine **zweite** Stelle neben der Abwahl im Spiel: dort entscheidet man beim Spielen, hier vor dem Absenden — und hier sieht man, was die bisherigen Uploads bewirkt haben.
 
 > **Absicherung:** Der Server hört nur auf `127.0.0.1` und verlangt einen Schlüssel, der bei jedem Start neu ausgewürfelt wird — eine fremde Webseite, die im Hintergrund auf localhost schiesst, kommt nicht heran. Das Token selbst verlässt den Rechner nie: die Seite sieht nur seine letzten vier Zeichen und kann ein neues setzen.
 

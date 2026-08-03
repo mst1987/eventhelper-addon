@@ -97,6 +97,11 @@ module.exports.PAGE = String.raw`<!doctype html>
   .flash.ok  { background: color-mix(in srgb, var(--ok) 15%, transparent);  color: var(--ok); }
   .flash.err { background: color-mix(in srgb, var(--err) 15%, transparent); color: var(--err); }
   .empty { color: var(--dim); padding: 6px 0; }
+  .muted { color: var(--dim); font-size: 12px; }
+  code {
+    font: 12px ui-monospace, Consolas, monospace;
+    background: var(--panel2); padding: 1px 5px; border-radius: 4px;
+  }
 </style>
 </head>
 <body>
@@ -151,7 +156,17 @@ module.exports.PAGE = String.raw`<!doctype html>
       <label>
         <span class="lbl">Addon-Datei</span>
         <select name="savedVariablesPath" id="sv-select"></select>
-        <span class="hint">„Automatisch suchen" überlebt eine Neuinstallation von WoW.</span>
+        <span class="hint" id="sv-hint">„Automatisch suchen" überlebt eine Neuinstallation von WoW.</span>
+      </label>
+      <label>
+        <span class="lbl">… oder Pfad selbst angeben</span>
+        <input type="text" name="manualPath" id="manual-path" autocomplete="off"
+               placeholder="D:\Games\World of Warcraft">
+        <span class="hint">
+          Nötig, wenn WoW oben nicht gefunden wurde. Es genügt der WoW-Ordner — die Datei
+          wird darunter gesucht. Ebenso akzeptiert: der <code>_classic_era_</code>-Ordner,
+          der Account-Ordner oder direkt die <code>EventHelperSync.lua</code>.
+        </span>
       </label>
       <label>
         <span class="lbl">Prüfintervall (Sekunden)</span>
@@ -220,8 +235,17 @@ function render(d) {
   $("s-server").textContent = d.config.baseUrl || "– nicht gesetzt –";
 
   if (!d.file) {
+    // "Nicht gefunden" ohne "wo wurde gesucht" ist eine Sackgasse — mit der
+    // Liste sieht man sofort, ob der eigene WoW-Ordner überhaupt dabei war.
+    const roots = d.searchedRoots || [];
+    const list = roots.length
+      ? "<br><span class=\"muted\">Durchsucht wurden:</span><br>" +
+        roots.map((r) => "<code>" + r.replace(/[<>&]/g, "") + "</code>").join("<br>")
+      : "";
     $("s-file").innerHTML = pill("nicht gefunden", "err")
-      + " Das Addon war noch nie geladen? Einmal einloggen und /reload.";
+      + " Ist das Addon installiert und war im Spiel schon einmal geladen? "
+      + "Falls ja: den WoW-Ordner unten unter „Pfad selbst angeben\" eintragen."
+      + list;
   } else if (d.readError) {
     $("s-file").innerHTML = pill("nicht lesbar", "err") + " " + d.readError;
   } else if (d.envelopeMissing) {
@@ -302,6 +326,9 @@ function render(d) {
       sel.appendChild(o);
     }
     sel.value = d.config.savedVariablesPath || "";
+    $("sv-hint").textContent = d.candidates.length
+      ? "„Automatisch suchen\" überlebt eine Neuinstallation von WoW."
+      : "Keine WoW-Installation gefunden — bitte den Pfad unten selbst angeben.";
   }
 
   // Verlauf
@@ -342,10 +369,13 @@ $("settings").addEventListener("submit", async (ev) => {
         baseUrl: f.baseUrl.value.trim(),
         token: f.token.value,
         savedVariablesPath: f.savedVariablesPath.value,
+        manualPath: f.manualPath.value.trim(),
         pollSeconds: Number(f.pollSeconds.value),
       }),
     });
     f.token.value = "";
+    // Der eingetippte Pfad ist nach dem Speichern in der Auswahl oben gelandet.
+    f.manualPath.value = "";
     editing = false;
     flash("Gespeichert.", "ok");
     refresh();

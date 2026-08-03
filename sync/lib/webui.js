@@ -124,16 +124,34 @@ function createWebUI(runner) {
                     config: safeConfig(runner.config),
                     candidates: wowPaths.discover(runner.config.extraRoots)
                         .map((c) => ({ path: c.path, flavor: c.flavor, account: c.account })),
+                    // Nur wenn nichts gefunden wurde: dann ist "wo wurde gesucht?"
+                    // die einzige Frage, die weiterhilft. Sonst nur Rauschen.
+                    searchedRoots: s.file ? [] : wowPaths.searchedRoots(runner.config.extraRoots),
                 });
                 return;
             }
 
             if (req.method === "POST" && parsed.pathname === "/api/settings") {
                 const current = config.load();
+
+                // Ein von Hand eingetippter Pfad hat Vorrang vor der Auswahl —
+                // er wird ja nur ausgefüllt, wenn die Auswahl nicht reicht. Er
+                // darf auch ein Ordner sein; resolveUserPath() findet die Datei.
+                const manual = String(body.manualPath || "").trim();
+                let savedVariablesPath = String(body.savedVariablesPath || "").trim();
+                if (manual) {
+                    const resolved = wowPaths.resolveUserPath(manual);
+                    if (resolved.error) {
+                        json(res, 400, { error: resolved.error });
+                        return;
+                    }
+                    savedVariablesPath = resolved.path;
+                }
+
                 const next = {
                     ...current,
                     baseUrl: String(body.baseUrl || "").trim().replace(/\/+$/, ""),
-                    savedVariablesPath: String(body.savedVariablesPath || "").trim(),
+                    savedVariablesPath,
                     pollSeconds: Math.min(600, Math.max(5, Number(body.pollSeconds) || 15)),
                 };
                 // Ein leeres Feld heisst "unverändert lassen" — sonst wäre das

@@ -45,10 +45,12 @@ Doppelt importiert wird dabei nichts: Jede Zeile behält die ID ihres Ursprungs-
 Den Ordner `addon/EventHelperSync` nach
 
 ```
-<WoW>/_classic_era_/Interface/AddOns/EventHelperSync
+<WoW>/<Variante>/Interface/AddOns/EventHelperSync
 ```
 
-kopieren (bei einem anderen Client entsprechend `_classic_`). Danach im Spiel einloggen und einmal `/reload` ausführen.
+kopieren. `<Variante>` ist der Ordner deines Clients — bei den **TBC-Anniversary-Realms `_anniversary_`**, sonst `_classic_era_`, `_classic_` oder `_retail_`. Danach im Spiel einloggen und einmal `/reload` ausführen.
+
+> Das Sync-Tool sucht die Varianten selbst und erkennt auch künftige Ordner, die Blizzard anlegt — es muss also nicht wissen, welcher es bei dir ist.
 
 Prüfen, ob es etwas sieht:
 
@@ -235,7 +237,7 @@ Wenn auf dem Rechner nichts laufen soll: `/ehs export` im Spiel, **Strg+A / Strg
 | `/ehs` meldet „RCLootcouncil nicht geladen" | Das Addon ist im AddOn-Menü deaktiviert, oder es wurde noch nie Loot damit vergeben. |
 | **„findet nichts zum Hochladen"** | **`/ehs diag` im Spiel** — die Ausgabe sagt an jeder Stufe, was gefunden wurde (siehe unten). |
 | `/ehs` findet 0 Items | Der Loot ist älter als das Export-Fenster. `/ehs days 60` |
-| Sync-Tool: „Keine EventHelperSync.lua gefunden" | Das Addon war noch nie geladen. Einmal einloggen und `/reload` (oder den Upload-Knopf drücken). |
+| Sync-Tool: „Keine EventHelperSync.lua gefunden" | Erstens: war das Addon im Spiel schon einmal geladen? Falls ja, listet die Oberfläche die durchsuchten Orte auf — ist dein WoW-Ordner nicht dabei, ihn unter **„Pfad selbst angeben"** eintragen. Der blosse WoW-Ordner genügt. |
 | Der Upload-Knopf taucht nicht auf | Es liegt nichts Ungespeichertes an — `/ehs` zeigt den Stand. Oder er wurde per `/ehs button` abgeschaltet. |
 | Minimap-Knopf ist weg | `/ehs minimap` schaltet ihn wieder ein. |
 | Ein Raid-Abend wird nicht hochgeladen | Im Fenster prüfen, ob sein Häkchen gesetzt ist — abgewählte Abende bleiben abgewählt. |

@@ -216,7 +216,9 @@ function createRunner(options = {}) {
  */
 function whyNothing(state) {
     if (!state.file) {
-        return "Keine EventHelperSync.lua gefunden — ist das Addon installiert und war einmal geladen?";
+        return "Keine EventHelperSync.lua gefunden — ist das Addon installiert und war einmal geladen? "
+            + "Falls ja, liegt WoW an einem Ort, den die Suche nicht kennt: in der Oberfläche unter "
+            + "„Pfad selbst angeben\" den WoW-Ordner eintragen.";
     }
     if (state.readError) {
         return `Die Addon-Datei ist nicht lesbar: ${state.readError}`;

@@ -51,6 +51,26 @@ function ask(rl, question, fallback = "") {
     });
 }
 
+/**
+ * Nach einem Pfad fragen und ihn gleich prüfen, statt einen unbrauchbaren Wert
+ * zu speichern und erst beim nächsten Start zu scheitern. Angenommen wird auch
+ * der blosse WoW-Ordner — den exakten Dateipfad kennt niemand auswendig.
+ */
+async function askForPath(rl, optional = false) {
+    for (;;) {
+        const answer = await ask(rl, optional
+            ? "WoW-Ordner (leer lassen = später automatisch suchen)"
+            : "WoW-Ordner oder Pfad zur EventHelperSync.lua");
+        if (!answer) return "";
+        const resolved = wowPaths.resolveUserPath(answer);
+        if (resolved.path) {
+            console.log(`  gefunden: ${resolved.path}`);
+            return resolved.path;
+        }
+        console.log(`  ${resolved.error}`);
+    }
+}
+
 async function cmdInit() {
     const current = config.load();
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -71,15 +91,18 @@ async function cmdInit() {
         console.log("  [0] anderen Pfad von Hand angeben");
         const pick = await ask(rl, "Auswahl", "1");
         if (pick === "0") {
-            savedVariablesPath = await ask(rl, "Voller Pfad zur EventHelperSync.lua");
+            savedVariablesPath = await askForPath(rl);
         } else {
             // Leer lassen heisst "immer neu suchen" — überlebt einen Neuinstall.
             savedVariablesPath = Number(pick) === 1 ? "" : (found[Number(pick) - 1] || {}).path || "";
         }
     } else {
-        console.log("\nKeine EventHelperSync.lua gefunden. Das ist normal, solange das Addon");
-        console.log("noch nie geladen war — einmal einloggen und /reload genügt.");
-        savedVariablesPath = await ask(rl, "Pfad (leer lassen = später automatisch suchen)", "");
+        console.log("\nKeine EventHelperSync.lua gefunden.");
+        console.log("Gesucht wurde unter:");
+        for (const root of wowPaths.searchedRoots(current.extraRoots)) console.log(`  ${root}`);
+        console.log("\nIst das Addon installiert und war im Spiel schon einmal geladen?");
+        console.log("Falls ja, liegt WoW woanders — dann hier den WoW-Ordner angeben.");
+        savedVariablesPath = await askForPath(rl, true);
     }
 
     rl.close();

@@ -35,8 +35,11 @@ end
 local function instanceFor(rows, startedAt)
     for _, row in ipairs(rows) do
         if row.instance and row.instance ~= "" then
-            -- Der "-25 Player"-Anhang ist Raidgrösse, kein Ortsname.
-            return (row.instance:gsub("%-%d+ Player$", ""))
+            -- Der "-25 Player"-Anhang ist Raidgrösse, kein Ortsname. Ausserhalb
+            -- einer Instanz schreibt RCLootcouncil nur den Kontinent mit einem
+            -- Bindestrich dahinter ("Eastern Kingdoms-") — der muss auch weg.
+            local name = row.instance:gsub("%-%d+ Player$", ""):gsub("%-%s*$", "")
+            if name ~= "" then return name end
         end
     end
     return EHS:ZoneAt(startedAt)

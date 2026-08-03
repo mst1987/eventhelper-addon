@@ -17,6 +17,8 @@ export default [
                 console: "readonly",
                 __dirname: "readonly",
                 fetch: "readonly",
+                URL: "readonly",
+                URLSearchParams: "readonly",
                 setTimeout: "readonly",
                 setInterval: "readonly",
                 clearInterval: "readonly",

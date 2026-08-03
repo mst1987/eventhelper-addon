@@ -2,7 +2,7 @@
 ## Title: EventHelper Sync
 ## Notes: Bündelt den vergebenen Loot aus RCLootcouncil und Gargul zu Raid-Sessions für den EventHelper-Import.
 ## Author: Pulse
-## Version: 1.0.0
+## Version: 1.1.0
 ## SavedVariables: EventHelperSyncDB
 ## OptionalDeps: RCLootCouncil, Gargul
 ## X-Website: https://github.com/mst1987/eventhelper-addon
@@ -13,4 +13,6 @@ Collect.lua
 Sessions.lua
 Export.lua
 Button.lua
+Minimap.lua
+Options.lua
 UI.lua

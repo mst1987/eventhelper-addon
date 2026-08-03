@@ -65,12 +65,46 @@ Die Ausgabe nennt beide Quellen und die gefundenen Raid-Sessions:
 [EventHelper]  · 21.07.2026 20:40 — Tempest Keep, 2 Item(s)
 ```
 
+### Das Fenster im Spiel
+
+Der Knopf an der **Minimap** öffnet es — oder `/ehs`. Es beantwortet auf einen Blick, was sonst niemand sieht:
+
+```
+ ┌─ EventHelper Sync ───────────────────────────────────────────┐
+ │ Quellen:  RCLootcouncil gefunden    Gargul gefunden          │
+ │                                                              │
+ │ 2 Raid-Abende, 5 Items exportbereit.                         │
+ │ 5 Item(s) liegen noch nicht auf der Platte.                  │
+ │                                                              │
+ │ [ Jetzt speichern (5) ]   [ Export anzeigen ]                │
+ │                                                              │
+ │ Gefundene Raid-Abende                                        │
+ │ Häkchen weg = dieser Abend wird nicht hochgeladen.           │
+ │ ┌──────────────────────────────────────────────────────────┐ │
+ │ │ ☑ 02.08.2026  20:40–21:10  Tempest Keep        2 Item(s) │ │
+ │ │ ☐ 01.08.2026  21:03–22:03  Serpentshrine C.    3 Item(s) │ │
+ │ └──────────────────────────────────────────────────────────┘ │
+ │                                                              │
+ │ Einstellungen                                                │
+ │ Zeitraum (Tage)          [ 21 ]                              │
+ │ Neuer Abend ab (Std.)    [  6 ]                              │
+ │ ☑ Upload-Knopf anzeigen                                      │
+ │ ☑ Minimap-Knopf anzeigen                                     │
+ └──────────────────────────────────────────────────────────────┘
+```
+
+**Abwählen, was nicht interessiert.** Der Pug vom Dienstag, die Runde mit Freunden — Häkchen weg, und der Abend wird nicht hochgeladen. Die Auswahl wird gespeichert und gilt dauerhaft. Abgewählte Abende bleiben sichtbar, nur blass: man muss sie ja wiederfinden können, um sie zurückzuholen.
+
+**Der Minimap-Knopf** zeigt schon von aussen, ob etwas ansteht — goldener Ring heisst ungespeicherter Loot. Linksklick öffnet das Fenster, Rechtsklick speichert sofort, Ziehen verschiebt ihn um die Minimap.
+
 **Befehle**
 
 | Befehl | Wirkung |
 |---|---|
-| `/ehs` | Status und gefundene Raid-Sessions |
+| `/ehs` | das Fenster öffnen |
 | `/ehs upload` | jetzt speichern, statt auszuloggen (lädt die UI neu) |
+| `/ehs status` | dasselbe kurz im Chat |
+| `/ehs minimap` | Minimap-Knopf ein-/ausblenden |
 | `/ehs button` | Upload-Knopf ein-/ausblenden |
 | `/ehs export` | Export als JSON in einer Kopierbox (Weg ohne Sync-Tool) |
 | `/ehs days <n>` | wie viele Tage zurück exportiert werden (Standard: 21) |
@@ -100,6 +134,41 @@ Es gibt zwei Wege — der erste braucht **kein** installiertes Node.js.
 #### a) Als fertige `EventHelperSync.exe`
 
 Die `.exe` aus den [Releases](https://github.com/mst1987/eventhelper-addon/releases) herunterladen und **doppelklicken**. Beim ersten Start führt sie durch die Einrichtung (Server-Adresse, Token, WoW-Ordner) und geht danach direkt in den Beobachten-Modus über. Ab dann genügt ein Doppelklick zum Starten.
+
+Dabei öffnet sich die **Oberfläche im Browser**:
+
+```
+ ┌─ EventHelper Loot-Sync ──────────────────────────────────────┐
+ │ STATUS                                                       │
+ │   Verbindung       [verbunden]                               │
+ │   Server           https://pulse-gdkp.de:3005                │
+ │   Addon-Datei      …\SavedVariables\EventHelperSync.lua      │
+ │                    (geschrieben 03.08.2026, 22:31)           │
+ │   Zuletzt geprüft  vor 8 s                                   │
+ │   Letzter Upload   vor 3 min — 2 Session(s)                  │
+ │   [ Jetzt hochladen ]  [ Verbindung testen ]                 │
+ │                                                              │
+ │ WAS IN DER DATEI STEHT                                       │
+ │   02.08.2026  20:40–21:10  Tempest Keep              2       │
+ │   01.08.2026  21:03–22:03  Serpentshrine Cavern      3       │
+ │                                                              │
+ │ EINSTELLUNGEN                                                │
+ │   Adresse des EventHelper  [https://pulse-gdkp.de:3005 ]     │
+ │   API-Token                [ unverändert lassen        ]     │
+ │   Addon-Datei              [ Automatisch suchen      ▾ ]     │
+ │   Prüfintervall (Sek.)     [ 15 ]                            │
+ │   [ Speichern ]                                              │
+ │                                                              │
+ │ VERLAUF                                                      │
+ │   22:31:06  eh-…-ssc: neu in der Inbox — 12 Item(s)          │
+ └──────────────────────────────────────────────────────────────┘
+```
+
+Das Fenster darf jederzeit zu — der Upload läuft im Hintergrund weiter. Wieder aufrufen: die Adresse steht in der Konsole.
+
+> **Absicherung:** Der Server hört nur auf `127.0.0.1` und verlangt einen Schlüssel, der bei jedem Start neu ausgewürfelt wird — eine fremde Webseite, die im Hintergrund auf localhost schiesst, kommt nicht heran. Das Token selbst verlässt den Rechner nie: die Seite sieht nur seine letzten vier Zeichen und kann ein neues setzen.
+
+Ohne Oberfläche (z.B. als Dienst): `EventHelperSync.exe watch --no-ui`.
 
 > Die Datei enthält die Node-Laufzeit und ist deshalb ~66 MB gross. Sie ist nicht signiert — Windows SmartScreen fragt beim ersten Start nach („Weitere Informationen" → „Trotzdem ausführen").
 
@@ -166,6 +235,9 @@ Wenn auf dem Rechner nichts laufen soll: `/ehs export` im Spiel, **Strg+A / Strg
 | `/ehs` findet 0 Items | Der Loot ist älter als das Export-Fenster. `/ehs days 60` |
 | Sync-Tool: „Keine EventHelperSync.lua gefunden" | Das Addon war noch nie geladen. Einmal einloggen und `/reload` (oder den Upload-Knopf drücken). |
 | Der Upload-Knopf taucht nicht auf | Es liegt nichts Ungespeichertes an — `/ehs` zeigt den Stand. Oder er wurde per `/ehs button` abgeschaltet. |
+| Minimap-Knopf ist weg | `/ehs minimap` schaltet ihn wieder ein. |
+| Ein Raid-Abend wird nicht hochgeladen | Im Fenster prüfen, ob sein Häkchen gesetzt ist — abgewählte Abende bleiben abgewählt. |
+| Die Oberfläche öffnet sich nicht | Die Adresse steht in der Konsole (`http://127.0.0.1:…/?key=…`) und lässt sich von Hand aufrufen. Ohne den Schlüssel in der Adresse antwortet sie mit 403. |
 | Knopf ist grau | Du bist im Kampf. Nach dem Kampf wird er wieder klickbar. |
 | SmartScreen blockiert die `.exe` | Die Datei ist nicht signiert. „Weitere Informationen" → „Trotzdem ausführen", oder Weg (b) mit Node benutzen. |
 | Sync-Tool: „API-Token unbekannt oder zurückgezogen" | Token wurde im Menü gelöscht, oder falsch kopiert. Neu erstellen und `npm run init`. |
@@ -231,9 +303,22 @@ Addon, Sync-Tool und Server sprechen `eventhelper-loot` Version 1. Serverseitig 
 | `Zones.lua` | Zeitleiste der besuchten Raid-Instanzen (für Gargul-Loot ohne Instanz) |
 | `Collect.lua` | beide Historien auslesen und auf eine Zeilenform bringen |
 | `Sessions.lua` | Zeilen zu Raid-Abenden bündeln |
-| `Export.lua` | Envelope bauen, JSON kodieren (nur für die Kopierbox) |
+| `Export.lua` | Envelope bauen (ohne abgewählte Abende), JSON kodieren |
 | `Button.lua` | Upload-Knopf: erscheint bei ungespeichertem Loot, Klick löst den Reload aus |
+| `Minimap.lua` | Knopf an der Minimap, mit Hinweisring bei Ungespeichertem |
+| `Options.lua` | das Fenster: Status, Raid-Abende zum Abwählen, Einstellungen |
 | `UI.lua` | Kopierbox hinter `/ehs export` |
+
+Und im Sync-Tool:
+
+| Datei | Aufgabe |
+|---|---|
+| `lib/luaParser.js` | SavedVariables als Daten lesen, nicht als Code ausführen |
+| `lib/wowPaths.js` | die Addon-Datei über alle Client-Varianten und Accounts finden |
+| `lib/uploader.js` | eine Session pro Anfrage hochladen |
+| `lib/runner.js` | der laufende Betrieb samt Zustand (letzter Upload, Fehler, Verlauf) |
+| `lib/webui.js` | der lokale HTTP-Server hinter der Oberfläche |
+| `lib/webui-page.js` | die Seite als eine Zeichenkette — kein Build-Schritt, packt sich mit |
 
 ### Ein Release bauen
 

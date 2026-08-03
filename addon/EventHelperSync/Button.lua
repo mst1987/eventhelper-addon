@@ -96,10 +96,18 @@ function EHS:StartButton()
     local frame = CreateFrame("Frame")
     frame:RegisterEvent("PLAYER_REGEN_DISABLED")
     frame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    frame:SetScript("OnEvent", function() EHS:RefreshButton() end)
+    frame:SetScript("OnEvent", function()
+        EHS:RefreshButton()
+        EHS:RefreshOptions()
+    end)
 
     -- Zählen kostet einen Durchlauf durch beide Historien, deshalb im Takt und
-    -- nicht bei jedem Frame.
-    C_Timer.NewTicker(CHECK_SECONDS, function() EHS:RefreshButton() end)
+    -- nicht bei jedem Frame. Ein Ticker für alle drei Anzeigen: sie beantworten
+    -- dieselbe Frage und dürfen nicht auseinanderlaufen.
+    C_Timer.NewTicker(CHECK_SECONDS, function()
+        EHS:RefreshButton()
+        EHS:RefreshMinimap()
+        EHS:RefreshOptions()
+    end)
     self:RefreshButton()
 end

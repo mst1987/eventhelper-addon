@@ -19,6 +19,8 @@ const readline = require("readline");
 const config = require("./lib/config");
 const wowPaths = require("./lib/wowPaths");
 const { readEnvelope, uploadFile, describeResult, UploadError, SYNC_VERSION } = require("./lib/uploader");
+const { createRunner } = require("./lib/runner");
+const { createWebUI, openInBrowser } = require("./lib/webui");
 
 const stamp = () => new Date().toLocaleTimeString("de-DE");
 const log = (...args) => console.log(`[${stamp()}]`, ...args);
@@ -140,21 +142,6 @@ async function cmdStatus() {
     }
 }
 
-async function runUpload(cfg, file) {
-    const { results } = await uploadFile(cfg, file);
-    if (!results.length) {
-        log("Nichts hochzuladen.");
-        return;
-    }
-    for (const r of results) {
-        log(`${r.sessionId}: ${describeResult(r)}`);
-    }
-    const pending = results.filter((r) => r.status === "pending" || r.status === "updated").length;
-    if (pending) {
-        log(`${pending} Session(s) warten im Admin-Menü unter Historie & Loot -> Addon-Inbox auf Bestätigung.`);
-    }
-}
-
 async function cmdOnce() {
     const cfg = requireReady();
     const file = resolveFile(cfg);
@@ -163,65 +150,52 @@ async function cmdOnce() {
         process.exit(1);
     }
     try {
-        await runUpload(cfg, file);
+        const { results } = await uploadFile(cfg, file);
+        if (!results.length) {
+            log("Nichts hochzuladen.");
+            return;
+        }
+        for (const r of results) log(`${r.sessionId}: ${describeResult(r)}`);
+        const pending = results.filter((r) => r.status === "pending" || r.status === "updated").length;
+        if (pending) {
+            log(`${pending} Session(s) warten im Admin-Menü unter Historie & Loot -> Addon-Inbox auf Bestätigung.`);
+        }
     } catch (e) {
         fail(e instanceof UploadError ? `Upload fehlgeschlagen: ${e.message}` : e.message);
         process.exit(1);
     }
 }
 
+/**
+ * Dauerbetrieb. Standardmässig mit Oberfläche: das Fenster im Browser zeigt
+ * Stand und Einstellungen, ohne dass jemand einen Befehl kennen muss. Mit
+ * --no-ui bleibt es bei den Konsolenzeilen (für den Betrieb als Dienst).
+ */
 async function cmdWatch() {
-    const cfg = requireReady();
-    let file = resolveFile(cfg);
-    let lastMtime = 0;
-    let busy = false;
+    requireReady();
+    const withUi = !process.argv.includes("--no-ui");
 
-    log(`EventHelper Loot-Sync ${SYNC_VERSION} — Ziel: ${cfg.baseUrl}`);
-    if (file) {
-        log(`Beobachte ${file}`);
-    } else {
-        log("Noch keine EventHelperSync.lua gefunden — suche weiter.");
-    }
-    log("WoW schreibt die Datei erst beim Ausloggen oder nach /reload.");
+    // Jede Zeile aus dem Runner geht zusätzlich in die Konsole, damit beide
+    // Wege denselben Verlauf zeigen.
+    const runner = createRunner({
+        onLog: (e) => (e.level === "error" ? fail(e.text) : log(e.text)),
+    });
 
-    const tick = async () => {
-        if (busy) return;
-        busy = true;
+    if (withUi) {
+        const ui = createWebUI(runner);
         try {
-            if (!file) {
-                file = resolveFile(cfg, { quiet: true });
-                if (file) log(`Gefunden: ${file}`);
-            }
-            if (!file) return;
-
-            let mtime;
-            try {
-                mtime = fs.statSync(file).mtimeMs;
-            } catch {
-                // Datei ist gerade weg (WoW schreibt sie neu) — beim nächsten
-                // Durchlauf nochmal.
-                return;
-            }
-            if (mtime === lastMtime) return;
-
-            // Kurz warten, damit ein noch laufender Schreibvorgang durch ist.
-            await new Promise((r) => setTimeout(r, 1500));
-            lastMtime = fs.statSync(file).mtimeMs;
-            log("Datei hat sich geändert — lade hoch.");
-            await runUpload(cfg, file);
+            const url = await ui.start(process.env.EVENTHELPER_SYNC_UI_PORT);
+            log(`Oberfläche: ${url}`);
+            openInBrowser(url);
         } catch (e) {
-            fail(e instanceof UploadError ? `Upload fehlgeschlagen: ${e.message}` : (e.stack || e.message));
-            // Nicht beenden: der Server kann gerade neu starten, WoW kann
-            // gerade schreiben. Beim nächsten Durchlauf wird es erneut versucht.
-        } finally {
-            busy = false;
+            fail(`Oberfläche konnte nicht gestartet werden: ${e.message}`);
+            fail("Der Upload läuft trotzdem weiter.");
         }
-    };
+    }
 
-    await tick();
-    const handle = setInterval(tick, Math.max(5, Number(cfg.pollSeconds) || 15) * 1000);
+    runner.start();
     process.on("SIGINT", () => {
-        clearInterval(handle);
+        runner.stop();
         log("Beendet.");
         process.exit(0);
     });
@@ -267,6 +241,7 @@ async function main() {
     case "watch": return cmdWatch();
     default:
         console.log("Befehle: init | once | watch | status");
+        console.log("  watch --no-ui   ohne Browser-Oberfläche (für den Betrieb als Dienst)");
         console.log(`Konfiguration: ${config.CONFIG_FILE}`);
         process.exit(1);
     }
@@ -287,4 +262,4 @@ async function run() {
 // scripts/sea-entry.js run() direkt auf.
 if (require.main === module) run();
 
-module.exports = { main, run, resolveFile, runUpload };
+module.exports = { main, run, resolveFile };

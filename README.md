@@ -70,9 +70,20 @@ Die Ausgabe nennt beide Quellen und die gefundenen Raid-Sessions:
 | Befehl | Wirkung |
 |---|---|
 | `/ehs` | Status und gefundene Raid-Sessions |
+| `/ehs upload` | jetzt speichern, statt auszuloggen (lädt die UI neu) |
+| `/ehs button` | Upload-Knopf ein-/ausblenden |
 | `/ehs export` | Export als JSON in einer Kopierbox (Weg ohne Sync-Tool) |
 | `/ehs days <n>` | wie viele Tage zurück exportiert werden (Standard: 21) |
 | `/ehs debug` | Debug-Ausgaben umschalten |
+
+### Der Upload-Knopf
+
+Sobald Loot vergeben wurde, der noch nicht auf der Platte liegt, erscheint ein verschiebbarer Knopf **„Loot hochladen (n)"**. Ein Klick speichert und lädt die UI neu — danach holt das Sync-Tool die Daten binnen Sekunden ab. Kein Ausloggen nötig.
+
+Der Knopf verschwindet wieder, sobald nichts mehr offen ist, und ist im Kampf gesperrt (ein Reload mitten im Bosskill wäre schlecht). Wer ihn gar nicht sehen will: `/ehs button`, dann tut es `/ehs upload`.
+
+> **Warum ein Knopf und keine Automatik?**
+> WoW schreibt SavedVariables nur beim Ausloggen oder bei einem Reload — [eine API, die das Schreiben erzwingt, gibt es nicht](https://warcraft.wiki.gg/wiki/Saving_variables_between_game_sessions). Ein Reload ließe sich auslösen, aber [`ReloadUI()` ist von Blizzard auf Hardware-Events beschränkt](https://warcraft.wiki.gg/wiki/API_ReloadUI): es muss von einem echten Klick oder Tastendruck kommen. Ein automatischer Reload nach jedem Bosskill wäre also blockiert. Der Knopf ist die Bauform, die diese Beschränkung zulässt — er meldet sich von allein, gedrückt wird er von Hand.
 
 ### 2. Token im Admin-Menü erzeugen
 
@@ -83,6 +94,18 @@ Im EventHelper unter **Einstellungen → Loot-Sync → Token erstellen**. Pro Re
 Nur Voll-Admins sehen diesen Tab: ein Token meldet sich ohne Discord-Login an.
 
 ### 3. Sync-Tool
+
+Es gibt zwei Wege — der erste braucht **kein** installiertes Node.js.
+
+#### a) Als fertige `EventHelperSync.exe`
+
+Die `.exe` aus den [Releases](https://github.com/mst1987/eventhelper-addon/releases) herunterladen und **doppelklicken**. Beim ersten Start führt sie durch die Einrichtung (Server-Adresse, Token, WoW-Ordner) und geht danach direkt in den Beobachten-Modus über. Ab dann genügt ein Doppelklick zum Starten.
+
+> Die Datei enthält die Node-Laufzeit und ist deshalb ~66 MB gross. Sie ist nicht signiert — Windows SmartScreen fragt beim ersten Start nach („Weitere Informationen" → „Trotzdem ausführen").
+
+Selbst bauen: `cd sync && npm install && npm run build:exe` (braucht Node 20+), Ergebnis liegt in `sync/dist/`.
+
+#### b) Mit Node.js
 
 Braucht **Node.js 18 oder neuer** ([nodejs.org](https://nodejs.org)).
 
@@ -95,7 +118,7 @@ npm start         # beobachtet die Datei und lädt hoch
 
 `npm run init` sucht die WoW-Installation selbst und listet die gefundenen Accounts zur Auswahl. Die Konfiguration landet in `~/.eventhelper-sync.json` (nicht im Programmordner — sie enthält das Token).
 
-**Weitere Befehle**
+**Weitere Befehle** — als `.exe` genauso, nur ohne `npm run` davor (`EventHelperSync.exe status`):
 
 | Befehl | Wirkung |
 |---|---|
@@ -108,7 +131,7 @@ npm start         # beobachtet die Datei und lädt hoch
 
 ## Wie es sich im Betrieb anfühlt
 
-**WoW schreibt die SavedVariables nur beim Ausloggen oder nach `/reload`.** Das ist die einzige Stelle, an der etwas manuell nötig ist — und ein `/reload` in der Raidpause genügt, um den bisherigen Abend hochzuladen.
+**WoW schreibt die SavedVariables nur beim Ausloggen oder bei einem Reload.** Das ist die einzige Stelle, an der etwas von Hand passieren muss — und dafür gibt es den Upload-Knopf: ein Klick in der Raidpause, und der bisherige Abend ist hochgeladen.
 
 Das Sync-Tool darf ruhig dauerhaft laufen. Es lädt bei jeder Änderung der Datei erneut hoch, und das ist Absicht:
 
@@ -141,7 +164,10 @@ Wenn auf dem Rechner nichts laufen soll: `/ehs export` im Spiel, **Strg+A / Strg
 |---|---|
 | `/ehs` meldet „RCLootcouncil nicht geladen" | Das Addon ist im AddOn-Menü deaktiviert, oder es wurde noch nie Loot damit vergeben. |
 | `/ehs` findet 0 Items | Der Loot ist älter als das Export-Fenster. `/ehs days 60` |
-| Sync-Tool: „Keine EventHelperSync.lua gefunden" | Das Addon war noch nie geladen. Einmal einloggen und `/reload`. |
+| Sync-Tool: „Keine EventHelperSync.lua gefunden" | Das Addon war noch nie geladen. Einmal einloggen und `/reload` (oder den Upload-Knopf drücken). |
+| Der Upload-Knopf taucht nicht auf | Es liegt nichts Ungespeichertes an — `/ehs` zeigt den Stand. Oder er wurde per `/ehs button` abgeschaltet. |
+| Knopf ist grau | Du bist im Kampf. Nach dem Kampf wird er wieder klickbar. |
+| SmartScreen blockiert die `.exe` | Die Datei ist nicht signiert. „Weitere Informationen" → „Trotzdem ausführen", oder Weg (b) mit Node benutzen. |
 | Sync-Tool: „API-Token unbekannt oder zurückgezogen" | Token wurde im Menü gelöscht, oder falsch kopiert. Neu erstellen und `npm run init`. |
 | Sync-Tool: „… nicht erreichbar" | `baseUrl` prüfen (mit `https://` und Port), Server erreichbar? |
 | WoW an einem ungewöhnlichen Ort installiert | In `~/.eventhelper-sync.json` `savedVariablesPath` direkt auf die Datei zeigen lassen. |
@@ -201,12 +227,17 @@ Addon, Sync-Tool und Server sprechen `eventhelper-loot` Version 1. Serverseitig 
 
 | Datei | Aufgabe |
 |---|---|
-| `Core.lua` | Ereignisse, Slash-Befehle, Neuaufbau des Exports beim Ausloggen |
+| `Core.lua` | Ereignisse, Slash-Befehle, Neuaufbau des Exports, `FlushAndReload()` |
 | `Zones.lua` | Zeitleiste der besuchten Raid-Instanzen (für Gargul-Loot ohne Instanz) |
 | `Collect.lua` | beide Historien auslesen und auf eine Zeilenform bringen |
 | `Sessions.lua` | Zeilen zu Raid-Abenden bündeln |
 | `Export.lua` | Envelope bauen, JSON kodieren (nur für die Kopierbox) |
+| `Button.lua` | Upload-Knopf: erscheint bei ungespeichertem Loot, Klick löst den Reload aus |
 | `UI.lua` | Kopierbox hinter `/ehs export` |
+
+### Wie die `.exe` gebaut wird
+
+`sync/scripts/build-exe.js` nutzt Nodes eingebaute [Single Executable Applications](https://nodejs.org/api/single-executable-applications.html) statt eines externen Packers — das Verfahren gehört zu Node selbst und braucht keine Werkzeugkette mit eigener Versionspflege. Drei Schritte: esbuild bündelt `index.js` samt `lib/` zu einer Datei, `node --experimental-sea-config` macht daraus einen Blob, `postject` spleisst ihn in eine Kopie der `node.exe`.
 
 ### Interface-Version
 

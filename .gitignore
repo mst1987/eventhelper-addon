@@ -1,6 +1,11 @@
 node_modules/
 *.log
 
+# Ergebnisse von `npm run build:exe` — die fertige .exe ist ~66 MB (sie enthält
+# die Node-Laufzeit) und gehört in ein Release, nicht in die Versionsverwaltung.
+sync/build/
+sync/dist/
+
 # Enthält das API-Token, falls jemand die Konfiguration in den Projektordner legt.
 .eventhelper-sync.json
 sync-config.json

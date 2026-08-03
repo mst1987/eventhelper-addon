@@ -34,7 +34,7 @@ EventHelperSync = EventHelperSync or {}
 local EHS = EventHelperSync
 
 EHS.name = ADDON_NAME
-EHS.version = GetAddOnMetadata and GetAddOnMetadata(ADDON_NAME, "Version") or "1.1.0"
+EHS.version = GetAddOnMetadata and GetAddOnMetadata(ADDON_NAME, "Version") or "1.1.1"
 
 -- Voreinstellungen. lookbackDays begrenzt, wie weit zurück Loot exportiert wird:
 -- die Historien beider Addons wachsen über Monate, hochgeladen werden muss aber
@@ -227,6 +227,8 @@ SlashCmdList.EVENTHELPERSYNC = function(msg)
         EHS.db.settings.showButton = not EHS.db.settings.showButton
         EHS:Print("Upload-Knopf " .. (EHS.db.settings.showButton and "an" or "aus") .. ".")
         EHS:RefreshButton()
+    elseif cmd == "diag" then
+        EHS:Diagnose()
     elseif cmd == "minimap" then
         EHS.db.settings.showMinimap = not EHS.db.settings.showMinimap
         EHS:Print("Minimap-Knopf " .. (EHS.db.settings.showMinimap and "an" or "aus") .. ".")
@@ -249,6 +251,7 @@ SlashCmdList.EVENTHELPERSYNC = function(msg)
         EHS:Print("  /ehs            — Fenster mit Status, Raid-Abenden und Einstellungen")
         EHS:Print("  /ehs upload     — jetzt speichern (lädt die UI neu) statt auszuloggen")
         EHS:Print("  /ehs status     — dasselbe kurz im Chat")
+        EHS:Print("  /ehs diag       — warum findet er nichts? Zeigt jede Stufe einzeln")
         EHS:Print("  /ehs minimap    — Minimap-Knopf ein-/ausblenden")
         EHS:Print("  /ehs button     — Upload-Knopf ein-/ausblenden")
         EHS:Print("  /ehs export     — Export als JSON zum Kopieren anzeigen")

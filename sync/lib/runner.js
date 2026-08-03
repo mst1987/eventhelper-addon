@@ -100,7 +100,9 @@ function createRunner(options = {}) {
             state.lastUpload = { at: Date.now(), results };
             state.lastError = null;
             if (!results.length) {
-                log("info", "Nichts hochzuladen.");
+                // "Nichts hochzuladen" allein lässt offen, woran es liegt — und
+                // die drei Ursachen brauchen völlig verschiedene Abhilfen.
+                log("warn", whyNothing(state));
             } else {
                 for (const r of results) log("ok", `${r.sessionId}: ${describe(r)}`);
             }
@@ -207,6 +209,34 @@ function createRunner(options = {}) {
     };
 }
 
+/**
+ * Warum ein Upload nichts zu tun hatte — mit dem nächsten Schritt dazu.
+ * Die Datei sagt selbst, an welcher Stelle die Kette abbricht: gar keine Datei,
+ * Datei ohne Export-Block, Export ohne Raid-Abende oder Abende ohne Items.
+ */
+function whyNothing(state) {
+    if (!state.file) {
+        return "Keine EventHelperSync.lua gefunden — ist das Addon installiert und war einmal geladen?";
+    }
+    if (state.readError) {
+        return `Die Addon-Datei ist nicht lesbar: ${state.readError}`;
+    }
+    if (state.envelopeMissing) {
+        return "Die Addon-Datei enthält noch keinen Export. Im Spiel den Upload-Knopf drücken "
+            + "(oder /ehs upload), damit WoW sie schreibt.";
+    }
+    if (!state.sessions.length) {
+        return "Der Export ist leer — das Addon hat keinen Raid-Abend gefunden. "
+            + "Im Spiel „/ehs diag\" zeigt, an welcher Stelle es hakt "
+            + "(Loot-Addon nicht geladen, Zeitraum zu kurz, oder alle Abende abgewählt).";
+    }
+    const items = state.sessions.reduce((sum, s) => sum + (s.items || 0), 0);
+    if (!items) {
+        return "Die gefundenen Raid-Abende enthalten keine Items — im Spiel „/ehs diag\" prüfen.";
+    }
+    return "Nichts hochzuladen.";
+}
+
 /** Eine Ergebniszeile des Servers als Satz. */
 function describe(r) {
     switch (r.status) {
@@ -226,4 +256,4 @@ function describe(r) {
     }
 }
 
-module.exports = { createRunner, describe, LOG_LIMIT };
+module.exports = { createRunner, describe, whyNothing, LOG_LIMIT };

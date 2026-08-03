@@ -104,6 +104,7 @@ Der Knopf an der **Minimap** öffnet es — oder `/ehs`. Es beantwortet auf eine
 | `/ehs` | das Fenster öffnen |
 | `/ehs upload` | jetzt speichern, statt auszuloggen (lädt die UI neu) |
 | `/ehs status` | dasselbe kurz im Chat |
+| `/ehs diag` | **findet er nichts? Das hier sagt, woran es liegt** |
 | `/ehs minimap` | Minimap-Knopf ein-/ausblenden |
 | `/ehs button` | Upload-Knopf ein-/ausblenden |
 | `/ehs export` | Export als JSON in einer Kopierbox (Weg ohne Sync-Tool) |
@@ -232,6 +233,7 @@ Wenn auf dem Rechner nichts laufen soll: `/ehs export` im Spiel, **Strg+A / Strg
 | Symptom | Ursache / Abhilfe |
 |---|---|
 | `/ehs` meldet „RCLootcouncil nicht geladen" | Das Addon ist im AddOn-Menü deaktiviert, oder es wurde noch nie Loot damit vergeben. |
+| **„findet nichts zum Hochladen"** | **`/ehs diag` im Spiel** — die Ausgabe sagt an jeder Stufe, was gefunden wurde (siehe unten). |
 | `/ehs` findet 0 Items | Der Loot ist älter als das Export-Fenster. `/ehs days 60` |
 | Sync-Tool: „Keine EventHelperSync.lua gefunden" | Das Addon war noch nie geladen. Einmal einloggen und `/reload` (oder den Upload-Knopf drücken). |
 | Der Upload-Knopf taucht nicht auf | Es liegt nichts Ungespeichertes an — `/ehs` zeigt den Stand. Oder er wurde per `/ehs button` abgeschaltet. |
@@ -244,6 +246,47 @@ Wenn auf dem Rechner nichts laufen soll: `/ehs export` im Spiel, **Strg+A / Strg
 | Sync-Tool: „… nicht erreichbar" | `baseUrl` prüfen (mit `https://` und Port), Server erreichbar? |
 | WoW an einem ungewöhnlichen Ort installiert | In `~/.eventhelper-sync.json` `savedVariablesPath` direkt auf die Datei zeigen lassen. |
 | In der Inbox steht „mehrere Raids an diesem Tag" | Zwei Raid-Helper-Events am selben Tag — das Event in der Auswahlliste selbst wählen. |
+
+### `/ehs diag` — warum findet er nichts?
+
+„Nichts zum Hochladen" hat mehrere mögliche Ursachen, die von aussen gleich aussehen. Der Befehl geht die Kette Stufe für Stufe durch und zählt, statt zu raten:
+
+```
+[EventHelper] --- Diagnose ---  (Addon 1.1.1)
+[EventHelper] RCLootcouncil
+[EventHelper]   LibStub/Ace:      da
+[EventHelper]   Addon geladen:    ja
+[EventHelper]   Quelle:           GetHistoryDB()
+[EventHelper]   Spieler/Einträge: 12 / 143
+[EventHelper]   ältester/jüngster: 04.06.2026 20:41  bis  02.08.2026 22:58
+[EventHelper] Gargul
+[EventHelper]   GargulDB:         da
+[EventHelper]   Tabellen:         AwardHistory(37), GDKP(2), Settings(0)
+[EventHelper]   AwardHistory:     da
+[EventHelper]   Einträge:         37  davon mit Zeitstempel: 37
+[EventHelper] Zeitraum
+[EventHelper]   eingestellt:      21 Tage, also alles ab 13.07.2026 15:32
+[EventHelper]   im Zeitraum:      18 Vergabe(n)
+[EventHelper]   davon RCLC/Gargul: 11 / 7
+[EventHelper] Raid-Abende
+[EventHelper]   gebildet:         3
+[EventHelper]   [dabei]     02.08.2026 — Tempest Keep, 7 Item(s)
+[EventHelper]   [abgewählt] 30.07.2026 — Karazhan, 4 Item(s)
+[EventHelper] Export
+[EventHelper]   landet in der Datei: 2 Session(s), 14 Item(s)
+```
+
+Woran man was erkennt:
+
+| Zeile | Bedeutung |
+|---|---|
+| `Addon geladen: nein` / `GargulDB: fehlt` | Das Loot-Addon ist im AddOn-Menü nicht aktiv. |
+| `vorhanden: … <- passt nicht` | RCLootcouncils Historie liegt unter einem anderen Fraktion/Realm-Schlüssel als erwartet — die tatsächlich vorhandenen werden mit ausgegeben. |
+| `AwardHistory: fehlt`, aber `Tabellen:` zeigt andere | Gargul legt seine Historie in dieser Version woanders ab. |
+| `Einträge: 0` | Die Historie ist leer (frisch geleert?). |
+| `im Zeitraum: 0 Vergaben`, obwohl Einträge da sind | Der Loot ist älter als der eingestellte Zeitraum → `/ehs days 60`. |
+| `[abgewählt]` | Dieser Abend wurde im Fenster abgewählt und wird nicht hochgeladen. |
+| `landet in der Datei: nichts` | Am Ende bleibt nichts übrig — die Zeile darüber sagt, warum. |
 
 ---
 

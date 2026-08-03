@@ -1,0 +1,120 @@
+# Baut ein Release, sobald ein Tag der Form v1.2.3 gepusht wird.
+#
+# Warum automatisch: Das Release besteht aus zwei Dateien, von denen eine ~66 MB
+# gross ist (die .exe enthält die Node-Laufzeit). Beide von Hand zu bauen und
+# hochzuladen wäre bei jeder Version dieselbe fehleranfällige Fleissarbeit — und
+# die .exe darf aus genau diesem Grund nicht im Repo liegen.
+#
+# Auslösen:
+#   git tag v1.0.0 && git push origin v1.0.0
+#
+# Ergebnis: ein Release mit
+#   EventHelperSync-<version>.zip   das Addon, direkt nach Interface/AddOns entpackbar
+#   EventHelperSync.exe             das Sync-Tool, läuft ohne installiertes Node.js
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  # Von Hand auslösbar, um den Build zu prüfen, ohne ein Release anzulegen.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # Windows, weil die .exe eine Windows-node.exe als Grundlage braucht: der
+    # SEA-Build kopiert die Laufzeit des bauenden Systems.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: sync/package-lock.json
+
+      - name: Version aus dem Tag lesen
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag -replace '^v', ''
+          if ($tag -eq "" -or $tag -notmatch '^v?\d') { $version = "dev" }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $version"
+
+      # Ein Zip, dessen .toc eine andere Version behauptet als das Release, ist
+      # genau die Art Unstimmigkeit, die später niemand mehr aufklärt.
+      - name: Version gegen die .toc prüfen
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $toc = Get-Content addon/EventHelperSync/EventHelperSync.toc |
+                 Select-String -Pattern '^## Version:\s*(.+)$'
+          $tocVersion = $toc.Matches[0].Groups[1].Value.Trim()
+          $want = "${{ steps.version.outputs.version }}"
+          if ($tocVersion -ne $want) {
+            Write-Error "Tag sagt $want, EventHelperSync.toc sagt $tocVersion. Bitte angleichen."
+            exit 1
+          }
+          Write-Host "Version stimmt überein: $tocVersion"
+
+      - name: Abhängigkeiten installieren
+        working-directory: sync
+        run: npm ci
+
+      - name: Tests und Lint
+        working-directory: sync
+        run: |
+          npm test
+          npm run lint
+
+      - name: Sync-Tool zur .exe bauen
+        working-directory: sync
+        run: npm run build:exe
+
+      # Der oberste Ordner im Zip muss "EventHelperSync" heissen — WoW und die
+      # Addon-Manager erwarten den Addon-Ordner direkt unter Interface/AddOns.
+      - name: Addon paketieren
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Compress-Archive -Path addon/EventHelperSync `
+            -DestinationPath "release/EventHelperSync-${{ steps.version.outputs.version }}.zip" -Force
+          Copy-Item sync/dist/EventHelperSync.exe release/
+          Get-ChildItem release | Format-Table Name, @{n="MB";e={[math]::Round($_.Length/1MB,1)}}
+
+      - name: Als Artefakt ablegen (auch ohne Tag)
+        uses: actions/upload-artifact@v4
+        with:
+          name: EventHelperSync-${{ steps.version.outputs.version }}
+          path: release/*
+
+      - name: Release veröffentlichen
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          body: |
+            ## Installation
+
+            **Addon** — `EventHelperSync-${{ steps.version.outputs.version }}.zip` herunterladen und
+            den enthaltenen Ordner `EventHelperSync` nach `<WoW>/_classic_era_/Interface/AddOns/`
+            entpacken. Danach im Spiel einmal `/reload`, prüfen mit `/ehs`.
+
+            **Sync-Tool** — `EventHelperSync.exe` herunterladen und doppelklicken. Beim ersten Start
+            führt sie durch die Einrichtung (Server-Adresse, API-Token aus
+            *Einstellungen → Loot-Sync*, WoW-Ordner) und beobachtet danach von selbst.
+
+            > Die .exe enthält die Node-Laufzeit und ist deshalb gross. Sie ist nicht signiert —
+            > Windows SmartScreen fragt beim ersten Start nach
+            > („Weitere Informationen" → „Trotzdem ausführen").
+
+            Alles Weitere steht in der [README](https://github.com/${{ github.repository }}#readme).

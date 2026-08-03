@@ -1,0 +1,10 @@
+node_modules/
+*.log
+
+# Enthält das API-Token, falls jemand die Konfiguration in den Projektordner legt.
+.eventhelper-sync.json
+sync-config.json
+
+# Testdaten / echte SavedVariables versehentlich hierher kopiert
+EventHelperSync.lua
+envelope.json

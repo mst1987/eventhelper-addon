@@ -1,6 +1,9 @@
 import js from "@eslint/js";
 
 export default [
+    // Erzeugnisse von `npm run build:exe` — gebündelter Fremdcode, den zu prüfen
+    // nichts über dieses Projekt aussagt.
+    { ignores: ["build/**", "dist/**"] },
     js.configs.recommended,
     {
         files: ["**/*.js"],

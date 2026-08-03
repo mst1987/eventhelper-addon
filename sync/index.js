@@ -96,9 +96,12 @@ function requireReady() {
     const cfg = config.load();
     const problems = config.missing(cfg);
     if (problems.length) {
-        fail("Konfiguration unvollständig: " + problems.join(", "));
-        fail(`Einrichten mit:  npx eventhelper-sync init   (Datei: ${config.CONFIG_FILE})`);
-        process.exit(1);
+        // Geworfen statt beendet, damit main() das Fenster noch offen halten
+        // kann — bei der .exe wäre die Meldung sonst weg, bevor man sie liest.
+        throw new Error(
+            `Konfiguration unvollständig: ${problems.join(", ")}\n`
+            + `Einrichten mit dem Befehl "init"   (Datei: ${config.CONFIG_FILE})`,
+        );
     }
     return cfg;
 }
@@ -224,10 +227,41 @@ async function cmdWatch() {
     });
 }
 
+/**
+ * Ob das Programm ohne Argumente gestartet wurde — bei der .exe heisst das in
+ * aller Regel: per Doppelklick. Dann gibt es keine Konsole, die stehen bleibt,
+ * also darf das Fenster nicht einfach zuklappen, bevor jemand die Meldung
+ * gelesen hat.
+ */
+const launchedBare = () => process.argv.length <= 2;
+
+/** Fenster offen halten, bis Enter gedrückt wird. */
+function waitForEnter() {
+    return new Promise((resolve) => {
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        rl.question("\nEnter zum Schliessen …", () => { rl.close(); resolve(); });
+    });
+}
+
 async function main() {
-    const cmd = (process.argv[2] || "watch").toLowerCase();
+    // Ohne Argument: beim ersten Start durch die Einrichtung führen, sonst
+    // beobachten. Ein Doppelklick auf die frisch heruntergeladene .exe soll
+    // etwas Sinnvolles tun und nicht mit "Konfiguration unvollständig" abbrechen.
+    let cmd = (process.argv[2] || "").toLowerCase();
+    if (!cmd) {
+        cmd = config.missing(config.load()).length ? "init" : "watch";
+    }
+
     switch (cmd) {
-    case "init": return cmdInit();
+    case "init":
+        await cmdInit();
+        // Direkt weiterlaufen, wenn die Einrichtung vollständig ist — sonst
+        // müsste man die .exe nach dem Einrichten nochmal starten.
+        if (launchedBare() && !config.missing(config.load()).length) {
+            console.log("");
+            return cmdWatch();
+        }
+        return;
     case "once": return cmdOnce();
     case "status": return cmdStatus();
     case "watch": return cmdWatch();
@@ -238,11 +272,19 @@ async function main() {
     }
 }
 
-if (require.main === module) {
-    main().catch((e) => {
+/** Einstiegspunkt inklusive Fehlerbehandlung — auch von der .exe aus benutzt. */
+async function run() {
+    try {
+        await main();
+    } catch (e) {
         fail(e.stack || e.message);
+        if (launchedBare()) await waitForEnter();
         process.exit(1);
-    });
+    }
 }
 
-module.exports = { resolveFile, runUpload };
+// In der gepackten .exe ist `require.main` nicht gesetzt; dort ruft
+// scripts/sea-entry.js run() direkt auf.
+if (require.main === module) run();
+
+module.exports = { main, run, resolveFile, runUpload };

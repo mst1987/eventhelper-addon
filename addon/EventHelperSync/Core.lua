@@ -16,8 +16,16 @@ Kopierbox (UI.lua), das im Admin-Menü unter Historie & Loot -> Import eingefüg
 werden kann.
 
 WICHTIG zum Zeitpunkt: SavedVariables schreibt der Client nur beim Ausloggen
-oder /reload. Der Export wird deshalb bei PLAYER_LOGOUT frisch gebaut — was
-dort auf Platte landet, ist immer der aktuelle Stand.
+oder /reload — es gibt keine API, die das Schreiben erzwingt. Der Export wird
+deshalb bei PLAYER_LOGOUT frisch gebaut; was dort auf Platte landet, ist immer
+der aktuelle Stand.
+
+Damit dafür niemand ausloggen muss, gibt es den Upload-Knopf (UI.lua) und
+`/ehs upload`: beide bauen den Export und lösen anschliessend ein ReloadUI() aus.
+Automatisieren lässt sich das nicht — ReloadUI() ist von Blizzard auf einen
+Hardware-Event beschränkt und muss von einem echten Klick oder Tastendruck
+kommen. Ein Reload nach jedem Bosskill von selbst ist deshalb nicht möglich,
+ein Knopf, den man in der Pause drückt, schon.
 ]]
 
 local ADDON_NAME = ...
@@ -37,6 +45,9 @@ local DEFAULTS = {
     -- Ab welcher Lücke zwischen zwei Vergaben ein neuer Raid-Abend beginnt.
     sessionGapHours = 6,
     debug = false,
+    -- Ob der Upload-Knopf von selbst auftaucht, sobald Loot vergeben wurde, der
+    -- noch nicht auf Platte liegt.
+    showButton = true,
 }
 
 local function applyDefaults(target, defaults)
@@ -65,6 +76,47 @@ function EHS:Rebuild()
     return envelope
 end
 
+--- Wie viele Vergaben es gibt, die noch in keiner geschriebenen Datei stehen.
+-- Gemessen an lastFlushedAt: dem Zeitpunkt, zu dem zuletzt bewusst ein Reload
+-- bzw. ein Logout ausgelöst wurde. Alles, was danach vergeben wurde, hat die
+-- Platte noch nicht gesehen — und genau das ist es, wofür sich der Knopf lohnt.
+function EHS:PendingCount()
+    local since = self.db.lastFlushedAt or 0
+    local count = 0
+    for _, row in ipairs(self:CollectRows()) do
+        if row.awardedAt > since then count = count + 1 end
+    end
+    return count
+end
+
+--- Export bauen und den Reload auslösen, der ihn auf die Platte schreibt.
+--
+-- Muss aus einem Hardware-Event heraus aufgerufen werden (Knopfklick oder ein
+-- getippter Slash-Befehl) — ReloadUI() ist anders nicht erlaubt. Deshalb gibt es
+-- hier auch keinen Timer und keinen Automatik-Aufruf.
+-- @return boolean ob der Reload angestossen wurde
+function EHS:FlushAndReload()
+    if InCombatLockdown() then
+        self:Print("|cffdd4444Nicht im Kampf.|r Nach dem Kampf nochmal drücken.")
+        return false
+    end
+
+    local envelope = self:Rebuild()
+    local items = 0
+    for _, session in ipairs(envelope.sessions) do items = items + #session.items end
+    if items == 0 then
+        self:Print("Nichts zu speichern — es wurde kein Loot gefunden.")
+        return false
+    end
+
+    -- Erst merken, dann neu laden: der Wert muss mit in die Datei, die der
+    -- Reload gleich schreibt.
+    self.db.lastFlushedAt = time()
+    self:Print(("Speichere %d Item(s) und lade die UI neu — das Sync-Tool holt sie gleich ab."):format(items))
+    ReloadUI()
+    return true
+end
+
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_LOGIN")
@@ -85,12 +137,16 @@ frame:SetScript("OnEvent", function(_, event, arg1)
 
     if event == "PLAYER_LOGIN" then
         EHS:StartZoneTracking()
+        EHS:StartButton()
         return
     end
 
     if event == "PLAYER_LOGOUT" then
         -- Letzte Gelegenheit vor dem Schreiben der SavedVariables.
-        local ok, err = pcall(function() EHS:Rebuild() end)
+        local ok, err = pcall(function()
+            EHS:Rebuild()
+            EHS.db.lastFlushedAt = time()
+        end)
         if not ok then
             -- Beim Logout sieht das niemand mehr, aber der Fehler steht dann
             -- wenigstens in der DB und taucht beim nächsten /ehs auf.
@@ -132,7 +188,13 @@ local function reportStatus()
     if EHS.db.lastError then
         EHS:Print("|cffdd4444Letzter Fehler:|r " .. EHS.db.lastError)
     end
-    EHS:Print("Das Sync-Tool holt das nach dem Ausloggen oder einem /reload ab.")
+
+    local pending = EHS:PendingCount()
+    if pending > 0 then
+        EHS:Print(("|cffffd200%d Item(s) liegen noch nicht auf der Platte.|r Mit |cffffd200/ehs upload|r speichern (lädt die UI neu)."):format(pending))
+    else
+        EHS:Print("Alles gespeichert — das Sync-Tool hat den aktuellen Stand.")
+    end
 end
 
 SlashCmdList.EVENTHELPERSYNC = function(msg)
@@ -141,6 +203,14 @@ SlashCmdList.EVENTHELPERSYNC = function(msg)
 
     if cmd == "" or cmd == "status" then
         reportStatus()
+    elseif cmd == "upload" or cmd == "save" then
+        -- Ein getippter Slash-Befehl zählt als Hardware-Event, ReloadUI() ist
+        -- von hier aus also erlaubt.
+        EHS:FlushAndReload()
+    elseif cmd == "button" then
+        EHS.db.settings.showButton = not EHS.db.settings.showButton
+        EHS:Print("Upload-Knopf " .. (EHS.db.settings.showButton and "an" or "aus") .. ".")
+        EHS:RefreshButton()
     elseif cmd == "export" then
         EHS:ShowExportFrame()
     elseif cmd == "days" then
@@ -157,6 +227,8 @@ SlashCmdList.EVENTHELPERSYNC = function(msg)
     else
         EHS:Print("Befehle:")
         EHS:Print("  /ehs            — Status und gefundene Raid-Sessions")
+        EHS:Print("  /ehs upload     — jetzt speichern (lädt die UI neu) statt auszuloggen")
+        EHS:Print("  /ehs button     — Upload-Knopf ein-/ausblenden")
         EHS:Print("  /ehs export     — Export als JSON zum Kopieren anzeigen")
         EHS:Print("  /ehs days <n>   — wie viele Tage zurück exportiert werden")
         EHS:Print("  /ehs debug      — Debug-Ausgaben umschalten")

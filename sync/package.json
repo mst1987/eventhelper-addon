@@ -12,7 +12,8 @@
     "once": "node index.js once",
     "status": "node index.js status",
     "test": "jest",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "build:exe": "node scripts/build-exe.js"
   },
   "engines": {
     "node": ">=18"
@@ -20,7 +21,9 @@
   "license": "MIT",
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "esbuild": "^0.28.1",
     "eslint": "^9.39.5",
-    "jest": "^29.7.0"
+    "jest": "^29.7.0",
+    "postject": "^1.0.0-alpha.6"
   }
 }

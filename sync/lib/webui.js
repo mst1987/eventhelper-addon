@@ -165,6 +165,16 @@ function createWebUI(runner) {
                 return;
             }
 
+            // Raid-Abende hier ab- oder anwählen. Nimmt eine Liste entgegen,
+            // damit "alle angezeigten abwählen" ein Aufruf bleibt und nicht
+            // fünfzig.
+            if (req.method === "POST" && parsed.pathname === "/api/sessions") {
+                const ids = Array.isArray(body.sessionIds) ? body.sessionIds : [body.sessionId];
+                const excluded = runner.setExcluded(ids, body.excluded === true);
+                json(res, 200, { ok: true, excludedSessions: excluded });
+                return;
+            }
+
             if (req.method === "POST" && parsed.pathname === "/api/upload") {
                 const results = await runner.uploadNow();
                 json(res, 200, { ok: true, results });

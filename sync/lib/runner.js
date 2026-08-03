@@ -75,13 +75,31 @@ function createRunner(options = {}) {
         try {
             const envelope = readEnvelope(state.file);
             state.readError = null;
-            state.sessions = !envelope ? [] : (envelope.sessions || []).map((s) => ({
-                sessionId: s.sessionId,
-                startedAt: (s.startedAt || 0) * 1000,
-                endedAt: (s.endedAt || 0) * 1000,
-                instance: s.instance || "",
-                items: (s.items || []).length,
-            }));
+            const excluded = new Set(Array.isArray(cfg.excludedSessions) ? cfg.excludedSessions : []);
+            const uploadLog = cfg.uploadLog || {};
+            state.sessions = !envelope ? [] : (envelope.sessions || []).map((s) => {
+                const items = s.items || [];
+                // Die Kennzahlen, die vor dem Absenden interessieren — dieselben
+                // Fragen wie im Spiel, nur hier eine Stufe später.
+                const players = new Set();
+                let gargul = 0;
+                for (const it of items) {
+                    if (it && it.player) players.add(it.player);
+                    if (it && it.source === "gargul") gargul += 1;
+                }
+                return {
+                    sessionId: s.sessionId,
+                    startedAt: (s.startedAt || 0) * 1000,
+                    endedAt: (s.endedAt || 0) * 1000,
+                    instance: s.instance || "",
+                    items: items.length,
+                    players: players.size,
+                    gargul,
+                    rclc: items.length - gargul,
+                    excluded: excluded.has(s.sessionId),
+                    lastUpload: uploadLog[s.sessionId] || null,
+                };
+            });
             state.envelopeMissing = !envelope;
         } catch (e) {
             state.readError = e.message;
@@ -96,9 +114,11 @@ function createRunner(options = {}) {
         }
         state.uploading = true;
         try {
-            const { results } = await uploadFile(cfg, state.file);
-            state.lastUpload = { at: Date.now(), results };
+            const { results, skipped } = await uploadFile(cfg, state.file);
+            state.lastUpload = { at: Date.now(), results, skipped };
             state.lastError = null;
+            rememberResults(results);
+            if (skipped) log("info", `${skipped} Raid-Abend(e) hier abgewählt — nicht gesendet.`);
             if (!results.length) {
                 // "Nichts hochzuladen" allein lässt offen, woran es liegt — und
                 // die drei Ursachen brauchen völlig verschiedene Abhilfen.
@@ -184,6 +204,40 @@ function createRunner(options = {}) {
         timer = null;
     }
 
+    /**
+     * Festhalten, was der Server zu jedem Abend gesagt hat. Nur zur Anzeige:
+     * "zuletzt 12 neu" beantwortet vor dem nächsten Upload die Frage, ob dieser
+     * Abend schon durch ist — der Server dedupliziert ohnehin selbst.
+     */
+    function rememberResults(results) {
+        if (!results || !results.length) return;
+        const uploadLog = { ...(cfg.uploadLog || {}) };
+        for (const r of results) {
+            if (!r || !r.sessionId) continue;
+            uploadLog[r.sessionId] = {
+                at: Date.now(),
+                status: r.status,
+                added: r.added || 0,
+                skipped: r.skipped || 0,
+                eventLabel: r.eventLabel || "",
+            };
+        }
+        cfg = config.save({ ...config.load(), uploadLog });
+    }
+
+    /** Raid-Abende hier ab- oder wieder anwählen. */
+    function setExcluded(sessionIds, excluded) {
+        const ids = Array.isArray(sessionIds) ? sessionIds : [sessionIds];
+        const current = new Set(Array.isArray(cfg.excludedSessions) ? cfg.excludedSessions : []);
+        for (const id of ids) {
+            if (!id) continue;
+            if (excluded) current.add(String(id)); else current.delete(String(id));
+        }
+        cfg = config.save({ ...config.load(), excludedSessions: [...current] });
+        readState();
+        return [...current];
+    }
+
     /** Nach dem Speichern neuer Einstellungen: alles neu aufsetzen. */
     function reload() {
         cfg = config.load();
@@ -205,6 +259,7 @@ function createRunner(options = {}) {
         uploadNow,
         testConnection,
         readState,
+        setExcluded,
         get config() { return cfg; },
     };
 }

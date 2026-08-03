@@ -87,6 +87,47 @@ local function instanceFor(rows, startedAt)
     return name
 end
 
+--- Die Kennzahlen, die die Übersicht anzeigt.
+--
+-- Hier berechnet und nicht im Fenster: die Übersicht frischt im Takt auf, und
+-- die Zahlen sollen nicht bei jedem Durchlauf neu über alle Items laufen.
+--
+-- `pending` ist die eigentlich interessante: wie viel dieses Abends noch nicht
+-- auf der Platte liegt. Ein Abend ohne offene Items braucht keinen Reload.
+local function statsFor(items, lastFlush)
+    local players, playerCount = {}, 0
+    local bosses, bossCount = {}, 0
+    local rclc, gargul, pending, offspec = 0, 0, 0, 0
+    local firstUnsaved
+
+    for _, row in ipairs(items) do
+        if row.player and not players[row.player] then
+            players[row.player] = true
+            playerCount = playerCount + 1
+        end
+        if row.boss and row.boss ~= "" and not bosses[row.boss] then
+            bosses[row.boss] = true
+            bossCount = bossCount + 1
+        end
+        if row.source == "gargul" then gargul = gargul + 1 else rclc = rclc + 1 end
+        if row.offspec then offspec = offspec + 1 end
+        if row.awardedAt > lastFlush then
+            pending = pending + 1
+            if not firstUnsaved or row.awardedAt < firstUnsaved then firstUnsaved = row.awardedAt end
+        end
+    end
+
+    return {
+        players = playerCount,
+        bosses = bossCount,
+        rclc = rclc,
+        gargul = gargul,
+        offspec = offspec,
+        pending = pending,
+        firstUnsaved = firstUnsaved,
+    }
+end
+
 --- Alle gesammelten Zeilen als Sessions, älteste zuerst.
 function EHS:BuildSessions()
     local rows = self:CollectRows()
@@ -105,6 +146,7 @@ function EHS:BuildSessions()
         current.lastAt = row.awardedAt
     end
 
+    local lastFlush = self.db.lastFlushedAt or 0
     local out = {}
     for _, session in ipairs(sessions) do
         local instance = instanceFor(session.items, session.startedAt)
@@ -115,6 +157,7 @@ function EHS:BuildSessions()
             endedAt = session.lastAt,
             instance = instance,
             items = session.items,
+            stats = statsFor(session.items, lastFlush),
         }
     end
     return out

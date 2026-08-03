@@ -127,6 +127,57 @@ describe("uploadFile", () => {
         expect(global.fetch).toHaveBeenCalledTimes(1);
     });
 
+    // Die letzte Instanz vor dem Absenden: was hier abgewählt ist, soll den
+    // Server gar nicht erst erreichen und folglich auch nicht in seiner Inbox
+    // landen, wo es jemand von Hand verwerfen müsste.
+    describe("abgewählte Raid-Abende", () => {
+        const zwei = () => savedVariables({
+            ...ENVELOPE,
+            sessions: [session(), session({ sessionId: "eh-2-tk" })],
+        });
+
+        it("schickt einen abgewählten Abend nicht", async () => {
+            fs.readFileSync.mockReturnValue(zwei());
+            mockFetchOk({ results: [] });
+            const r = await uploadFile({ ...CONFIG, excludedSessions: ["eh-1-ssc"] }, "x.lua");
+            expect(global.fetch).toHaveBeenCalledTimes(1);
+            expect(JSON.parse(global.fetch.mock.calls[0][1].body).sessions[0].sessionId).toBe("eh-2-tk");
+            expect(r.skipped).toBe(1);
+        });
+
+        it("schickt gar nichts, wenn alles abgewählt ist", async () => {
+            fs.readFileSync.mockReturnValue(zwei());
+            global.fetch = jest.fn();
+            const r = await uploadFile({ ...CONFIG, excludedSessions: ["eh-1-ssc", "eh-2-tk"] }, "x.lua");
+            expect(global.fetch).not.toHaveBeenCalled();
+            expect(r).toMatchObject({ sessions: 2, skipped: 2, results: [] });
+        });
+
+        it("schickt alles, wenn nichts abgewählt ist", async () => {
+            fs.readFileSync.mockReturnValue(zwei());
+            mockFetchOk({ results: [] });
+            const r = await uploadFile({ ...CONFIG, excludedSessions: [] }, "x.lua");
+            expect(global.fetch).toHaveBeenCalledTimes(2);
+            expect(r.skipped).toBe(0);
+        });
+
+        it("verträgt eine fehlende Liste in einer alten Konfiguration", async () => {
+            fs.readFileSync.mockReturnValue(zwei());
+            mockFetchOk({ results: [] });
+            const r = await uploadFile(CONFIG, "x.lua");
+            expect(global.fetch).toHaveBeenCalledTimes(2);
+            expect(r.skipped).toBe(0);
+        });
+
+        it("ignoriert eine ID, die es in der Datei gar nicht gibt", async () => {
+            fs.readFileSync.mockReturnValue(zwei());
+            mockFetchOk({ results: [] });
+            const r = await uploadFile({ ...CONFIG, excludedSessions: ["gibts-nicht"] }, "x.lua");
+            expect(global.fetch).toHaveBeenCalledTimes(2);
+            expect(r.skipped).toBe(0);
+        });
+    });
+
     it("sammelt die Antworten aller Sessions ein", async () => {
         fs.readFileSync.mockReturnValue(savedVariables(ENVELOPE));
         mockFetchOk({ results: [{ sessionId: "eh-1-ssc", status: "pending", added: 3 }] });
@@ -138,7 +189,7 @@ describe("uploadFile", () => {
         fs.readFileSync.mockReturnValue("EventHelperSyncDB = { }");
         global.fetch = jest.fn();
         const r = await uploadFile(CONFIG, "x.lua");
-        expect(r).toEqual({ sessions: 0, results: [] });
+        expect(r).toEqual({ sessions: 0, skipped: 0, results: [] });
         expect(global.fetch).not.toHaveBeenCalled();
     });
 

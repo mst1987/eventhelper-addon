@@ -49,20 +49,37 @@ local function wireItem(row)
     }
 end
 
+--- Ist dieser Raid-Abend vom Export ausgenommen?
+-- Abgewählt wird im Optionsfenster; die Auswahl lebt in den SavedVariables und
+-- gilt dauerhaft, damit ein Pug-Abend nicht bei jedem Upload erneut auftaucht.
+function EHS:IsExcluded(sessionId)
+    return (self.db.excluded or {})[sessionId] == true
+end
+
+--- Einen Raid-Abend ein- oder ausschliessen.
+function EHS:SetExcluded(sessionId, excluded)
+    self.db.excluded = self.db.excluded or {}
+    -- Ausgeschlossene werden gespeichert, eingeschlossene wieder entfernt: so
+    -- wächst die Liste nur um das, was wirklich abgewählt wurde.
+    self.db.excluded[sessionId] = excluded and true or nil
+end
+
 function EHS:BuildEnvelope(sessions)
     local wire = {}
     for _, session in ipairs(sessions or {}) do
-        local items = {}
-        for _, row in ipairs(session.items) do
-            items[#items + 1] = wireItem(row)
+        if not self:IsExcluded(session.sessionId) then
+            local items = {}
+            for _, row in ipairs(session.items) do
+                items[#items + 1] = wireItem(row)
+            end
+            wire[#wire + 1] = {
+                sessionId = session.sessionId,
+                startedAt = session.startedAt,
+                endedAt = session.endedAt,
+                instance = session.instance or "",
+                items = items,
+            }
         end
-        wire[#wire + 1] = {
-            sessionId = session.sessionId,
-            startedAt = session.startedAt,
-            endedAt = session.endedAt,
-            instance = session.instance or "",
-            items = items,
-        }
     end
 
     return {

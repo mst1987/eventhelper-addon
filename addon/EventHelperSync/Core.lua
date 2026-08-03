@@ -34,7 +34,7 @@ EventHelperSync = EventHelperSync or {}
 local EHS = EventHelperSync
 
 EHS.name = ADDON_NAME
-EHS.version = GetAddOnMetadata and GetAddOnMetadata(ADDON_NAME, "Version") or "1.0.0"
+EHS.version = GetAddOnMetadata and GetAddOnMetadata(ADDON_NAME, "Version") or "1.1.0"
 
 -- Voreinstellungen. lookbackDays begrenzt, wie weit zurück Loot exportiert wird:
 -- die Historien beider Addons wachsen über Monate, hochgeladen werden muss aber
@@ -48,6 +48,8 @@ local DEFAULTS = {
     -- Ob der Upload-Knopf von selbst auftaucht, sobald Loot vergeben wurde, der
     -- noch nicht auf Platte liegt.
     showButton = true,
+    -- Der Knopf an der Minimap, der das Optionsfenster öffnet.
+    showMinimap = true,
 }
 
 local function applyDefaults(target, defaults)
@@ -80,11 +82,18 @@ end
 -- Gemessen an lastFlushedAt: dem Zeitpunkt, zu dem zuletzt bewusst ein Reload
 -- bzw. ein Logout ausgelöst wurde. Alles, was danach vergeben wurde, hat die
 -- Platte noch nicht gesehen — und genau das ist es, wofür sich der Knopf lohnt.
+--
+-- Abgewählte Raid-Abende zählen nicht mit: für sie lohnt sich kein Reload, sie
+-- werden ohnehin nicht exportiert.
 function EHS:PendingCount()
     local since = self.db.lastFlushedAt or 0
     local count = 0
-    for _, row in ipairs(self:CollectRows()) do
-        if row.awardedAt > since then count = count + 1 end
+    for _, session in ipairs(self:BuildSessions()) do
+        if not self:IsExcluded(session.sessionId) then
+            for _, row in ipairs(session.items) do
+                if row.awardedAt > since then count = count + 1 end
+            end
+        end
     end
     return count
 end
@@ -128,6 +137,8 @@ frame:SetScript("OnEvent", function(_, event, arg1)
         EHS.db = EventHelperSyncDB
         EHS.db.settings = EHS.db.settings or {}
         applyDefaults(EHS.db.settings, DEFAULTS)
+        -- Abgewählte Raid-Abende: { [sessionId] = true }. Siehe Export.lua.
+        EHS.db.excluded = EHS.db.excluded or {}
         -- Zeitleiste der besuchten Raid-Instanzen: das Einzige, was das Addon
         -- laufend mitschreiben MUSS, weil es sich nachträglich nicht mehr
         -- rekonstruieren lässt (siehe Zones.lua).
@@ -138,6 +149,7 @@ frame:SetScript("OnEvent", function(_, event, arg1)
     if event == "PLAYER_LOGIN" then
         EHS:StartZoneTracking()
         EHS:StartButton()
+        EHS:StartMinimap()
         return
     end
 
@@ -201,7 +213,11 @@ SlashCmdList.EVENTHELPERSYNC = function(msg)
     local cmd, rest = strsplit(" ", strtrim(msg or ""), 2)
     cmd = strlower(cmd or "")
 
-    if cmd == "" or cmd == "status" then
+    if cmd == "" then
+        -- Der häufigste Fall ist "was ist der Stand?" — und darauf antwortet
+        -- das Fenster besser als eine Handvoll Chat-Zeilen.
+        EHS:ToggleOptions()
+    elseif cmd == "status" then
         reportStatus()
     elseif cmd == "upload" or cmd == "save" then
         -- Ein getippter Slash-Befehl zählt als Hardware-Event, ReloadUI() ist
@@ -211,6 +227,10 @@ SlashCmdList.EVENTHELPERSYNC = function(msg)
         EHS.db.settings.showButton = not EHS.db.settings.showButton
         EHS:Print("Upload-Knopf " .. (EHS.db.settings.showButton and "an" or "aus") .. ".")
         EHS:RefreshButton()
+    elseif cmd == "minimap" then
+        EHS.db.settings.showMinimap = not EHS.db.settings.showMinimap
+        EHS:Print("Minimap-Knopf " .. (EHS.db.settings.showMinimap and "an" or "aus") .. ".")
+        EHS:RefreshMinimap()
     elseif cmd == "export" then
         EHS:ShowExportFrame()
     elseif cmd == "days" then
@@ -226,8 +246,10 @@ SlashCmdList.EVENTHELPERSYNC = function(msg)
         EHS:Print("Debug-Ausgaben " .. (EHS.db.settings.debug and "an" or "aus") .. ".")
     else
         EHS:Print("Befehle:")
-        EHS:Print("  /ehs            — Status und gefundene Raid-Sessions")
+        EHS:Print("  /ehs            — Fenster mit Status, Raid-Abenden und Einstellungen")
         EHS:Print("  /ehs upload     — jetzt speichern (lädt die UI neu) statt auszuloggen")
+        EHS:Print("  /ehs status     — dasselbe kurz im Chat")
+        EHS:Print("  /ehs minimap    — Minimap-Knopf ein-/ausblenden")
         EHS:Print("  /ehs button     — Upload-Knopf ein-/ausblenden")
         EHS:Print("  /ehs export     — Export als JSON zum Kopieren anzeigen")
         EHS:Print("  /ehs days <n>   — wie viele Tage zurück exportiert werden")

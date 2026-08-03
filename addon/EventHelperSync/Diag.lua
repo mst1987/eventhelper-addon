@@ -144,6 +144,15 @@ local function diagPipeline()
 
     local rows = EHS:CollectRows()
     EHS:Print("  im Zeitraum:      " .. (#rows > 0 and ok(#rows .. " Vergabe(n)") or bad("0 Vergaben")))
+
+    local stats = EHS.collectStats or {}
+    local weg = (stats.skippedRclc or 0) + (stats.skippedGargul or 0)
+    if EHS.db.settings.skipAwardReasons == false then
+        EHS:Print("  Bank/Entzaubern:  " .. warn("werden mitgenommen (Schalter im Fenster ist aus)"))
+    else
+        EHS:Print("  Bank/Entzaubern:  " .. weg .. " übersprungen ("
+            .. (stats.skippedRclc or 0) .. " RCLC, " .. (stats.skippedGargul or 0) .. " Gargul)")
+    end
     if #rows > 0 then
         EHS:Print("  davon RCLC/Gargul: " .. (function()
             local a, b = 0, 0

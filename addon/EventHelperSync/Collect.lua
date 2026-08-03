@@ -98,10 +98,29 @@ function EHS:AvailableSources()
     }
 end
 
+--- Ging dieses Item gar nicht an einen Raider, sondern in die Gildenbank oder
+--- zum Entzaubern?
+--
+-- RCLootcouncil beantwortet das selbst: `isAwardReason` ist gesetzt, wenn ein
+-- Item aus einem Grund vergeben wurde statt an einen Würfelgewinner — genau
+-- das sind "Banking", "Disenchant" und was eine Gilde sonst als Award-Reason
+-- einträgt. Auf den Antworttext zu prüfen wäre schlechter: jede Gilde benennt
+-- ihn anders, und ein normaler "PvP/Bank"-Wurf ginge fälschlich mit weg.
+local function isRclcHousekeeping(entry)
+    return entry.isAwardReason == true or entry.isAwardReason == "true"
+end
+
+-- Gargul kennt kein solches Kennzeichen; es setzt für entzauberte Items einen
+-- Pseudo-Empfänger ("||de||"). Alles in solchen Doppelbalken ist kein Spieler.
+local function isGargulPlaceholder(winner)
+    return type(winner) == "string" and winner:match("^||.*||$") ~= nil
+end
+
 local function collectRclc(rows, since)
     local db = rclcHistory()
     if not db then return 0 end
 
+    local skip = EHS.db.settings.skipAwardReasons ~= false
     local count = 0
     for player, entries in pairs(db) do
         if type(entries) == "table" then
@@ -109,7 +128,9 @@ local function collectRclc(rows, since)
                 if type(entry) == "table" then
                     local at = rclcTimestamp(entry)
                     local itemId = idFromLink(entry.lootWon)
-                    if at >= since and itemId then
+                    if skip and at >= since and itemId and isRclcHousekeeping(entry) then
+                        EHS.collectStats.skippedRclc = EHS.collectStats.skippedRclc + 1
+                    elseif at >= since and itemId then
                         rows[#rows + 1] = {
                             source = "rclc",
                             rawId = tostring(entry.id or (itemId .. "-" .. at .. "-" .. player)),
@@ -144,6 +165,7 @@ local function collectGargul(rows, since)
     local history = type(db) == "table" and db.AwardHistory or nil
     if type(history) ~= "table" then return 0 end
 
+    local skip = EHS.db.settings.skipAwardReasons ~= false
     local count = 0
     -- Nach Checksum gekeyt, nicht als Liste — pairs(), nicht ipairs().
     for key, entry in pairs(history) do
@@ -151,7 +173,9 @@ local function collectGargul(rows, since)
             local at = tonumber(entry.timestamp) or 0
             local itemId = tonumber(entry.itemID) or idFromLink(entry.itemLink)
             local winner = entry.awardedTo or ""
-            if at >= since and itemId and winner ~= "" then
+            if skip and at >= since and itemId and isGargulPlaceholder(winner) then
+                EHS.collectStats.skippedGargul = EHS.collectStats.skippedGargul + 1
+            elseif at >= since and itemId and winner ~= "" then
                 rows[#rows + 1] = {
                     source = "gargul",
                     rawId = tostring(entry.checksum or key),
@@ -184,14 +208,20 @@ local function collectGargul(rows, since)
 end
 
 --- Alle Vergaben der letzten `lookbackDays`, aus beiden Addons.
+-- Nebenbei wird in EHS.collectStats festgehalten, wie viel wovon kam und wie
+-- viel aussortiert wurde — das Optionsfenster und /ehs diag zeigen es an.
 function EHS:CollectRows()
     local days = self.db.settings.lookbackDays or 21
     local since = time() - (days * 24 * 60 * 60)
     local rows = {}
 
+    self.collectStats = { rclc = 0, gargul = 0, skippedRclc = 0, skippedGargul = 0 }
     local fromRclc = collectRclc(rows, since)
     local fromGargul = collectGargul(rows, since)
-    self:Debug(("gesammelt: %d aus RCLootcouncil, %d aus Gargul"):format(fromRclc, fromGargul))
+    self.collectStats.rclc = fromRclc
+    self.collectStats.gargul = fromGargul
+    self:Debug(("gesammelt: %d aus RCLootcouncil, %d aus Gargul, %d aussortiert"):format(
+        fromRclc, fromGargul, self.collectStats.skippedRclc + self.collectStats.skippedGargul))
 
     table.sort(rows, function(a, b) return a.awardedAt < b.awardedAt end)
     return rows

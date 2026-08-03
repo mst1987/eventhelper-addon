@@ -25,7 +25,7 @@ local EHS = EventHelperSync
 local frame
 local rows = {}
 
-local WIDTH, HEIGHT = 560, 620
+local WIDTH, HEIGHT = 560, 680
 local ROW_HEIGHT = 22
 -- So viele Zeilen passen in die Liste; der Rest wird gescrollt.
 local VISIBLE_ROWS = 9
@@ -270,6 +270,18 @@ local function build()
         function(v) EHS.db.settings.showMinimap = v; EHS:RefreshMinimap() end)
     frame.minimap:SetPoint("TOPLEFT", 26, settingsTop - 156)
 
+    frame.skipAward = checkbox(frame,
+        "Bank- und Entzauber-Items weglassen",
+        "Items, die nicht an einen Raider gingen (RCLootcouncil: Banking, Disenchant; Gargul: ||de||).",
+        function() return EHS.db.settings.skipAwardReasons ~= false end,
+        function(v) EHS.db.settings.skipAwardReasons = v end)
+    frame.skipAward:SetPoint("TOPLEFT", 26, settingsTop - 196)
+
+    frame.skipInfo = label(frame, "", "GameFontDisableSmall")
+    frame.skipInfo:SetPoint("TOPLEFT", 46, settingsTop - 228)
+    frame.skipInfo:SetWidth(WIDTH - 80)
+    frame.skipInfo:SetJustifyH("LEFT")
+
     tinsert(UISpecialFrames, "EventHelperSyncOptionsFrame")
     frame:Hide()
 end
@@ -361,6 +373,20 @@ function EHS:RefreshOptions()
     frame.gap.refresh()
     frame.showButton.refresh()
     frame.minimap.refresh()
+    frame.skipAward.refresh()
+
+    -- Wie viel der Schalter tatsächlich wegnimmt — sonst bleibt er eine
+    -- Behauptung, und niemand weiss, ob er greift.
+    local stats = self.collectStats or {}
+    local weg = (stats.skippedRclc or 0) + (stats.skippedGargul or 0)
+    if weg > 0 then
+        frame.skipInfo:SetText(("Zuletzt %d Item(s) übersprungen (%d RCLootcouncil, %d Gargul)."):format(
+            weg, stats.skippedRclc or 0, stats.skippedGargul or 0))
+    elseif self.db.settings.skipAwardReasons ~= false then
+        frame.skipInfo:SetText("Im Zeitraum war nichts zum Überspringen dabei.")
+    else
+        frame.skipInfo:SetText("Aus — Bank- und Entzauber-Items werden mit hochgeladen.")
+    end
 end
 
 function EHS:ToggleOptions()

@@ -32,7 +32,8 @@ Was das Addon dabei liefert, das ein normaler Export **nicht** kann:
 - **Beide Addons in einem Rutsch.** Wer mit RCLootcouncil arbeitet und nebenbei per Gargul verteilt, bekommt sonst zwei Exporte in zwei Formaten.
 - **Eine echte Uhrzeit für Gargul-Loot.** Garguls CSV-Export enthält nur ein Datum. Der Zeitstempel liegt in `GargulDB.AwardHistory[…].timestamp` — das Addon liest ihn direkt und macht damit die automatische Zuordnung zum richtigen Raid-Abend überhaupt erst zuverlässig.
 - **Die Instanz für Gargul-Loot.** Gargul speichert nicht, wo ein Item gefallen ist. Das Addon schreibt beim Betreten einer Raid-Instanz eine Zeile mit und beschriftet die Session damit.
-- **Raid-Abende statt eines Klumpens.** Der Loot wird über die Zeitstempel in Sessions gebündelt, damit jeder Raid-Abend seinem eigenen Raid-Helper-Event zugeordnet werden kann.
+- **Raid-Abende statt eines Klumpens.** Der Loot wird über die Zeitstempel in Sessions gebündelt, damit jeder Raid-Abend seinem eigenen Raid-Helper-Event zugeordnet werden kann. Der Name des Abends kommt von der **häufigsten** Instanz seiner Items, nicht von der ersten — sonst gibt ein Zwei-Item-Abstecher nach Gruul einem ganzen SSC-Abend seinen Namen. Fanden zwei Raids in einem Abend statt, heisst er „SSC + Tempest Keep".
+- **Bank- und Entzauber-Items bleiben draussen** (siehe unten).
 
 Doppelt importiert wird dabei nichts: Jede Zeile behält die ID ihres Ursprungs-Addons (RCLootcouncils `id`, Garguls `checksum`), und der EventHelper dedupliziert darüber. Ein Upload über dieses Addon und ein von Hand eingefügter Export derselben Vergabe fallen zu einem Item zusammen.
 
@@ -92,8 +93,19 @@ Der Knopf an der **Minimap** öffnet es — oder `/ehs`. Es beantwortet auf eine
  │ Neuer Abend ab (Std.)    [  6 ]                              │
  │ ☑ Upload-Knopf anzeigen                                      │
  │ ☑ Minimap-Knopf anzeigen                                     │
+ │ ☑ Bank- und Entzauber-Items weglassen                        │
+ │    Zuletzt 574 Item(s) übersprungen (486 RCLC, 88 Gargul).   │
  └──────────────────────────────────────────────────────────────┘
 ```
+
+**Bank und Entzaubern fliegen raus.** Items, die gar nicht an einen Raider gingen, gehören nicht in die Loot-Historie. Erkannt wird das nicht am Antworttext — den benennt jede Gilde anders — sondern an dem, was die Addons selbst dazu sagen:
+
+| Addon | Kennzeichen |
+|---|---|
+| RCLootcouncil | `isAwardReason` — genau das setzt es bei „Banking", „Disenchant" und jedem anderen Award-Reason |
+| Gargul | der Pseudo-Empfänger `\|\|de\|\|`, den es für entzauberte Items einträgt |
+
+Ein normaler Wurf mit der Antwort „PvP/Bank" bleibt dabei drin — der ging ja an einen Spieler.
 
 **Abwählen, was nicht interessiert.** Der Pug vom Dienstag, die Runde mit Freunden — Häkchen weg, und der Abend wird nicht hochgeladen. Die Auswahl wird gespeichert und gilt dauerhaft. Abgewählte Abende bleiben sichtbar, nur blass: man muss sie ja wiederfinden können, um sie zurückzuholen.
 

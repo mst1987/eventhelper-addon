@@ -32,17 +32,59 @@ end
 --- Der Instanzname für eine Session.
 -- Erste Wahl ist das, was RCLootcouncil an die Zeile geschrieben hat; kommt der
 -- Loot nur aus Gargul (kein Instanz-Feld), greift die eigene Zonen-Zeitleiste.
+--- "Coilfang: Serpentshrine Cavern-25 Player" -> "Coilfang: Serpentshrine Cavern"
+-- Der "-25 Player"-Anhang ist Raidgrösse, kein Ortsname. Ausserhalb einer
+-- Instanz schreibt RCLootcouncil nur den Kontinent mit einem Bindestrich
+-- dahinter ("Eastern Kingdoms-") — der muss auch weg.
+local function cleanInstance(raw)
+    return (tostring(raw or ""):gsub("%-%d+ Player$", ""):gsub("%-%s*$", ""))
+end
+
+-- Ab welchem Anteil eine zweite Instanz mit in den Namen kommt. Ein Abend, der
+-- zu einem Drittel in Tempest Keep stattfand, heisst "SSC + TK" und nicht nur
+-- "SSC".
+local SECOND_INSTANCE_SHARE = 0.25
+
+--- Der Name für einen Raid-Abend.
+--
+-- Gezählt wird, welche Instanz die Items tatsächlich nennen, und die häufigste
+-- gewinnt — nicht die erste. Das ist kein Schönheitsfehler: Gruul und
+-- Magtheridon laufen als kurzer Zusatz neben dem Hauptraid, und die erste Zeile
+-- des Abends war deshalb regelmässig ein Zwei-Item-Anhängsel, das dem ganzen
+-- Abend seinen Namen gab.
+--
+-- Kommt gar keine Instanz vor (reiner Gargul-Abend), greift die eigene
+-- Zonen-Zeitleiste; und wenn auch die nichts weiss, bleibt der Name leer — der
+-- Server leitet ihn dann aus den Item-IDs ab.
 local function instanceFor(rows, startedAt)
+    local counts, order = {}, {}
+    local known = 0
     for _, row in ipairs(rows) do
-        if row.instance and row.instance ~= "" then
-            -- Der "-25 Player"-Anhang ist Raidgrösse, kein Ortsname. Ausserhalb
-            -- einer Instanz schreibt RCLootcouncil nur den Kontinent mit einem
-            -- Bindestrich dahinter ("Eastern Kingdoms-") — der muss auch weg.
-            local name = row.instance:gsub("%-%d+ Player$", ""):gsub("%-%s*$", "")
-            if name ~= "" then return name end
+        local name = cleanInstance(row.instance)
+        if name ~= "" then
+            if not counts[name] then
+                counts[name] = 0
+                order[#order + 1] = name
+            end
+            counts[name] = counts[name] + 1
+            known = known + 1
         end
     end
-    return EHS:ZoneAt(startedAt)
+
+    if known == 0 then return EHS:ZoneAt(startedAt) end
+
+    -- Nach Häufigkeit, bei Gleichstand nach erstem Auftreten (stabil).
+    table.sort(order, function(a, b)
+        if counts[a] ~= counts[b] then return counts[a] > counts[b] end
+        return a < b
+    end)
+
+    local name = order[1]
+    local second = order[2]
+    if second and (counts[second] / known) >= SECOND_INSTANCE_SHARE then
+        name = name .. " + " .. second
+    end
+    return name
 end
 
 --- Alle gesammelten Zeilen als Sessions, älteste zuerst.

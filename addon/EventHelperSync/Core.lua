@@ -34,7 +34,7 @@ EventHelperSync = EventHelperSync or {}
 local EHS = EventHelperSync
 
 EHS.name = ADDON_NAME
-EHS.version = GetAddOnMetadata and GetAddOnMetadata(ADDON_NAME, "Version") or "1.1.2"
+EHS.version = GetAddOnMetadata and GetAddOnMetadata(ADDON_NAME, "Version") or "1.2.0"
 
 -- Voreinstellungen. lookbackDays begrenzt, wie weit zurück Loot exportiert wird:
 -- die Historien beider Addons wachsen über Monate, hochgeladen werden muss aber
@@ -50,6 +50,9 @@ local DEFAULTS = {
     showButton = true,
     -- Der Knopf an der Minimap, der das Optionsfenster öffnet.
     showMinimap = true,
+    -- Items, die gar nicht an einen Raider gingen, sondern in die Gildenbank
+    -- oder zum Entzaubern, gehören nicht in die Loot-Historie (Collect.lua).
+    skipAwardReasons = true,
 }
 
 local function applyDefaults(target, defaults)

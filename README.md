@@ -235,6 +235,30 @@ Addon, Sync-Tool und Server sprechen `eventhelper-loot` Version 1. Serverseitig 
 | `Button.lua` | Upload-Knopf: erscheint bei ungespeichertem Loot, Klick löst den Reload aus |
 | `UI.lua` | Kopierbox hinter `/ehs export` |
 
+### Ein Release bauen
+
+Ein Release entsteht durch einen Tag — den Rest macht [`.github/workflows/release.yml`](.github/workflows/release.yml):
+
+```bash
+# 1. Version in beiden Dateien angleichen:
+#    addon/EventHelperSync/EventHelperSync.toc   ## Version: 1.1.0
+#    sync/package.json                           "version": "1.1.0"
+# 2. committen, dann taggen:
+git tag v1.1.0
+git push origin v1.1.0
+```
+
+Der Workflow läuft auf einem Windows-Runner (die `.exe` braucht eine Windows-`node.exe` als Grundlage), prüft Tests und Lint, baut beides und hängt es an das Release:
+
+| Datei | Inhalt |
+|---|---|
+| `EventHelperSync-1.1.0.zip` | der Ordner `EventHelperSync`, direkt nach `Interface/AddOns/` entpackbar |
+| `EventHelperSync.exe` | das Sync-Tool, ohne Node.js lauffähig |
+
+Stimmt die Version im Tag nicht mit der in der `.toc` überein, bricht der Workflow ab — ein Zip, dessen `.toc` etwas anderes behauptet als das Release, klärt später niemand mehr auf.
+
+Zum Ausprobieren ohne Release: **Actions → Release → Run workflow**. Dann werden beide Dateien gebaut und als Artefakt angehängt, aber kein Release angelegt.
+
 ### Wie die `.exe` gebaut wird
 
 `sync/scripts/build-exe.js` nutzt Nodes eingebaute [Single Executable Applications](https://nodejs.org/api/single-executable-applications.html) statt eines externen Packers — das Verfahren gehört zu Node selbst und braucht keine Werkzeugkette mit eigener Versionspflege. Drei Schritte: esbuild bündelt `index.js` samt `lib/` zu einer Datei, `node --experimental-sea-config` macht daraus einen Blob, `postject` spleisst ihn in eine Kopie der `node.exe`.

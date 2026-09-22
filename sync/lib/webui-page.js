@@ -110,6 +110,23 @@ module.exports.PAGE = String.raw`<!doctype html>
 
   .empty-hint { color: #8a8067; font-size: 12.5px; padding: 4px 2px; }
 
+  .pager {
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    padding: 2px 2px 0; font-size: 11.5px; color: #a4916a;
+  }
+  .pager button {
+    background: none; border: 1px solid var(--gold-dim); border-radius: 4px;
+    color: var(--parchment); font: inherit; font-size: 12px; width: 24px; height: 22px; cursor: pointer;
+  }
+  .pager button:hover:not(:disabled) { border-color: var(--gold); color: var(--cream); }
+  .pager button:disabled { opacity: .35; cursor: default; }
+
+  .upcoming-toggle {
+    background: none; border: none; text-align: left; padding: 2px; width: 100%;
+    font: inherit; font-size: 11.5px; color: #a4916a; cursor: pointer;
+  }
+  .upcoming-toggle:hover { color: var(--cream); }
+
   .footer {
     display: flex; justify-content: space-between; align-items: center;
     font-size: 11px; color: #a4916a; border-top: 1px solid rgba(216,181,103,.2); padding-top: 10px;
@@ -273,6 +290,14 @@ let lastState = null;
 let lastRaids = null;
 let raidsError = null;
 
+// Übrige Raids: höchstens PAGE_SIZE vergangene auf einmal (pastPage zählt
+// die Seite), kommende bleiben eingeklappt (upcomingExpanded) — beides bleibt
+// über einen Refresh hinweg erhalten, damit ein Klick nicht drei Sekunden
+// später vom nächsten Poll wieder zugeklappt wird.
+const PAGE_SIZE = 10;
+let pastPage = 0;
+let upcomingExpanded = false;
+
 async function refresh() {
   try {
     lastState = await api("/api/state");
@@ -357,7 +382,15 @@ function buildGroups() {
     !s.excluded && s.items > 0 && !s.lastUpload && !matchedIds.has(s.sessionId)
   ));
 
-  return { ready, unmatched, rest };
+  // Kommende Raids können noch kein Loot haben — die stehen sonst nur im Weg,
+  // wenn man sieht will, welche vergangenen Abende noch offen sind. Bleiben
+  // ausgeblendet, sind aber über den Umschalter unten jederzeit einblendbar.
+  const now = Date.now();
+  const pastRest = rest.filter((r) => r.startTime * 1000 <= now);
+  const upcomingRest = rest.filter((r) => r.startTime * 1000 > now)
+    .sort((a, b) => a.startTime - b.startTime);
+
+  return { ready, unmatched, pastRest, upcomingRest };
 }
 
 // Ein bereiter Eintrag ist immer ein Klick-Button (l\u00e4dt genau diese Session
@@ -441,9 +474,9 @@ function render() {
     $("banner").hidden = true;
   }
 
-  const { ready, unmatched, rest } = buildGroups();
+  const { ready, unmatched, pastRest, upcomingRest } = buildGroups();
   const readyCount = ready.length + unmatched.length;
-  const openCount = readyCount + rest.filter((r) => r.status === "empty").length;
+  const openCount = readyCount + pastRest.filter((r) => r.status === "empty").length;
   $("summary").innerHTML = lastRaids === null
     ? "Raid-Liste wird geladen …"
     : "<b>" + readyCount + "</b> bereit zum Hochladen &middot; " + openCount + " insgesamt offen";
@@ -458,14 +491,59 @@ function render() {
     for (const s of unmatched) group.appendChild(renderUnmatchedRow(s));
     lists.appendChild(group);
   }
-  if (rest.length) {
+  if (pastRest.length || upcomingRest.length) {
     const group = document.createElement("div");
     group.className = "group";
     group.innerHTML = '<div class="group-label">ÜBRIGE&nbsp;RAIDS</div>';
-    for (const r of rest) group.appendChild(renderRestRow(r));
+
+    // Nicht mehr als PAGE_SIZE vergangene Raids auf einmal — ein Konto mit
+    // langer Historie würde die Liste sonst endlos lang machen. pastPage
+    // bleibt über Refreshes hinweg erhalten, wird aber bei jedem Rendern auf
+    // die aktuell gültige Seitenzahl eingeklemmt (die Liste kann schrumpfen,
+    // sobald ein Raid importiert oder gesendet wurde).
+    const totalPages = Math.max(1, Math.ceil(pastRest.length / PAGE_SIZE));
+    pastPage = Math.min(pastPage, totalPages - 1);
+    const from = pastPage * PAGE_SIZE;
+    for (const r of pastRest.slice(from, from + PAGE_SIZE)) group.appendChild(renderRestRow(r));
+
+    if (pastRest.length > PAGE_SIZE) {
+      const pager = document.createElement("div");
+      pager.className = "pager";
+      const prev = document.createElement("button");
+      prev.type = "button";
+      prev.textContent = "◀";
+      prev.setAttribute("aria-label", "Vorherige Seite");
+      prev.disabled = pastPage === 0;
+      prev.addEventListener("click", () => { pastPage -= 1; render(); });
+      const info = document.createElement("span");
+      info.textContent = "Seite " + (pastPage + 1) + " / " + totalPages;
+      const next = document.createElement("button");
+      next.type = "button";
+      next.textContent = "▶";
+      next.setAttribute("aria-label", "Nächste Seite");
+      next.disabled = pastPage >= totalPages - 1;
+      next.addEventListener("click", () => { pastPage += 1; render(); });
+      pager.append(prev, info, next);
+      group.appendChild(pager);
+    }
+
+    if (upcomingRest.length) {
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "upcoming-toggle";
+      toggle.textContent = (upcomingExpanded ? "▾ " : "▸ ")
+        + upcomingRest.length + " kommende" + (upcomingRest.length === 1 ? "r Raid" : " Raids")
+        + (upcomingExpanded ? " ausblenden" : " einblenden");
+      toggle.addEventListener("click", () => { upcomingExpanded = !upcomingExpanded; render(); });
+      group.appendChild(toggle);
+      if (upcomingExpanded) {
+        for (const r of upcomingRest) group.appendChild(renderRestRow(r));
+      }
+    }
+
     lists.appendChild(group);
   }
-  if (!readyCount && !rest.length && lastRaids !== null) {
+  if (!readyCount && !pastRest.length && !upcomingRest.length && lastRaids !== null) {
     lists.innerHTML = '<div class="empty-hint">Keine Raid-Termine der letzten Wochen gefunden.</div>';
   }
 

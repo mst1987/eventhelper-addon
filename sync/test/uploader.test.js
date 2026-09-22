@@ -4,7 +4,8 @@ jest.mock("fs");
 
 const fs = require("fs");
 const {
-    readEnvelope, uploadFile, envelopeForSession, describeResult, UploadError, SYNC_VERSION,
+    readEnvelope, uploadFile, uploadOneSession, fetchRaidStatus, envelopeForSession,
+    describeResult, UploadError, SYNC_VERSION,
 } = require("../lib/uploader");
 
 const CONFIG = { baseUrl: "https://example.test:3005", token: "ehl_secret" };
@@ -230,6 +231,74 @@ describe("uploadFile", () => {
             expect(err).toBeInstanceOf(UploadError);
             expect(err.status).toBe(403);
         });
+    });
+});
+
+describe("uploadOneSession", () => {
+    // Der Klick auf eine einzelne Raid-Zeile in der Oberfläche soll auch nur
+    // die betreffen, nicht den ganzen Abend wie uploadFile.
+    it("lädt nur die angegebene Session hoch, keine andere aus der Datei", async () => {
+        fs.readFileSync.mockReturnValue(savedVariables({
+            ...ENVELOPE,
+            sessions: [session(), session({ sessionId: "eh-2-tk" })],
+        }));
+        mockFetchOk({ results: [{ sessionId: "eh-2-tk", status: "pending", added: 1 }] });
+
+        const r = await uploadOneSession(CONFIG, "x.lua", "eh-2-tk");
+
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(global.fetch.mock.calls[0][1].body).sessions[0].sessionId).toBe("eh-2-tk");
+        expect(r.results).toEqual([{ sessionId: "eh-2-tk", status: "pending", added: 1 }]);
+    });
+
+    it("meldet keine Anfrage für eine sessionId, die es in der Datei nicht gibt", async () => {
+        fs.readFileSync.mockReturnValue(savedVariables(ENVELOPE));
+        global.fetch = jest.fn();
+        const r = await uploadOneSession(CONFIG, "x.lua", "gibts-nicht");
+        expect(global.fetch).not.toHaveBeenCalled();
+        expect(r).toEqual({ results: [] });
+    });
+
+    it("schickt eine abgewählte Session nicht", async () => {
+        fs.readFileSync.mockReturnValue(savedVariables(ENVELOPE));
+        global.fetch = jest.fn();
+        const r = await uploadOneSession({ ...CONFIG, excludedSessions: ["eh-1-ssc"] }, "x.lua", "eh-1-ssc");
+        expect(global.fetch).not.toHaveBeenCalled();
+        expect(r).toEqual({ results: [] });
+    });
+
+    it("macht nichts, wenn es noch keinen Export gibt", async () => {
+        fs.readFileSync.mockReturnValue("EventHelperSyncDB = { }");
+        global.fetch = jest.fn();
+        const r = await uploadOneSession(CONFIG, "x.lua", "eh-1-ssc");
+        expect(global.fetch).not.toHaveBeenCalled();
+        expect(r).toEqual({ results: [] });
+    });
+});
+
+describe("fetchRaidStatus", () => {
+    it("schickt die lokalen Sessions und liefert die Raid-Liste des Servers", async () => {
+        mockFetchOk({ raids: [{ eventId: "e1", status: "ready" }] });
+        const sessions = [{ sessionId: "s1", startedAt: 1000, items: 3, gargul: 3, rclc: 0, excluded: false }];
+
+        const r = await fetchRaidStatus(CONFIG, sessions);
+
+        expect(global.fetch.mock.calls[0][0]).toBe("https://example.test:3005/api/ingest/raids");
+        expect(JSON.parse(global.fetch.mock.calls[0][1].body)).toEqual({ sessions });
+        expect(global.fetch.mock.calls[0][1].headers.Authorization).toBe("Bearer ehl_secret");
+        expect(r).toEqual({ raids: [{ eventId: "e1", status: "ready" }] });
+    });
+
+    it("reicht einen Serverfehler wie beim Loot-Upload durch", async () => {
+        global.fetch = jest.fn(async () => ({
+            ok: false, status: 401, text: async () => JSON.stringify({ error: { message: "API-Token unbekannt oder zurückgezogen." } }),
+        }));
+        await expect(fetchRaidStatus(CONFIG, [])).rejects.toThrow("API-Token unbekannt oder zurückgezogen.");
+    });
+
+    it("meldet einen nicht erreichbaren Server verständlich", async () => {
+        global.fetch = jest.fn(async () => { throw new Error("ECONNREFUSED"); });
+        await expect(fetchRaidStatus(CONFIG, [])).rejects.toThrow(/nicht erreichbar/);
     });
 });
 

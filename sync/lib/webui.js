@@ -1,13 +1,16 @@
 "use strict";
 
 /**
- * Die Oberfläche des Sync-Tools: ein kleiner HTTP-Server auf 127.0.0.1, den der
- * Browser anzeigt.
+ * Die Oberfläche des Sync-Tools: ein kleiner HTTP-Server auf 127.0.0.1, den
+ * appWindow.js als chromeloses Fenster öffnet (kein Adressbalken, keine Tabs —
+ * sieht wie ein eigenständiges Programm aus, ist aber technisch weiter eine
+ * Webseite).
  *
- * Warum so und nicht als richtiges Fenster: Electron oder eine native
- * Bibliothek würde die .exe vervielfachen und den SEA-Bau zunichtemachen. Ein
- * Browser ist auf jedem Rechner schon da, und die Seite ist eine einzige
- * Zeichenkette, die beim Packen automatisch mitkommt.
+ * Warum so und nicht Electron oder ein natives GUI-Toolkit: das würde die .exe
+ * vervielfachen (Electron: ~150-200 statt ~66 MB) und den SEA-Bau (Nodes
+ * Single-Executable-Applications, siehe scripts/build-exe.js) zunichtemachen.
+ * Edge/Chrome sind auf jedem Windows-Rechner schon da, und die Seite ist eine
+ * einzige Zeichenkette, die beim Packen automatisch mitkommt.
  *
  * Abgesichert wird das Ganze auf drei Wegen, denn hier liegt ein Token, das auf
  * dem Gildenserver hochladen darf:
@@ -24,6 +27,7 @@ const crypto = require("crypto");
 const { execFile } = require("child_process");
 const config = require("./config");
 const wowPaths = require("./wowPaths");
+const { fetchRaidStatus } = require("./uploader");
 const { PAGE } = require("./webui-page");
 
 const HOST = "127.0.0.1";
@@ -184,6 +188,29 @@ function createWebUI(runner) {
             if (req.method === "POST" && parsed.pathname === "/api/test") {
                 await runner.testConnection();
                 json(res, 200, { ok: true });
+                return;
+            }
+
+            // Für die Raid-Liste: welche der letzten Raids schon Loot haben, und
+            // welche der lokalen Sessions dafür bereitstehen. Ein Aufruf gegen
+            // den echten Server bei jeder Anfrage — das Token bleibt dabei hier
+            // im Node-Prozess, die Seite bekommt es nie zu sehen.
+            if (req.method === "GET" && parsed.pathname === "/api/raids") {
+                const { raids } = await fetchRaidStatus(runner.config, runner.state.sessions);
+                json(res, 200, { raids });
+                return;
+            }
+
+            // Nur eine einzelne Raid-Zeile hochladen (der rote Knopf in der
+            // Liste), statt wie /api/upload die ganze Datei.
+            if (req.method === "POST" && parsed.pathname === "/api/upload-one") {
+                const sessionId = String(body.sessionId || "").trim();
+                if (!sessionId) {
+                    json(res, 400, { error: "sessionId fehlt." });
+                    return;
+                }
+                const results = await runner.uploadOne(sessionId);
+                json(res, 200, { ok: true, results });
                 return;
             }
 

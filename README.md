@@ -153,41 +153,29 @@ Es gibt zwei Wege — der erste braucht **kein** installiertes Node.js.
 
 Die `.exe` aus den [Releases](https://github.com/mst1987/eventhelper-addon/releases) herunterladen und **doppelklicken**. Beim ersten Start führt sie durch die Einrichtung (Server-Adresse, Token, WoW-Ordner) und geht danach direkt in den Beobachten-Modus über. Ab dann genügt ein Doppelklick zum Starten.
 
-Dabei öffnet sich die **Oberfläche im Browser**:
+Dabei öffnet sich ein **eigenes Fenster** — kein Browser-Tab: `lib/appWindow.js` startet die vorhandene Edge- oder Chrome-Installation mit `--app=…` (weder Adressleiste noch Tabs zu sehen). Findet sich keine, fällt es auf einen normalen Browser-Tab zurück, technisch bleibt es in beiden Fällen dieselbe lokale Seite auf `127.0.0.1`:
 
 ```
- ┌─ EventHelper Loot-Sync ──────────────────────────────────────┐
- │ STATUS                                                       │
- │   Verbindung       [verbunden]                               │
- │   Server           https://pulse-gdkp.de:3005                │
- │   Addon-Datei      …\SavedVariables\EventHelperSync.lua      │
- │                    (geschrieben 03.08.2026, 22:31)           │
- │   Zuletzt geprüft  vor 8 s                                   │
- │   Letzter Upload   vor 3 min — 2 Session(s)                  │
- │   [ Jetzt hochladen ]  [ Verbindung testen ]                 │
+ ┌─ EVENTHELPER SYNC ──────────────────────────────── ⚙  ✕ ┐
+ │          2 bereit zum Hochladen · 4 insgesamt offen      │
+ │                                                            │
+ │ BEREIT ZUM HOCHLADEN                                       │
+ │  [ Gruul & Magtheridon · Mi 24.09. · 42 Items (Gargul) ]  │
+ │  [ SSC + TK · So 21.09. · 12 Items (RCLootcouncil)     ]  │
+ │                                                            │
+ │ ÜBRIGE RAIDS                                                │
+ │  ✓ Karazhan · Mo 22.09. · Importiert                        │
+ │  – Hyjal · Do 18.09. · Kein Loot gefunden                   │
  │                                                              │
- │ WAS HOCHGELADEN WIRD                                         │
- │  [Alle Raids ▾] ☐ nur noch nie hochgeladene ☐ nur ausgewählte│
- │                        [Alle auswählen] [Alle abwählen]      │
- │   ☑ So 02.08.2026 19:39–21:18 SSC + TK    34  19  zuletzt … │
- │   ☐ Mo 27.07.2026 21:05–21:24 Gruul's L.  35  15  noch nie  │
- │   23 von 58 angezeigt · 41 ausgewählt (1204 Items)           │
- │                                                              │
- │ EINSTELLUNGEN                                                │
- │   Adresse des EventHelper  [https://pulse-gdkp.de:3005 ]     │
- │   API-Token                [ unverändert lassen        ]     │
- │   Addon-Datei              [ Automatisch suchen      ▾ ]     │
- │   Prüfintervall (Sek.)     [ 15 ]                            │
- │   [ Speichern ]                                              │
- │                                                              │
- │ VERLAUF                                                      │
- │   22:31:06  eh-…-ssc: neu in der Inbox — 12 Item(s)          │
- └──────────────────────────────────────────────────────────────┘
+ │ Zuletzt geprüft vor 8 s                      ↻ jetzt prüfen │
+ └────────────────────────────────────────────────────────────┘
 ```
 
-Das Fenster darf jederzeit zu — der Upload läuft im Hintergrund weiter. Wieder aufrufen: die Adresse steht in der Konsole.
+Ein Klick auf eine bereite Zeile lädt **genau diesen einen Raid** hoch — nicht die ganze Datei. Die Zeile springt danach auf „Importiert". Das Zahnrad oben klappt Einstellungen (Server, Token, Addon-Datei) und den Verlauf ein; „Alles hochladen" für die ganze Datei auf einmal und „Verbindung testen" liegen dort mit drin, nicht mehr in der Hauptansicht.
 
-**Hier fällt die letzte Entscheidung.** Was in dieser Liste abgewählt ist, wird nicht gesendet — es erreicht den Server also gar nicht erst und muss dort auch nicht von Hand verworfen werden. Die Auswahl bleibt gespeichert, und die Spalte „Zuletzt gesendet" sagt, was der Server beim letzten Mal daraus gemacht hat („12 neu in der Inbox", „7 ergänzt zu SSC Mittwoch", „noch nie").
+**Ohne bekannten Raid-Termin** (z.B. ein Pug-Abend ohne Raid-Helper-Event) landet trotzdem in „Bereit zum Hochladen" — nur ohne Raid-Namen, mit einem kleinen ✕ daneben, um genau diesen Abend abzuwählen. Das Fenster darf jederzeit zu — der Upload läuft im Hintergrund weiter. Wieder aufrufen: die Adresse steht in der Konsole.
+
+**Die Abwahl ist die letzte Entscheidung vor dem Senden.** Ein abgewählter Abend erreicht den Server gar nicht erst und muss dort auch nicht von Hand verworfen werden.
 
 > Das ist bewusst eine **zweite** Stelle neben der Abwahl im Spiel: dort entscheidet man beim Spielen, hier vor dem Absenden — und hier sieht man, was die bisherigen Uploads bewirkt haben.
 
@@ -262,8 +250,8 @@ Wenn auf dem Rechner nichts laufen soll: `/ehs export` im Spiel, **Strg+A / Strg
 | Sync-Tool: „Keine EventHelperSync.lua gefunden" | Erstens: war das Addon im Spiel schon einmal geladen? Falls ja, listet die Oberfläche die durchsuchten Orte auf — ist dein WoW-Ordner nicht dabei, ihn unter **„Pfad selbst angeben"** eintragen. Der blosse WoW-Ordner genügt. |
 | Der Upload-Knopf taucht nicht auf | Es liegt nichts Ungespeichertes an — `/ehs` zeigt den Stand. Oder er wurde per `/ehs button` abgeschaltet. |
 | Minimap-Knopf ist weg | `/ehs minimap` schaltet ihn wieder ein. |
-| Ein Raid-Abend wird nicht hochgeladen | Im Fenster prüfen, ob sein Häkchen gesetzt ist — abgewählte Abende bleiben abgewählt. |
-| Die Oberfläche öffnet sich nicht | Die Adresse steht in der Konsole (`http://127.0.0.1:…/?key=…`) und lässt sich von Hand aufrufen. Ohne den Schlüssel in der Adresse antwortet sie mit 403. |
+| Ein Raid-Abend wird nicht hochgeladen | Wurde er per ✕ neben der Zeile abgewählt? Abgewählte Abende bleiben abgewählt und tauchen in „Bereit zum Hochladen" nicht mehr auf. |
+| Die Oberfläche öffnet sich nicht | Die Adresse steht in der Konsole (`http://127.0.0.1:…/?key=…`) und lässt sich von Hand aufrufen. Ohne den Schlüssel in der Adresse antwortet sie mit 403. Kein installierter Edge/Chrome gefunden: das Fenster öffnet sich dann als normaler Browser-Tab statt chromelos — technisch dieselbe Seite. |
 | Knopf ist grau | Du bist im Kampf. Nach dem Kampf wird er wieder klickbar. |
 | SmartScreen blockiert die `.exe` | Die Datei ist nicht signiert. „Weitere Informationen" → „Trotzdem ausführen", oder Weg (b) mit Node benutzen. |
 | Sync-Tool: „API-Token unbekannt oder zurückgezogen" | Token wurde im Menü gelöscht, oder falsch kopiert. Neu erstellen und `npm run init`. |

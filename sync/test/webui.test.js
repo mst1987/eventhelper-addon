@@ -15,9 +15,11 @@ jest.mock("../lib/wowPaths", () => ({
     ]),
 }));
 jest.mock("../lib/uploader", () => ({ fetchRaidStatus: jest.fn() }));
+jest.mock("child_process");
 
 const config = require("../lib/config");
 const { fetchRaidStatus } = require("../lib/uploader");
+const { execFile } = require("child_process");
 const { createWebUI, safeConfig } = require("../lib/webui");
 
 const CONFIG = {
@@ -325,6 +327,33 @@ describe("webui", () => {
             const res = await post("/api/upload-one", { sessionId: "eh-1-ssc" });
             expect(res.status).toBe(500);
             expect((await res.json()).error).toBe("Server nicht erreichbar");
+        });
+    });
+
+    describe("POST /api/open-external", () => {
+        it("öffnet eine Adresse des eingestellten Servers im echten Browser", async () => {
+            await startUI(fakeRunner());
+            const res = await post("/api/open-external", { url: "https://example.test:3005/raids/detail?event=eh-1" });
+            expect(res.status).toBe(200);
+            expect(execFile).toHaveBeenCalled();
+        });
+
+        // Sonst wäre das ein offener Redirector für beliebige Adressen — der
+        // Sync-Prozess soll nur auf den eigenen, eingestellten Server zeigen.
+        it("weist eine fremde Adresse ab, ohne den Browser zu öffnen", async () => {
+            await startUI(fakeRunner());
+            const res = await post("/api/open-external", { url: "https://boes.example/phish" });
+            expect(res.status).toBe(400);
+            expect(execFile).not.toHaveBeenCalled();
+        });
+
+        it("weist eine Adresse ab, die nur mit dem Server-Präfix beginnt, aber ein anderer Host ist", async () => {
+            await startUI(fakeRunner());
+            // "https://example.test:3005.boes.example/..." beginnt als String
+            // mit der Basis-URL, ist aber ein anderer Host.
+            const res = await post("/api/open-external", { url: "https://example.test:3005.boes.example/x" });
+            expect(res.status).toBe(400);
+            expect(execFile).not.toHaveBeenCalled();
         });
     });
 

@@ -8,8 +8,8 @@ const os = require("os");
 const path = require("path");
 
 jest.mock("child_process");
-const { execFile } = require("child_process");
-const { openAppWindow, findBrowser } = require("../lib/appWindow");
+const { execFile, execFileSync } = require("child_process");
+const { openAppWindow, findBrowser, hideConsoleWindow } = require("../lib/appWindow");
 
 let tmp;
 const ORIGINAL_ENV = { ...process.env };
@@ -27,6 +27,7 @@ beforeEach(() => {
     setPlatform("win32");
     jest.clearAllMocks();
     execFile.mockImplementation(() => ({ on: jest.fn() }));
+    execFileSync.mockImplementation(() => "");
 });
 
 afterEach(() => {
@@ -119,5 +120,32 @@ describe("openAppWindow", () => {
         setPlatform("darwin");
         expect(openAppWindow("http://127.0.0.1:8730/?key=abc")).toBe(false);
         expect(execFile).not.toHaveBeenCalled();
+    });
+});
+
+describe("hideConsoleWindow", () => {
+    it("ruft PowerShell mit dem GetConsoleWindow/ShowWindow-Trick auf", () => {
+        const ok = hideConsoleWindow();
+
+        expect(ok).toBe(true);
+        expect(execFileSync).toHaveBeenCalledTimes(1);
+        const [cmd, args, opts] = execFileSync.mock.calls[0];
+        expect(cmd).toBe("powershell.exe");
+        expect(args.join(" ")).toMatch(/GetConsoleWindow/);
+        expect(args.join(" ")).toMatch(/ShowWindow/);
+        // Bewusst OHNE windowsHide: das gäbe PowerShell eine eigene, leere
+        // Konsole statt der bestehenden beizutreten (siehe lib/appWindow.js).
+        expect(opts).not.toHaveProperty("windowsHide");
+    });
+
+    it("liefert false, statt zu werfen, wenn PowerShell fehlschlägt", () => {
+        execFileSync.mockImplementation(() => { throw new Error("nicht gefunden"); });
+        expect(hideConsoleWindow()).toBe(false);
+    });
+
+    it("versucht es auf anderen Plattformen gar nicht erst", () => {
+        setPlatform("darwin");
+        expect(hideConsoleWindow()).toBe(false);
+        expect(execFileSync).not.toHaveBeenCalled();
     });
 });

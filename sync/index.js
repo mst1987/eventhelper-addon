@@ -21,7 +21,7 @@ const wowPaths = require("./lib/wowPaths");
 const { readEnvelope, uploadFile, describeResult, UploadError, SYNC_VERSION } = require("./lib/uploader");
 const { createRunner } = require("./lib/runner");
 const { createWebUI, openInBrowser } = require("./lib/webui");
-const { openAppWindow } = require("./lib/appWindow");
+const { openAppWindow, hideConsoleWindow } = require("./lib/appWindow");
 
 const stamp = () => new Date().toLocaleTimeString("de-DE");
 const log = (...args) => console.log(`[${stamp()}]`, ...args);
@@ -207,7 +207,9 @@ async function cmdWatch() {
     });
 
     if (withUi) {
-        const ui = createWebUI(runner);
+        // onQuit: process.exit() gehört nicht in webui.js selbst — sonst würde
+        // ein Test, der den Server startet, den Testlauf mitbeenden.
+        const ui = createWebUI(runner, { onQuit: () => process.exit(0) });
         try {
             const url = await ui.start(process.env.EVENTHELPER_SYNC_UI_PORT);
             log(`Oberfläche: ${url}`);
@@ -215,6 +217,13 @@ async function cmdWatch() {
             // Start schlägt fehl -> normaler Browser-Tab, damit die Oberfläche
             // in jedem Fall erreichbar bleibt.
             if (!openAppWindow(url)) openInBrowser(url);
+
+            // Bei einem Doppelklick auf die .exe soll nur das gestaltete
+            // Fenster zu sehen sein, nicht die Node-Konsole dahinter. Wer die
+            // .exe absichtlich mit "watch" aus einem Terminal heraus startet,
+            // soll sein eigenes Terminal dagegen nicht verschwinden sehen —
+            // launchedBare() unterscheidet genau das (siehe dort).
+            if (launchedBare()) hideConsoleWindow();
         } catch (e) {
             fail(`Oberfläche konnte nicht gestartet werden: ${e.message}`);
             fail("Der Upload läuft trotzdem weiter.");

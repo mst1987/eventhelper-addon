@@ -15,6 +15,11 @@ module.exports.PAGE = String.raw`<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EventHelper Loot-Sync</title>
+<!-- Taskleisten-/Fenster-Icon: Edge/Chrome übernehmen im --app=-Modus das
+     Favicon der Seite als Icon von Taskleiste und Fenster. Als Daten-URI
+     eingebettet statt als Datei, damit auch dieses Stück ohne Build-Schritt
+     im gepackten Bündel landet (siehe Kopfkommentar). -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231c150c'/%3E%3Crect x='1.5' y='1.5' width='29' height='29' rx='5' fill='none' stroke='%23d8b567' stroke-width='2'/%3E%3Cpath d='M16 6 L24 13 L16 26 L8 13 Z' fill='%239a2a2a' stroke='%23d8b567' stroke-width='1.4' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Spectral:wght@400;500;600&display=swap">
 <style>
   :root {
@@ -348,6 +353,36 @@ async function uploadOne(sessionId, btn) {
   refreshRaids();
 }
 
+// Die Adresse des eingestellten Servers im echten Browser öffnen (nicht im
+// eigenen App-Fenster, siehe /api/open-external in webui.js).
+function openExternal(url) {
+  api("/api/open-external", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  }).catch((e) => flash(e.message, "err"));
+}
+
+// Wohin eine Raid-Zeile verlinkt: mit Loot dahin, wo der Loot steht
+// (Historie), sonst zum Event selbst (Raid-Cockpit) — vor dem Import gibt es
+// dort ja noch nichts zu sehen.
+function eventUrl(eventId, path) {
+  const base = lastState && lastState.config && lastState.config.baseUrl;
+  if (!base || !eventId) return "";
+  return base.replace(/\/+$/, "") + path + "?event=" + encodeURIComponent(eventId);
+}
+
+function linkButton(url) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "dismiss";
+  btn.title = "Auf der Website öffnen";
+  btn.setAttribute("aria-label", "Auf der Website öffnen");
+  btn.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></svg>';
+  btn.addEventListener("click", (ev) => { ev.stopPropagation(); openExternal(url); });
+  return btn;
+}
+
 function rowButton(className, contents, onClick) {
   const btn = document.createElement("button");
   btn.type = "button";
@@ -398,7 +433,7 @@ function buildGroups() {
 // Raid zuordnen konnte oder nicht. Ohne das Kreuz g\u00e4be es f\u00fcr eine bereits
 // zugeordnete Zeile keine M\u00f6glichkeit mehr, sie doch nicht zu senden (die alte
 // Tabelle konnte jede Session abw\u00e4hlen, das darf hier nicht verlorengehen).
-function readyRow(sessionId, innerHtml) {
+function readyRow(sessionId, innerHtml, linkUrl) {
   const btn = rowButton("ready", innerHtml, () => uploadOne(sessionId, btn));
   btn.style.flexGrow = "1";
 
@@ -414,7 +449,9 @@ function readyRow(sessionId, innerHtml) {
   wrap.style.display = "flex";
   wrap.style.gap = "8px";
   wrap.style.alignItems = "stretch";
-  wrap.append(btn, dismiss);
+  wrap.appendChild(btn);
+  if (linkUrl) wrap.appendChild(linkButton(linkUrl));
+  wrap.appendChild(dismiss);
   return wrap;
 }
 
@@ -422,10 +459,13 @@ function renderReadyRow(r) {
   return readyRow(r.matchedSessionId,
     '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#f5e6c8" stroke-width="2.2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>'
     + '<div class="info"><div class="name outline">' + esc(r.title) + '</div>'
-    + '<div class="sub">' + fmtDay(r.startTime * 1000) + " &middot; " + sourceLabel(r.gargul, r.rclc) + "</div></div>");
+    + '<div class="sub">' + fmtDay(r.startTime * 1000) + " &middot; " + sourceLabel(r.gargul, r.rclc) + "</div></div>",
+    // Noch kein Loot importiert \u2014 verlinkt zum Event selbst, nicht zur Historie.
+    eventUrl(r.eventId, "/raids/detail"));
 }
 
 function renderUnmatchedRow(s) {
+  // Keine Server-eventId f\u00fcr eine lokale, unzugeordnete Session \u2014 kein Link m\u00f6glich.
   return readyRow(s.sessionId,
     '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#f5e6c8" stroke-width="2.2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>'
     + '<div class="info"><div class="name outline">' + esc(s.instance || "Unbekannter Raid") + '</div>'
@@ -437,9 +477,13 @@ function renderRestRow(r) {
   const icon = isDone
     ? '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#7fc463" stroke-width="2.4"><path d="M4 12l5 5L20 6"/></svg>'
     : '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#d4c05a" stroke-width="2.4"><path d="M6 12h12"/></svg>';
-  return rowDiv(isDone ? "done" : "empty",
+  const row = rowDiv(isDone ? "done" : "empty",
     icon + '<div class="info"><div class="name">' + esc(r.title) + '</div>'
     + '<div class="sub">' + fmtDay(r.startTime * 1000) + " &middot; " + (isDone ? "Importiert" : "Kein Loot gefunden") + "</div></div>");
+  // Mit Loot dahin, wo der Loot steht (Historie); ohne Loot zum Event selbst.
+  const url = eventUrl(r.eventId, isDone ? "/history/event" : "/raids/detail");
+  if (url) row.appendChild(linkButton(url));
+  return row;
 }
 
 function render() {

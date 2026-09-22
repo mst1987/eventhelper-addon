@@ -217,6 +217,24 @@ function createWebUI(runner, { onQuit } = {}) {
                 return;
             }
 
+            // Der ↗-Knopf an einer Raid-Zeile: das Event (oder dessen Loot)
+            // im echten Browser öffnen statt im eigenen App-Fenster — ein
+            // window.open() darin würde nur ein weiteres chromeloses Popup
+            // aufmachen, kein normales Fenster mit Adressleiste. Nur Adressen
+            // des eingestellten Servers erlaubt, damit das hier kein offener
+            // Redirector für beliebige URLs wird.
+            if (req.method === "POST" && parsed.pathname === "/api/open-external") {
+                const url = String(body.url || "");
+                const base = String(runner.config.baseUrl || "").replace(/\/+$/, "");
+                if (!base || !url.startsWith(base + "/")) {
+                    json(res, 400, { error: "Nur Adressen des eingestellten Servers erlaubt." });
+                    return;
+                }
+                openInBrowser(url);
+                json(res, 200, { ok: true });
+                return;
+            }
+
             // Der ✕-Knopf im Fenster: beendet den ganzen Sync-Tool, nicht nur
             // das Browserfenster. Wichtig, seit die Konsole beim Doppelklick
             // versteckt wird (index.js) — ohne das hier gäbe es sonst keine

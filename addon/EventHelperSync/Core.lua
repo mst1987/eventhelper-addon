@@ -34,7 +34,7 @@ EventHelperSync = EventHelperSync or {}
 local EHS = EventHelperSync
 
 EHS.name = ADDON_NAME
-EHS.version = GetAddOnMetadata and GetAddOnMetadata(ADDON_NAME, "Version") or "1.4.1"
+EHS.version = GetAddOnMetadata and GetAddOnMetadata(ADDON_NAME, "Version") or "1.5.0"
 
 -- Voreinstellungen. lookbackDays begrenzt, wie weit zurück Loot exportiert wird:
 -- die Historien beider Addons wachsen über Monate, hochgeladen werden muss aber

@@ -48,8 +48,11 @@ function envelopeForSession(envelope, session) {
     };
 }
 
-async function postSession(config, payload) {
-    const url = `${String(config.baseUrl).replace(/\/+$/, "")}/api/ingest/loot`;
+/** POST gegen einen `/api/...`-Pfad des Servers, mit Bearer-Token — die
+ * gemeinsame Grundlage von postSession() (Loot-Upload) und fetchRaidStatus()
+ * (Raid-Liste). */
+async function postJson(config, path, payload) {
+    const url = `${String(config.baseUrl).replace(/\/+$/, "")}${path}`;
     let res;
     try {
         res = await fetch(url, {
@@ -78,6 +81,23 @@ async function postSession(config, payload) {
     return (body && body.data) || body;
 }
 
+async function postSession(config, payload) {
+    return postJson(config, "/api/ingest/loot", payload);
+}
+
+/**
+ * Der Raid-Status vom Server: pro Event der letzten Wochen, ob schon Loot da
+ * ist, und — falls nicht — ob eine der übergebenen lokalen Sessions dafür
+ * bereitsteht (Feld `status`: "done"/"ready"/"empty"). Nimmt nur die
+ * Aggregat-Felder aus runner.state.sessions, keine Item-Details — das Matching
+ * selbst passiert serverseitig (computeRaidStatus() im Bot-Repo), damit die
+ * Vorschau hier nie vom tatsächlichen Upload-Verhalten abweichen kann.
+ * @returns {Promise<{ raids: object[] }>}
+ */
+async function fetchRaidStatus(config, sessions) {
+    return postJson(config, "/api/ingest/raids", { sessions });
+}
+
 /**
  * Eine SavedVariables-Datei hochladen — ohne die hier abgewählten Abende.
  *
@@ -104,6 +124,25 @@ async function uploadFile(config, file) {
     return { sessions: sessions.length, skipped, results };
 }
 
+/**
+ * Genau eine Session hochladen statt der ganzen Datei (uploadFile) — der Klick
+ * auf eine einzelne Raid-Zeile in der Oberfläche soll auch nur die betreffen.
+ * Eine abgewählte, unbekannte oder leere Session wird wie bei uploadFile
+ * übersprungen statt eine sinnlose Anfrage zu schicken.
+ * @returns {Promise<{ results: object[] }>}
+ */
+async function uploadOneSession(config, file, sessionId) {
+    const envelope = readEnvelope(file);
+    if (!envelope) return { results: [] };
+    const excluded = new Set(Array.isArray(config.excludedSessions) ? config.excludedSessions : []);
+    const session = (envelope.sessions || []).find((s) => s && s.sessionId === sessionId);
+    if (!session || excluded.has(session.sessionId) || !Array.isArray(session.items) || !session.items.length) {
+        return { results: [] };
+    }
+    const answer = await postSession(config, envelopeForSession(envelope, session));
+    return { results: (answer && answer.results) || [] };
+}
+
 /** Eine Ergebniszeile des Servers als Satz für die Konsole. */
 function describeResult(r) {
     switch (r.status) {
@@ -123,4 +162,7 @@ function describeResult(r) {
     }
 }
 
-module.exports = { readEnvelope, uploadFile, postSession, envelopeForSession, describeResult, UploadError, SYNC_VERSION };
+module.exports = {
+    readEnvelope, uploadFile, uploadOneSession, postSession, fetchRaidStatus, envelopeForSession,
+    describeResult, UploadError, SYNC_VERSION,
+};

@@ -13,7 +13,7 @@
 const fs = require("fs");
 const config = require("./config");
 const wowPaths = require("./wowPaths");
-const { readEnvelope, uploadFile, postSession, UploadError, SYNC_VERSION } = require("./uploader");
+const { readEnvelope, uploadFile, uploadOneSession, postSession, UploadError, SYNC_VERSION } = require("./uploader");
 
 // Wie viele Log-Zeilen aufgehoben werden. Genug für einen Raid-Abend, wenig
 // genug, dass der Speicher nicht mitwächst.
@@ -133,6 +133,39 @@ function createRunner(options = {}) {
             throw e;
         } finally {
             state.uploading = false;
+            // uploadLog wurde in rememberResults() gespeichert — die Raid-Liste
+            // soll das sofort zeigen, nicht erst beim nächsten Tick.
+            readState();
+        }
+    }
+
+    /**
+     * Nur eine einzelne Session hochladen — der Klick auf eine Raid-Zeile in
+     * der Oberfläche soll auch nur die betreffen, nicht den ganzen Abend.
+     */
+    async function uploadOne(sessionId) {
+        if (!state.file) {
+            throw new Error("Keine EventHelperSync.lua gefunden. Ist das Addon installiert und war einmal geladen?");
+        }
+        state.uploading = true;
+        try {
+            const { results } = await uploadOneSession(cfg, state.file, sessionId);
+            if (results.length) {
+                state.lastUpload = { at: Date.now(), results, skipped: 0 };
+                state.lastError = null;
+                rememberResults(results);
+                for (const r of results) log("ok", `${r.sessionId}: ${describe(r)}`);
+            }
+            return results;
+        } catch (e) {
+            state.lastError = { at: Date.now(), message: e.message };
+            log("error", e instanceof UploadError ? `Upload fehlgeschlagen: ${e.message}` : e.message);
+            throw e;
+        } finally {
+            state.uploading = false;
+            // uploadLog wurde in rememberResults() gespeichert — der Stand der
+            // Zeile (state.sessions[].lastUpload) muss das jetzt zeigen.
+            readState();
         }
     }
 
@@ -257,6 +290,7 @@ function createRunner(options = {}) {
         reload,
         tick,
         uploadNow,
+        uploadOne,
         testConnection,
         readState,
         setExcluded,

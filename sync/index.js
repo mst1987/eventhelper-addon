@@ -21,6 +21,7 @@ const wowPaths = require("./lib/wowPaths");
 const { readEnvelope, uploadFile, describeResult, UploadError, SYNC_VERSION } = require("./lib/uploader");
 const { createRunner } = require("./lib/runner");
 const { createWebUI, openInBrowser } = require("./lib/webui");
+const { openAppWindow } = require("./lib/appWindow");
 
 const stamp = () => new Date().toLocaleTimeString("de-DE");
 const log = (...args) => console.log(`[${stamp()}]`, ...args);
@@ -190,9 +191,10 @@ async function cmdOnce() {
 }
 
 /**
- * Dauerbetrieb. Standardmässig mit Oberfläche: das Fenster im Browser zeigt
- * Stand und Einstellungen, ohne dass jemand einen Befehl kennen muss. Mit
- * --no-ui bleibt es bei den Konsolenzeilen (für den Betrieb als Dienst).
+ * Dauerbetrieb. Standardmässig mit Oberfläche: ein eigenes Fenster (Edge/
+ * Chrome ohne Adressleiste und Tabs, siehe lib/appWindow.js) zeigt Stand und
+ * Raid-Liste, ohne dass jemand einen Befehl kennen muss. Mit --no-ui bleibt es
+ * bei den Konsolenzeilen (für den Betrieb als Dienst).
  */
 async function cmdWatch() {
     requireReady();
@@ -209,7 +211,10 @@ async function cmdWatch() {
         try {
             const url = await ui.start(process.env.EVENTHELPER_SYNC_UI_PORT);
             log(`Oberfläche: ${url}`);
-            openInBrowser(url);
+            // Bevorzugt als eigenes Fenster; kein Edge/Chrome gefunden oder der
+            // Start schlägt fehl -> normaler Browser-Tab, damit die Oberfläche
+            // in jedem Fall erreichbar bleibt.
+            if (!openAppWindow(url)) openInBrowser(url);
         } catch (e) {
             fail(`Oberfläche konnte nicht gestartet werden: ${e.message}`);
             fail("Der Upload läuft trotzdem weiter.");

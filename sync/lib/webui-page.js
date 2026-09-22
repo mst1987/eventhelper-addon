@@ -2,7 +2,12 @@
 
 // Die Oberfläche als eine Zeichenkette — kein Build-Schritt, keine Dateien
 // daneben, und beim Packen der .exe landet sie automatisch mit im Bündel.
-// Kein Framework: die Seite zeigt eine Handvoll Werte und ein Formular.
+// Kein Framework: eine Raid-Liste und ein Einstellungen-Panel dahinter.
+//
+// Layout und Farben sind das abgenommene Mockup (dunkles Steinpanel, goldene
+// Fassung, rote Buttons für "bereit", grün/gelb für importiert/kein-Loot,
+// https://claude.ai/artifact/DXAy1y1wS2i9jX7hQ6d7kF) — kein Browser-Chrome
+// mehr sichtbar, weil appWindow.js die Seite als eigenes Fenster öffnet.
 
 module.exports.PAGE = String.raw`<!doctype html>
 <html lang="de">
@@ -10,166 +15,170 @@ module.exports.PAGE = String.raw`<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EventHelper Loot-Sync</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Spectral:wght@400;500;600&display=swap">
 <style>
   :root {
-    --bg: #12131a; --panel: #1a1c26; --panel2: #21243040; --line: #2b2f3d;
-    --text: #e6e8f0; --dim: #9aa0b4; --accent: #7c6cff; --accent2: #35d6d0;
-    --ok: #3ecf7e; --warn: #ffc94d; --err: #ff6b6b;
-  }
-  @media (prefers-color-scheme: light) {
-    :root {
-      --bg: #f4f5fa; --panel: #ffffff; --panel2: #f0f1f7; --line: #e0e2ec;
-      --text: #1a1c26; --dim: #616780; --accent: #5b46e5; --accent2: #10a8a2;
-    }
+    --gold: #d8b567; --gold-dim: #8a6a2c; --cream: #f2dfa8; --parchment: #cabfa8;
+    --ready-bg1: #9a2a2a; --ready-bg2: #6b1414; --ready-bg3: #4a0d0d;
+    --done-bg1: #2e3a26; --done-bg2: #1c2417; --done-line: #5a7a3e;
+    --empty-bg1: #3a3320; --empty-bg2: #241f13; --empty-line: #8a7a2e;
+    --err: #ff8a7a; --warn: #e0c25a;
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+    margin: 0; font-family: "Spectral", Georgia, serif; color: var(--parchment);
+    background:
+      radial-gradient(38% 30% at 12% 8%, rgba(255,205,120,.18), transparent 70%),
+      radial-gradient(55% 42% at 6% 96%, rgba(95,125,55,.22), transparent 70%),
+      radial-gradient(60% 50% at 100% 55%, rgba(130,70,45,.18), transparent 70%),
+      linear-gradient(150deg, #4a3f2e 0%, #241d15 55%, #171209 100%);
   }
-  .wrap { max-width: 900px; margin: 0 auto; padding: 24px 18px 60px; }
-  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
-  h1 { font-size: 20px; margin: 0; letter-spacing: .2px; }
-  .ver { color: var(--dim); font-size: 12px; }
-  .sub { color: var(--dim); font-size: 13px; margin: 0 0 20px; }
+  .outline { text-shadow: 0 1px 0 #000, 0 -1px 0 #000, 1px 0 0 #000, -1px 0 0 #000, 0 2px 3px rgba(0,0,0,.5); }
 
-  .card {
-    background: var(--panel); border: 1px solid var(--line);
-    border-radius: 10px; padding: 16px 18px; margin-bottom: 16px;
-  }
-  .card h2 {
-    font-size: 13px; text-transform: uppercase; letter-spacing: .8px;
-    color: var(--dim); margin: 0 0 12px; font-weight: 600;
+  .frame {
+    position: relative; min-height: 100vh; box-sizing: border-box;
+    padding: 30px 20px 16px; display: flex; flex-direction: column; gap: 12px;
+    box-shadow: inset 0 0 0 2px var(--gold), inset 0 0 0 5px var(--gold-dim), inset 0 0 0 6px #241a0d;
   }
 
-  .grid { display: grid; grid-template-columns: 150px 1fr; gap: 8px 14px; }
-  .grid dt { color: var(--dim); }
-  .grid dd { margin: 0; word-break: break-all; }
-
-  .pill {
-    display: inline-block; padding: 1px 9px; border-radius: 99px;
-    font-size: 12px; font-weight: 600;
+  .ribbon {
+    position: absolute; top: -2px; left: 50%; transform: translateX(-50%);
+    background: linear-gradient(180deg, #5a1414 0%, #3c0d0d 100%);
+    border: 2px solid var(--gold); border-top: none; border-radius: 0 0 6px 6px;
+    padding: 6px 24px 5px;
+    font-family: "Cinzel", Georgia, serif; font-size: 13px; letter-spacing: .06em; color: var(--cream);
   }
-  .pill.ok   { background: color-mix(in srgb, var(--ok) 18%, transparent);   color: var(--ok); }
-  .pill.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
-  .pill.err  { background: color-mix(in srgb, var(--err) 18%, transparent);  color: var(--err); }
-  .pill.dim  { background: var(--panel2); color: var(--dim); }
-
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); }
-  th { color: var(--dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
-  tr:last-child td { border-bottom: none; }
-  td.num, th.num { text-align: right; }
-  .tablewrap { overflow-x: auto; }
-
-  label { display: block; margin-bottom: 14px; }
-  label .lbl { display: block; margin-bottom: 4px; font-weight: 600; }
-  label .hint { display: block; margin-top: 4px; color: var(--dim); font-size: 12px; }
-  input[type=text], input[type=password], input[type=number], select {
-    width: 100%; padding: 8px 10px; border-radius: 7px;
-    border: 1px solid var(--line); background: var(--panel2); color: var(--text);
-    font: inherit;
+  .titlebtn {
+    position: absolute; top: 6px; width: 22px; height: 22px; border-radius: 4px;
+    background: linear-gradient(180deg, #4a3f2e 0%, #241d15 100%); border: 1px solid var(--gold-dim);
+    color: var(--parchment); font-size: 12px; line-height: 1; cursor: pointer;
   }
-  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .titlebtn:hover { filter: brightness(1.25); }
+  #btn-close { right: 10px; }
+  #btn-settings { right: 38px; }
 
-  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
-  button {
-    padding: 8px 16px; border-radius: 7px; border: 1px solid transparent;
-    background: var(--accent); color: #fff; font: inherit; font-weight: 600;
+  .banner {
+    border: 1px solid var(--err); background: rgba(255,138,122,.12); color: #ffd9d0;
+    border-radius: 6px; padding: 9px 12px; font-size: 12.5px; line-height: 1.5;
+  }
+  .banner code { background: rgba(0,0,0,.3); padding: 1px 5px; border-radius: 4px; }
+
+  .summary { text-align: center; font-size: 12.5px; color: var(--parchment); }
+  .summary b { color: var(--cream); }
+
+  .lists { display: flex; flex-direction: column; gap: 16px; flex-grow: 1; }
+  .group-label {
+    font-family: "Cinzel", Georgia, serif; font-size: 11px; letter-spacing: .1em;
+    color: #b6a077; text-shadow: 0 1px 2px rgba(0,0,0,.6); margin: 0 0 8px;
+  }
+  .group { display: flex; flex-direction: column; gap: 8px; }
+
+  .row {
+    border-radius: 4px; padding: 10px 14px; display: flex; align-items: center; gap: 12px;
+    box-sizing: border-box; width: 100%; text-align: left; font: inherit; color: inherit; cursor: default;
+  }
+  .row.ready {
+    background: linear-gradient(180deg, var(--ready-bg1) 0%, var(--ready-bg2) 55%, var(--ready-bg3) 100%);
+    border: 1px solid var(--gold);
+    box-shadow: inset 0 1px 0 rgba(255,190,150,.35), inset 0 -2px 4px rgba(0,0,0,.35), 0 2px 5px rgba(0,0,0,.35);
     cursor: pointer;
   }
-  button.ghost { background: transparent; border-color: var(--line); color: var(--text); }
-  button:disabled { opacity: .5; cursor: default; }
-  button:hover:not(:disabled) { filter: brightness(1.12); }
+  .row.ready:hover { filter: brightness(1.08); }
+  .row.ready:active { filter: brightness(.9); }
+  .row.ready:disabled { cursor: default; opacity: .6; filter: none; }
+  .row.done { background: linear-gradient(180deg, var(--done-bg1) 0%, var(--done-bg2) 100%); border: 1px solid var(--done-line); }
+  .row.empty { background: linear-gradient(180deg, var(--empty-bg1) 0%, var(--empty-bg2) 100%); border: 1px solid var(--empty-line); }
+
+  .row .icon { flex: 0 0 auto; width: 16px; height: 16px; }
+  .row .info { flex-grow: 1; min-width: 0; }
+  .row .name { font-size: 14px; font-weight: 600; }
+  .row.ready .name { color: var(--cream); }
+  .row.done .name { color: #bcd4a4; }
+  .row.empty .name { color: #d9c988; }
+  .row .sub { font-size: 11.5px; }
+  .row.ready .sub { color: #e3b8a8; }
+  .row.done .sub { color: #7fa066; }
+  .row.empty .sub { color: #a89550; }
+
+  .dismiss {
+    flex: 0 0 auto; width: 22px; height: 22px; border-radius: 4px; line-height: 1;
+    background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.25); color: var(--cream);
+    font-size: 12px; cursor: pointer;
+  }
+  .dismiss:hover { background: rgba(0,0,0,.45); }
+
+  .empty-hint { color: #8a8067; font-size: 12.5px; padding: 4px 2px; }
+
+  .footer {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 11px; color: #a4916a; border-top: 1px solid rgba(216,181,103,.2); padding-top: 10px;
+  }
+  .linklike { background: none; border: none; font: inherit; font-size: 11px; color: #a4916a; cursor: pointer; padding: 0; }
+  .linklike:hover { color: var(--cream); }
+
+  .settings-panel {
+    background: rgba(10,8,6,.55); border: 1px solid var(--gold-dim); border-radius: 8px;
+    padding: 14px 16px; margin-top: 4px; font-family: "Spectral", Georgia, serif;
+  }
+  .settings-panel h2 {
+    font-family: "Cinzel", Georgia, serif; font-size: 12px; letter-spacing: .08em; color: var(--cream);
+    margin: 0 0 12px; text-transform: uppercase;
+  }
+  .settings-panel label { display: block; margin-bottom: 12px; }
+  .settings-panel .lbl { display: block; margin-bottom: 4px; font-weight: 600; color: var(--parchment); font-size: 13px; }
+  .settings-panel .hint { display: block; margin-top: 4px; color: #8a8067; font-size: 11.5px; }
+  .settings-panel input[type=text], .settings-panel input[type=password], .settings-panel input[type=number], .settings-panel select {
+    width: 100%; padding: 7px 9px; border-radius: 5px; border: 1px solid var(--gold-dim);
+    background: rgba(0,0,0,.3); color: var(--parchment); font: inherit; font-size: 13px;
+  }
+  .settings-panel input:focus, .settings-panel select:focus { outline: 1px solid var(--gold); outline-offset: -1px; }
+  .settings-panel code { background: rgba(0,0,0,.3); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+  .settings-panel .row2 { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+  .btn {
+    padding: 7px 14px; border-radius: 5px; border: 1px solid var(--gold-dim); font: inherit; font-size: 13px;
+    background: linear-gradient(180deg, #4a3f2e 0%, #241d15 100%); color: var(--parchment); cursor: pointer;
+  }
+  .btn:hover:not(:disabled) { filter: brightness(1.15); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.primary { background: linear-gradient(180deg, var(--ready-bg1) 0%, var(--ready-bg3) 100%); border-color: var(--gold); color: var(--cream); }
 
   #log {
-    background: var(--panel2); border-radius: 8px; padding: 10px 12px;
-    max-height: 260px; overflow-y: auto;
-    font: 12px/1.6 ui-monospace, Consolas, monospace;
+    background: rgba(0,0,0,.3); border-radius: 6px; padding: 8px 10px; margin-top: 12px;
+    max-height: 160px; overflow-y: auto; font: 11.5px/1.6 ui-monospace, Consolas, monospace;
   }
   #log div { white-space: pre-wrap; }
-  #log .t { color: var(--dim); }
-  #log .ok { color: var(--ok); }
+  #log .t { color: #8a8067; }
+  #log .ok { color: #9fb888; }
   #log .warn { color: var(--warn); }
   #log .error { color: var(--err); }
 
-  .flash { padding: 9px 12px; border-radius: 7px; margin-bottom: 12px; font-weight: 600; }
-  .flash.ok  { background: color-mix(in srgb, var(--ok) 15%, transparent);  color: var(--ok); }
-  .flash.err { background: color-mix(in srgb, var(--err) 15%, transparent); color: var(--err); }
-  .empty { color: var(--dim); padding: 6px 0; }
-  .muted { color: var(--dim); font-size: 12px; }
-  .filterbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
-  .filterbar select { width: auto; min-width: 190px; }
-  .filterbar .spacer { flex: 1; }
-  label.inline {
-    display: inline-flex; align-items: center; gap: 6px;
-    margin: 0; font-size: 13px; color: var(--dim); cursor: pointer;
+  #flash {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 10;
   }
-  label.inline input { width: auto; margin: 0; }
-  button.small { padding: 5px 11px; font-size: 12px; }
-  tr.off td:not(.pick) { opacity: .42; }
-  tr.pickable { cursor: pointer; }
-  tr.pickable:hover td { background: var(--panel2); }
-  td.pick { width: 30px; }
-  td.pick input { width: auto; margin: 0; cursor: pointer; }
-  code {
-    font: 12px ui-monospace, Consolas, monospace;
-    background: var(--panel2); padding: 1px 5px; border-radius: 4px;
-  }
+  .flash { padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12.5px; box-shadow: 0 4px 12px rgba(0,0,0,.4); }
+  .flash.ok { background: #1c2417; border: 1px solid var(--done-line); color: #bcd4a4; }
+  .flash.err { background: #3c1414; border: 1px solid var(--err); color: #ffd9d0; }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <h1>EventHelper Loot-Sync</h1>
-    <span class="ver" id="version"></span>
-  </header>
-  <p class="sub">Läuft im Hintergrund und lädt den Loot hoch, sobald WoW ihn geschrieben hat. Dieses Fenster darf zu.</p>
+<div class="frame">
+  <div class="ribbon outline">EVENTHELPER&nbsp;SYNC</div>
+  <button type="button" class="titlebtn" id="btn-settings" aria-label="Einstellungen" title="Einstellungen">&#9881;</button>
+  <button type="button" class="titlebtn" id="btn-close" aria-label="Fenster schliessen" title="Schliessen">&#10005;</button>
 
-  <div id="flash"></div>
+  <div id="banner" class="banner" hidden></div>
 
-  <div class="card">
-    <h2>Status</h2>
-    <dl class="grid">
-      <dt>Verbindung</dt>      <dd id="s-conn">–</dd>
-      <dt>Server</dt>          <dd id="s-server">–</dd>
-      <dt>Addon-Datei</dt>     <dd id="s-file">–</dd>
-      <dt>Zuletzt geprüft</dt> <dd id="s-check">–</dd>
-      <dt>Letzter Upload</dt>  <dd id="s-upload">–</dd>
-    </dl>
-    <div class="row">
-      <button id="btn-upload">Jetzt hochladen</button>
-      <button id="btn-test" class="ghost">Verbindung testen</button>
-    </div>
+  <div class="summary" id="summary">&nbsp;</div>
+
+  <div class="lists" id="lists"></div>
+
+  <div class="footer">
+    <div id="f-status">–</div>
+    <button type="button" class="linklike" id="btn-refresh">&#8635; jetzt prüfen</button>
   </div>
 
-  <div class="card">
-    <h2>Was hochgeladen wird</h2>
-    <p class="sub" style="margin-top:-6px">
-      Häkchen weg = dieser Raid-Abend wird nicht gesendet. Die Auswahl bleibt gespeichert.
-    </p>
-    <div class="filterbar">
-      <select id="f-raid"><option value="">Alle Raids</option></select>
-      <label class="inline"><input type="checkbox" id="f-new"> nur noch nie hochgeladene</label>
-      <label class="inline"><input type="checkbox" id="f-sel"> nur ausgewählte</label>
-      <span class="spacer"></span>
-      <button type="button" class="ghost small" id="b-all">Alle auswählen</button>
-      <button type="button" class="ghost small" id="b-none">Alle abwählen</button>
-    </div>
-    <div class="tablewrap">
-      <table id="sessions">
-        <thead><tr>
-          <th></th><th>Datum</th><th>Zeit</th><th>Raid</th>
-          <th class="num">Items</th><th class="num">Spieler</th><th>Quelle</th><th>Zuletzt gesendet</th>
-        </tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-    <div class="empty" id="sessions-empty" hidden></div>
-    <p class="sub" id="sessions-foot"></p>
-  </div>
-
-  <div class="card">
+  <div class="settings-panel" id="settings-panel" hidden>
     <h2>Einstellungen</h2>
     <form id="settings">
       <label>
@@ -202,17 +211,16 @@ module.exports.PAGE = String.raw`<!doctype html>
         <input type="number" name="pollSeconds" min="5" max="600">
         <span class="hint">WoW schreibt die Datei nur beim Ausloggen, bei /reload und über den Upload-Knopf im Spiel — öfter als alle paar Sekunden nachzusehen bringt nichts.</span>
       </label>
-      <div class="row">
-        <button type="submit">Speichern</button>
+      <div class="row2">
+        <button type="submit" class="btn primary">Speichern</button>
+        <button type="button" class="btn" id="btn-upload-all">Alles hochladen</button>
+        <button type="button" class="btn" id="btn-test">Verbindung testen</button>
       </div>
     </form>
-  </div>
-
-  <div class="card">
-    <h2>Verlauf</h2>
     <div id="log"></div>
   </div>
 </div>
+<div id="flash"></div>
 
 <script>
 const KEY = new URLSearchParams(location.search).get("key") || "";
@@ -224,12 +232,16 @@ const api = (path, opts) => fetch(path + (path.includes("?") ? "&" : "?") + "key
   });
 
 const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
 let editing = false;
 
 function flash(text, kind) {
-  $("flash").innerHTML = '<div class="flash ' + kind + '"></div>';
-  $("flash").firstChild.textContent = text;
-  setTimeout(() => { $("flash").innerHTML = ""; }, 6000);
+  const div = document.createElement("div");
+  div.className = "flash " + kind;
+  div.textContent = text;
+  $("flash").innerHTML = "";
+  $("flash").appendChild(div);
+  setTimeout(() => { if ($("flash").firstChild === div) $("flash").innerHTML = ""; }, 5000);
 }
 
 function fmtTime(ms) {
@@ -237,123 +249,48 @@ function fmtTime(ms) {
   return new Date(ms).toLocaleString("de-DE");
 }
 function ago(ms) {
-  if (!ms) return "–";
+  if (!ms) return "noch nie";
   const s = Math.round((Date.now() - ms) / 1000);
   if (s < 60) return "vor " + s + " s";
   if (s < 3600) return "vor " + Math.round(s / 60) + " min";
-  return fmtTime(ms);
+  return new Date(ms).toLocaleDateString("de-DE");
 }
-function pill(text, kind) {
-  return '<span class="pill ' + kind + '">' + text + "</span>";
+function fmtDay(ms) {
+  const d = new Date(ms);
+  const wd = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"][d.getDay()];
+  return wd + ", " + d.toLocaleDateString("de-DE");
 }
-
-// Filter leben nur im Fenster, nicht in der Konfiguration: sie beantworten eine
-// Frage von Sekunden ("welche Karazhan-Abende?"), keine Dauereinstellung.
-const filter = { raid: "", onlyNew: false, onlySelected: false };
-let lastSessions = [];
-
-function visible(sessions) {
-  return sessions.filter((s) => {
-    const raid = s.instance || "unbekannt";
-    if (filter.raid && raid !== filter.raid) return false;
-    if (filter.onlyNew && s.lastUpload) return false;
-    if (filter.onlySelected && s.excluded) return false;
-    return true;
-  });
+function sourceLabel(gargul, rclc) {
+  if (gargul && rclc) return gargul + " Gargul, " + rclc + " RCLC";
+  if (gargul) return gargul + " Items (Gargul)";
+  return rclc + " Items (RCLootcouncil)";
 }
 
-function describeUpload(u) {
-  if (!u) return "noch nie";
-  const when = new Date(u.at).toLocaleDateString("de-DE");
-  if (u.status === "appended") return when + " — " + u.added + " ergänzt zu „" + (u.eventLabel || "?") + "“";
-  if (u.status === "updated") return when + " — " + u.added + " neu in der Inbox";
-  if (u.status === "pending") return when + " — in der Inbox";
-  if (u.status === "dismissed") return when + " — im Menü verworfen";
-  return when;
-}
+// Die zwei Datenquellen der Liste: der lokale Stand (/api/state, alle 3s) und
+// der Raid-Status vom echten Server (/api/raids, seltener — das ist ein
+// Aufruf gegen einen fremden Server, den man nicht unnötig oft machen muss).
+let lastState = null;
+let lastRaids = null;
+let raidsError = null;
 
-function renderSessions(d) {
-  lastSessions = d.sessions || [];
-  const tbody = document.querySelector("#sessions tbody");
-  tbody.innerHTML = "";
-
-  // Raid-Auswahl aus dem, was tatsächlich da ist.
-  const raids = [...new Set(lastSessions.map((s) => s.instance || "unbekannt"))].sort();
-  const sel = $("f-raid");
-  if (sel.dataset.built !== raids.join("|")) {
-    sel.dataset.built = raids.join("|");
-    sel.innerHTML = "";
-    const all = document.createElement("option");
-    all.value = ""; all.textContent = "Alle Raids";
-    sel.appendChild(all);
-    for (const r of raids) {
-      const o = document.createElement("option");
-      o.value = r; o.textContent = r;
-      sel.appendChild(o);
-    }
-    sel.value = filter.raid;
+async function refresh() {
+  try {
+    lastState = await api("/api/state");
+    render();
+  } catch (e) {
+    $("f-status").textContent = "Oberfläche nicht erreichbar: " + e.message;
   }
+}
 
-  const shown = visible(lastSessions);
-  if (!lastSessions.length) {
-    $("sessions").hidden = true;
-    $("sessions-empty").hidden = false;
-    $("sessions-empty").textContent = d.file
-      ? "Keine Raid-Abende in der Datei. Im Spiel mit /ehs diag prüfen, woran es liegt."
-      : "Noch keine Datei gefunden.";
-    $("sessions-foot").textContent = "";
-    return;
+async function refreshRaids() {
+  try {
+    const d = await api("/api/raids");
+    lastRaids = d.raids || [];
+    raidsError = null;
+  } catch (e) {
+    raidsError = e.message;
   }
-
-  $("sessions").hidden = false;
-  $("sessions-empty").hidden = shown.length > 0;
-  if (!shown.length) $("sessions-empty").textContent = "Kein Raid-Abend passt zu den Filtern.";
-
-  for (const s of shown) {
-    const tr = document.createElement("tr");
-    tr.className = "pickable" + (s.excluded ? " off" : "");
-
-    const pick = document.createElement("td");
-    pick.className = "pick";
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.checked = !s.excluded;
-    pick.appendChild(box);
-    tr.appendChild(pick);
-
-    const day = new Date(s.startedAt);
-    const wd = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"][day.getDay()];
-    const t = (ms) => new Date(ms).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-    const quelle = s.gargul && s.rclc ? "RCLC " + s.rclc + " · Gargul " + s.gargul
-      : s.gargul ? "Gargul " + s.gargul : "RCLootcouncil " + s.rclc;
-
-    const cells = [
-      [wd + " " + day.toLocaleDateString("de-DE"), ""],
-      [t(s.startedAt) + "–" + t(s.endedAt), ""],
-      [s.instance || "unbekannt", ""],
-      [String(s.items), "num"],
-      [String(s.players), "num"],
-      [quelle, ""],
-      [describeUpload(s.lastUpload), ""],
-    ];
-    for (const [text, cls] of cells) {
-      const td = document.createElement("td");
-      td.textContent = text;
-      if (cls) td.className = cls;
-      tr.appendChild(td);
-    }
-
-    const toggle = () => setExcluded([s.sessionId], !s.excluded);
-    tr.addEventListener("click", (ev) => { if (ev.target !== box) toggle(); });
-    box.addEventListener("change", toggle);
-    tbody.appendChild(tr);
-  }
-
-  const aus = lastSessions.filter((s) => s.excluded).length;
-  const items = lastSessions.filter((s) => !s.excluded).reduce((n, s) => n + s.items, 0);
-  $("sessions-foot").textContent =
-    shown.length + " von " + lastSessions.length + " Abenden angezeigt · "
-    + (lastSessions.length - aus) + " ausgewählt (" + items + " Items) · " + aus + " abgewählt";
+  render();
 }
 
 async function setExcluded(ids, excluded) {
@@ -363,63 +300,178 @@ async function setExcluded(ids, excluded) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sessionIds: ids, excluded }),
     });
-    refresh();
   } catch (e) {
     flash(e.message, "err");
   }
+  refresh();
+  refreshRaids();
 }
 
-function render(d) {
-  $("version").textContent = "v" + d.version;
+async function uploadOne(sessionId, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api("/api/upload-one", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId }),
+    });
+    flash(r.results.length ? r.results.length + " Ergebnis(se) verarbeitet." : "Nichts zu tun.", "ok");
+  } catch (e) {
+    flash(e.message, "err");
+  }
+  refresh();
+  refreshRaids();
+}
 
-  // Verbindung
+function rowButton(className, contents, onClick) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "row " + className;
+  btn.innerHTML = contents;
+  if (onClick) btn.addEventListener("click", onClick);
+  return btn;
+}
+
+function rowDiv(className, contents) {
+  const div = document.createElement("div");
+  div.className = "row " + className;
+  div.innerHTML = contents;
+  return div;
+}
+
+// Raids vom Server + lokale Sessions zu drei Gruppen zusammenführen:
+//   1. Bereit zum Hochladen  — der Server kennt den Raid und eine lokale
+//      Session passt dazu (Datumsabgleich serverseitig, siehe lib/uploader.js).
+//   2. Ohne bekannten Termin — eine lokale Session, die zu keinem Raid der
+//      letzten Wochen passt (z.B. Pug-Abend). Trotzdem hochladbar: landet im
+//      Menü als unzugeordnete Inbox-Session, wie eh schon immer.
+//   3. Übrige Raids — grün (schon importiert) oder gelb (kein Loot gefunden).
+function buildGroups() {
+  const sessions = (lastState && lastState.sessions) || [];
+  const raids = lastRaids || [];
+  const matchedIds = new Set(raids.filter((r) => r.matchedSessionId).map((r) => r.matchedSessionId));
+
+  const ready = raids.filter((r) => r.status === "ready");
+  const rest = raids.filter((r) => r.status !== "ready");
+  const unmatched = sessions.filter((s) => (
+    !s.excluded && s.items > 0 && !s.lastUpload && !matchedIds.has(s.sessionId)
+  ));
+
+  return { ready, unmatched, rest };
+}
+
+// Ein bereiter Eintrag ist immer ein Klick-Button (l\u00e4dt genau diese Session
+// hoch) plus ein kleines Abwahl-Kreuz daneben \u2014 egal ob der Server ihn einem
+// Raid zuordnen konnte oder nicht. Ohne das Kreuz g\u00e4be es f\u00fcr eine bereits
+// zugeordnete Zeile keine M\u00f6glichkeit mehr, sie doch nicht zu senden (die alte
+// Tabelle konnte jede Session abw\u00e4hlen, das darf hier nicht verlorengehen).
+function readyRow(sessionId, innerHtml) {
+  const btn = rowButton("ready", innerHtml, () => uploadOne(sessionId, btn));
+  btn.style.flexGrow = "1";
+
+  const dismiss = document.createElement("button");
+  dismiss.type = "button";
+  dismiss.className = "dismiss";
+  dismiss.title = "Diesen Abend nicht hochladen";
+  dismiss.setAttribute("aria-label", "Diesen Abend nicht hochladen");
+  dismiss.textContent = "\u2715";
+  dismiss.addEventListener("click", (ev) => { ev.stopPropagation(); setExcluded([sessionId], true); });
+
+  const wrap = document.createElement("div");
+  wrap.style.display = "flex";
+  wrap.style.gap = "8px";
+  wrap.style.alignItems = "stretch";
+  wrap.append(btn, dismiss);
+  return wrap;
+}
+
+function renderReadyRow(r) {
+  return readyRow(r.matchedSessionId,
+    '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#f5e6c8" stroke-width="2.2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>'
+    + '<div class="info"><div class="name outline">' + esc(r.title) + '</div>'
+    + '<div class="sub">' + fmtDay(r.startTime * 1000) + " &middot; " + sourceLabel(r.gargul, r.rclc) + "</div></div>");
+}
+
+function renderUnmatchedRow(s) {
+  return readyRow(s.sessionId,
+    '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#f5e6c8" stroke-width="2.2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>'
+    + '<div class="info"><div class="name outline">' + esc(s.instance || "Unbekannter Raid") + '</div>'
+    + '<div class="sub">' + fmtDay(s.startedAt) + " &middot; " + sourceLabel(s.gargul, s.rclc) + " &middot; kein Termin gefunden</div></div>");
+}
+
+function renderRestRow(r) {
+  const isDone = r.status === "done";
+  const icon = isDone
+    ? '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#7fc463" stroke-width="2.4"><path d="M4 12l5 5L20 6"/></svg>'
+    : '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#d4c05a" stroke-width="2.4"><path d="M6 12h12"/></svg>';
+  return rowDiv(isDone ? "done" : "empty",
+    icon + '<div class="info"><div class="name">' + esc(r.title) + '</div>'
+    + '<div class="sub">' + fmtDay(r.startTime * 1000) + " &middot; " + (isDone ? "Importiert" : "Kein Loot gefunden") + "</div></div>");
+}
+
+function render() {
+  if (!lastState) return;
+  const d = lastState;
+
+  // Fehlerbanner statt eigener Status-Card: nur sichtbar, wenn tatsächlich
+  // etwas fehlt oder schiefgeht — sonst nur die Liste.
+  const problems = [];
   if (!d.config.baseUrl || !d.config.hasToken) {
-    $("s-conn").innerHTML = pill("nicht eingerichtet", "warn");
-  } else if (d.lastError) {
-    $("s-conn").innerHTML = pill("Fehler", "err") + " " + d.lastError.message;
-  } else if (d.lastUpload) {
-    $("s-conn").innerHTML = pill("verbunden", "ok");
-  } else {
-    $("s-conn").innerHTML = pill("noch nichts gesendet", "dim");
+    problems.push("Noch nicht eingerichtet — Adresse und Token unten unter Einstellungen eintragen.");
   }
-
-  $("s-server").textContent = d.config.baseUrl || "– nicht gesetzt –";
-
   if (!d.file) {
-    // "Nicht gefunden" ohne "wo wurde gesucht" ist eine Sackgasse — mit der
-    // Liste sieht man sofort, ob der eigene WoW-Ordner überhaupt dabei war.
     const roots = d.searchedRoots || [];
-    const list = roots.length
-      ? "<br><span class=\"muted\">Durchsucht wurden:</span><br>" +
-        roots.map((r) => "<code>" + r.replace(/[<>&]/g, "") + "</code>").join("<br>")
-      : "";
-    $("s-file").innerHTML = pill("nicht gefunden", "err")
-      + " Ist das Addon installiert und war im Spiel schon einmal geladen? "
-      + "Falls ja: den WoW-Ordner unten unter „Pfad selbst angeben\" eintragen."
-      + list;
+    problems.push(
+      "Keine EventHelperSync.lua gefunden. Ist das Addon installiert und war im Spiel schon einmal geladen? "
+      + "Falls ja, den WoW-Ordner unten unter „Pfad selbst angeben\" eintragen."
+      + (roots.length ? "<br>Durchsucht: " + roots.map((r) => "<code>" + esc(r) + "</code>").join(", ") : ""),
+    );
   } else if (d.readError) {
-    $("s-file").innerHTML = pill("nicht lesbar", "err") + " " + d.readError;
+    problems.push("Addon-Datei nicht lesbar: " + esc(d.readError));
   } else if (d.envelopeMissing) {
-    $("s-file").innerHTML = pill("noch kein Export", "warn")
-      + " Im Spiel den Upload-Knopf drücken oder /reload.";
+    problems.push("Die Addon-Datei enthält noch keinen Export. Im Spiel den Upload-Knopf drücken (oder /ehs upload).");
+  }
+  if (d.lastError) problems.push("Letzter Fehler: " + esc(d.lastError.message));
+  if (raidsError) problems.push("Raid-Liste vom Server: " + esc(raidsError));
+
+  if (problems.length) {
+    $("banner").innerHTML = problems.join("<br>");
+    $("banner").hidden = false;
   } else {
-    $("s-file").textContent = d.file + "  (geschrieben " + fmtTime(d.fileMtime) + ")";
+    $("banner").hidden = true;
   }
 
-  $("s-check").textContent = ago(d.lastCheck);
+  const { ready, unmatched, rest } = buildGroups();
+  const readyCount = ready.length + unmatched.length;
+  const openCount = readyCount + rest.filter((r) => r.status === "empty").length;
+  $("summary").innerHTML = lastRaids === null
+    ? "Raid-Liste wird geladen …"
+    : "<b>" + readyCount + "</b> bereit zum Hochladen &middot; " + openCount + " insgesamt offen";
 
-  if (d.lastUpload) {
-    const rs = d.lastUpload.results;
-    $("s-upload").textContent = ago(d.lastUpload.at)
-      + (rs.length ? " — " + rs.length + " Session(s)" : " — nichts zu tun");
-  } else {
-    $("s-upload").textContent = "–";
+  const lists = $("lists");
+  lists.innerHTML = "";
+  if (readyCount) {
+    const group = document.createElement("div");
+    group.className = "group";
+    group.innerHTML = '<div class="group-label">BEREIT&nbsp;ZUM&nbsp;HOCHLADEN</div>';
+    for (const r of ready) group.appendChild(renderReadyRow(r));
+    for (const s of unmatched) group.appendChild(renderUnmatchedRow(s));
+    lists.appendChild(group);
+  }
+  if (rest.length) {
+    const group = document.createElement("div");
+    group.className = "group";
+    group.innerHTML = '<div class="group-label">ÜBRIGE&nbsp;RAIDS</div>';
+    for (const r of rest) group.appendChild(renderRestRow(r));
+    lists.appendChild(group);
+  }
+  if (!readyCount && !rest.length && lastRaids !== null) {
+    lists.innerHTML = '<div class="empty-hint">Keine Raid-Termine der letzten Wochen gefunden.</div>';
   }
 
-  $("btn-upload").disabled = d.uploading || !d.file;
-  $("btn-upload").textContent = d.uploading ? "Lädt hoch …" : "Jetzt hochladen";
-
-  renderSessions(d);
+  $("f-status").textContent = d.file
+    ? "Zuletzt geprüft " + ago(d.lastCheck)
+    : "Warte auf die Addon-Datei …";
 
   // Einstellungen — nur füllen, solange niemand darin tippt.
   if (!editing) {
@@ -454,6 +506,9 @@ function render(d) {
       : "Keine WoW-Installation gefunden — bitte den Pfad unten selbst angeben.";
   }
 
+  $("btn-upload-all").disabled = d.uploading || !d.file;
+  $("btn-upload-all").textContent = d.uploading ? "Lädt hoch …" : "Alles hochladen";
+
   // Verlauf
   const log = $("log");
   const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 20;
@@ -472,22 +527,11 @@ function render(d) {
   if (atBottom) log.scrollTop = log.scrollHeight;
 }
 
-async function refresh() {
-  try {
-    render(await api("/api/state"));
-  } catch (e) {
-    $("s-conn").textContent = "Oberfläche nicht erreichbar: " + e.message;
-  }
-}
-
-$("f-raid").addEventListener("change", (e) => { filter.raid = e.target.value; renderSessions({ sessions: lastSessions, file: true }); });
-$("f-new").addEventListener("change", (e) => { filter.onlyNew = e.target.checked; renderSessions({ sessions: lastSessions, file: true }); });
-$("f-sel").addEventListener("change", (e) => { filter.onlySelected = e.target.checked; renderSessions({ sessions: lastSessions, file: true }); });
-
-// Die Sammelknöpfe wirken auf das, was der Filter gerade zeigt — sonst wäre
-// "alle Karazhan-Abende abwählen" bei fünfzig Abenden fünfzig Klicks.
-$("b-all").addEventListener("click", () => setExcluded(visible(lastSessions).map((s) => s.sessionId), false));
-$("b-none").addEventListener("click", () => setExcluded(visible(lastSessions).map((s) => s.sessionId), true));
+$("btn-settings").addEventListener("click", () => {
+  $("settings-panel").hidden = !$("settings-panel").hidden;
+});
+$("btn-close").addEventListener("click", () => window.close());
+$("btn-refresh").addEventListener("click", () => { refresh(); refreshRaids(); });
 
 $("settings").addEventListener("input", () => { editing = true; });
 $("settings").addEventListener("submit", async (ev) => {
@@ -506,18 +550,18 @@ $("settings").addEventListener("submit", async (ev) => {
       }),
     });
     f.token.value = "";
-    // Der eingetippte Pfad ist nach dem Speichern in der Auswahl oben gelandet.
     f.manualPath.value = "";
     editing = false;
     flash("Gespeichert.", "ok");
     refresh();
+    refreshRaids();
   } catch (e) {
     flash(e.message, "err");
   }
 });
 
-$("btn-upload").addEventListener("click", async () => {
-  $("btn-upload").disabled = true;
+$("btn-upload-all").addEventListener("click", async () => {
+  $("btn-upload-all").disabled = true;
   try {
     const r = await api("/api/upload", { method: "POST" });
     flash(r.results.length ? r.results.length + " Session(s) verarbeitet." : "Nichts hochzuladen.", "ok");
@@ -525,6 +569,7 @@ $("btn-upload").addEventListener("click", async () => {
     flash(e.message, "err");
   }
   refresh();
+  refreshRaids();
 });
 
 $("btn-test").addEventListener("click", async () => {
@@ -534,11 +579,13 @@ $("btn-test").addEventListener("click", async () => {
   } catch (e) {
     flash(e.message, "err");
   }
-  refresh();
 });
 
 refresh();
+refreshRaids();
 setInterval(refresh, 3000);
+// Ein fremder Server soll nicht bei jedem der 3s-Zyklen mit angefragt werden.
+setInterval(refreshRaids, 12000);
 </script>
 </body>
 </html>`;

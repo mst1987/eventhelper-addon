@@ -14,8 +14,10 @@ jest.mock("../lib/wowPaths", () => ({
         { path: "C:/WoW/_classic_era_/WTF/Account/PULSE/SavedVariables/EventHelperSync.lua", flavor: "_classic_era_", account: "PULSE", mtime: 1 },
     ]),
 }));
+jest.mock("../lib/uploader", () => ({ fetchRaidStatus: jest.fn() }));
 
 const config = require("../lib/config");
+const { fetchRaidStatus } = require("../lib/uploader");
 const { createWebUI, safeConfig } = require("../lib/webui");
 
 const CONFIG = {
@@ -43,6 +45,7 @@ function fakeRunner(over = {}) {
         config: CONFIG,
         reload: jest.fn(),
         uploadNow: jest.fn(async () => [{ sessionId: "eh-1-ssc", status: "pending", added: 3 }]),
+        uploadOne: jest.fn(async () => [{ sessionId: "eh-1-ssc", status: "pending", added: 3 }]),
         testConnection: jest.fn(async () => true),
         ...over,
     };
@@ -55,6 +58,7 @@ let key;
 beforeEach(async () => {
     jest.clearAllMocks();
     config.load.mockReturnValue({ ...CONFIG });
+    fetchRaidStatus.mockResolvedValue({ raids: [] });
 });
 
 afterEach(() => {
@@ -265,6 +269,61 @@ describe("webui", () => {
             const res = await post("/api/test");
             expect(res.status).toBe(500);
             expect((await res.json()).error).toMatch(/Token unbekannt/);
+        });
+    });
+
+    describe("GET /api/raids", () => {
+        it("gibt die Raid-Liste vom Server weiter", async () => {
+            fetchRaidStatus.mockResolvedValue({ raids: [{ eventId: "e1", status: "ready" }] });
+            const runner = fakeRunner();
+            await startUI(runner);
+
+            const res = await get("/api/raids");
+
+            expect(res.status).toBe(200);
+            expect(fetchRaidStatus).toHaveBeenCalledWith(runner.config, runner.state.sessions);
+            expect((await res.json()).raids).toEqual([{ eventId: "e1", status: "ready" }]);
+        });
+
+        // Das Token bleibt im Node-Prozess — nur der letzte Teil der Antwort
+        // geht an die Seite, nie die Anfrage an den echten Server selbst.
+        it("reicht einen Fehler vom echten Server als lesbare Meldung durch", async () => {
+            fetchRaidStatus.mockRejectedValue(new Error("https://example.test nicht erreichbar: ECONNREFUSED"));
+            await startUI(fakeRunner());
+            const res = await get("/api/raids");
+            expect(res.status).toBe(500);
+            expect((await res.json()).error).toMatch(/nicht erreichbar/);
+        });
+    });
+
+    describe("POST /api/upload-one", () => {
+        it("lädt genau die angegebene Session hoch", async () => {
+            const runner = fakeRunner();
+            await startUI(runner);
+
+            const res = await post("/api/upload-one", { sessionId: "eh-1-ssc" });
+
+            expect(res.status).toBe(200);
+            expect(runner.uploadOne).toHaveBeenCalledWith("eh-1-ssc");
+            expect((await res.json()).results).toEqual([{ sessionId: "eh-1-ssc", status: "pending", added: 3 }]);
+        });
+
+        it("verlangt eine sessionId", async () => {
+            const runner = fakeRunner();
+            await startUI(runner);
+            const res = await post("/api/upload-one", {});
+            expect(res.status).toBe(400);
+            expect(runner.uploadOne).not.toHaveBeenCalled();
+        });
+
+        it("reicht einen Fehler als lesbare Meldung durch", async () => {
+            const runner = fakeRunner({
+                uploadOne: jest.fn(async () => { throw new Error("Server nicht erreichbar"); }),
+            });
+            await startUI(runner);
+            const res = await post("/api/upload-one", { sessionId: "eh-1-ssc" });
+            expect(res.status).toBe(500);
+            expect((await res.json()).error).toBe("Server nicht erreichbar");
         });
     });
 

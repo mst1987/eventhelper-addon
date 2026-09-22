@@ -1,6 +1,6 @@
 {
   "name": "eventhelper-sync",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Lädt den vom EventHelper-Sync-Addon gesammelten WoW-Loot zum EventHelper-Bot hoch.",
   "main": "index.js",
   "bin": {

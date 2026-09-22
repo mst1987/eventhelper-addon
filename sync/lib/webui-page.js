@@ -530,7 +530,13 @@ function render() {
 $("btn-settings").addEventListener("click", () => {
   $("settings-panel").hidden = !$("settings-panel").hidden;
 });
-$("btn-close").addEventListener("click", () => window.close());
+$("btn-close").addEventListener("click", async () => {
+  // Beendet den ganzen Sync-Tool im Hintergrund (die Konsole ist ja
+  // versteckt) und schliesst danach dieses Fenster — in dieser Reihenfolge,
+  // sonst käme die Anfrage nie an.
+  try { await api("/api/quit", { method: "POST" }); } catch { /* egal, Fenster geht trotzdem zu */ }
+  window.close();
+});
 $("btn-refresh").addEventListener("click", () => { refresh(); refreshRaids(); });
 
 $("settings").addEventListener("input", () => { editing = true; });

@@ -78,9 +78,12 @@ function safeConfig(cfg) {
 
 /**
  * @param {object} runner  aus createRunner()
+ * @param {{ onQuit?: () => void }} [options]  onQuit: nach /api/quit aufgerufen
+ *   (index.js reicht hier process.exit rein — hier drin nie direkt aufrufen,
+ *   sonst würde ein Test, der den Server startet, den Testlauf mitbeenden).
  * @returns {{ start: () => Promise<string> , stop: () => void }}
  */
-function createWebUI(runner) {
+function createWebUI(runner, { onQuit } = {}) {
     const key = crypto.randomBytes(16).toString("hex");
     let server = null;
     let url = "";
@@ -211,6 +214,19 @@ function createWebUI(runner) {
                 }
                 const results = await runner.uploadOne(sessionId);
                 json(res, 200, { ok: true, results });
+                return;
+            }
+
+            // Der ✕-Knopf im Fenster: beendet den ganzen Sync-Tool, nicht nur
+            // das Browserfenster. Wichtig, seit die Konsole beim Doppelklick
+            // versteckt wird (index.js) — ohne das hier gäbe es sonst keine
+            // sichtbare Möglichkeit mehr, den Hintergrundprozess zu beenden.
+            if (req.method === "POST" && parsed.pathname === "/api/quit") {
+                json(res, 200, { ok: true });
+                runner.stop();
+                // Erst antworten, dann beenden — sonst bekäme die Seite nie
+                // die Bestätigung, dass es geklappt hat.
+                if (onQuit) setTimeout(onQuit, 50);
                 return;
             }
 

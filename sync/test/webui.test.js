@@ -47,6 +47,7 @@ function fakeRunner(over = {}) {
         uploadNow: jest.fn(async () => [{ sessionId: "eh-1-ssc", status: "pending", added: 3 }]),
         uploadOne: jest.fn(async () => [{ sessionId: "eh-1-ssc", status: "pending", added: 3 }]),
         testConnection: jest.fn(async () => true),
+        stop: jest.fn(),
         ...over,
     };
 }
@@ -66,8 +67,8 @@ afterEach(() => {
     ui = null;
 });
 
-async function startUI(runner) {
-    ui = createWebUI(runner);
+async function startUI(runner, options) {
+    ui = createWebUI(runner, options);
     // Port 0 lässt das Betriebssystem einen freien wählen.
     const url = await ui.start(0);
     const parsed = new URL(url);
@@ -324,6 +325,32 @@ describe("webui", () => {
             const res = await post("/api/upload-one", { sessionId: "eh-1-ssc" });
             expect(res.status).toBe(500);
             expect((await res.json()).error).toBe("Server nicht erreichbar");
+        });
+    });
+
+    describe("POST /api/quit", () => {
+        it("stoppt den Runner und antwortet, bevor onQuit aufgerufen wird", async () => {
+            const runner = fakeRunner();
+            const onQuit = jest.fn();
+            await startUI(runner, { onQuit });
+
+            const res = await post("/api/quit");
+
+            expect(res.status).toBe(200);
+            expect(runner.stop).toHaveBeenCalled();
+            // onQuit (im echten Betrieb process.exit) darf erst NACH der
+            // Antwort kommen — sonst bekäme die Seite sie nie zu sehen.
+            expect(onQuit).not.toHaveBeenCalled();
+            await new Promise((r) => setTimeout(r, 100));
+            expect(onQuit).toHaveBeenCalled();
+        });
+
+        it("funktioniert auch ohne onQuit (z.B. im Test ohne echten Prozess)", async () => {
+            const runner = fakeRunner();
+            await startUI(runner);
+            const res = await post("/api/quit");
+            expect(res.status).toBe(200);
+            expect(runner.stop).toHaveBeenCalled();
         });
     });
 

@@ -18,8 +18,9 @@ module.exports.PAGE = String.raw`<!doctype html>
 <!-- Taskleisten-/Fenster-Icon: Edge/Chrome übernehmen im --app=-Modus das
      Favicon der Seite als Icon von Taskleiste und Fenster. Als Daten-URI
      eingebettet statt als Datei, damit auch dieses Stück ohne Build-Schritt
-     im gepackten Bündel landet (siehe Kopfkommentar). -->
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231c150c'/%3E%3Crect x='1.5' y='1.5' width='29' height='29' rx='5' fill='none' stroke='%23d8b567' stroke-width='2'/%3E%3Cpath d='M16 6 L24 13 L16 26 L8 13 Z' fill='%239a2a2a' stroke='%23d8b567' stroke-width='1.4' stroke-linejoin='round'/%3E%3C/svg%3E">
+     im gepackten Bündel landet (siehe Kopfkommentar). Dasselbe Motiv wie
+     assets/icon.svg, das Icon der .exe — beide gemeinsam ändern. -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231c150c'/%3E%3Crect x='1.5' y='1.5' width='29' height='29' rx='5' fill='none' stroke='%23d8b567' stroke-width='2'/%3E%3Cpath d='M16 6 L8 13 L16 13 Z' fill='%23c4473c'/%3E%3Cpath d='M16 6 L24 13 L16 13 Z' fill='%23a8322c'/%3E%3Cpath d='M8 13 L16 26 L16 13 Z' fill='%2386221f'/%3E%3Cpath d='M24 13 L16 26 L16 13 Z' fill='%236c1a18'/%3E%3Cpath d='M16 6 L24 13 L16 26 L8 13 Z' fill='none' stroke='%23d8b567' stroke-width='1.4' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Spectral:wght@400;500;600&display=swap">
 <style>
   :root {
@@ -256,6 +257,9 @@ const api = (path, opts) => fetch(path + (path.includes("?") ? "&" : "?") + "key
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
 let editing = false;
+// Einmal beim ersten Start von selbst aufgeklappt (siehe render()), danach
+// bestimmt das Zahnrad.
+let setupOpened = false;
 
 function flash(text, kind) {
   const div = document.createElement("div");
@@ -312,7 +316,17 @@ async function refresh() {
   }
 }
 
+const configured = () => !!(lastState && lastState.config.baseUrl && lastState.config.hasToken);
+
 async function refreshRaids() {
+  // Ohne Adresse und Token gibt es keinen Server zu fragen — sonst stünde
+  // "Failed to parse URL" im Banner neben dem Hinweis, der das schon sagt.
+  if (lastState && !configured()) {
+    lastRaids = null;
+    raidsError = null;
+    render();
+    return;
+  }
   try {
     const d = await api("/api/raids");
     lastRaids = d.raids || [];
@@ -495,6 +509,14 @@ function render() {
   const problems = [];
   if (!d.config.baseUrl || !d.config.hasToken) {
     problems.push("Noch nicht eingerichtet — Adresse und Token unten unter Einstellungen eintragen.");
+    // Die .exe hat keine Konsole mehr, die durch die Einrichtung führt: das
+    // hier ist jetzt der erste Schritt, also nicht erst hinter dem Zahnrad.
+    if (!setupOpened) {
+      setupOpened = true;
+      $("settings-panel").hidden = false;
+      // Unter einer langen Liste lokaler Raid-Abende läge es sonst ausser Sicht.
+      setTimeout(() => $("settings-panel").scrollIntoView({ block: "start" }), 0);
+    }
   }
   if (!d.file) {
     const roots = d.searchedRoots || [];
@@ -647,14 +669,46 @@ function render() {
     log.appendChild(div);
   }
   if (atBottom) log.scrollTop = log.scrollHeight;
+
+  fitWindow();
+}
+
+// Das Fenster auf den Inhalt zuschneiden: feste, schmale Breite, Höhe nach
+// Inhalt (höchstens 90 % des Bildschirms, darüber scrollt es). Die Seite muss
+// das selbst tun — --window-size (lib/appWindow.js) greift nur, wenn Edge
+// nicht schon läuft; sonst nimmt das Fenster Edges eigene Grösse an.
+// Nachgezogen wird nur, wenn sich die Höhe des Inhalts ändert (Raid-Liste
+// geladen, Einstellungen auf/zu), damit eine eigene Grösse nicht bei jedem
+// 3-s-Poll wieder überschrieben wird. Im normalen Browser-Tab (Fallback)
+// ignoriert der Browser resizeTo() ohnehin.
+const APP_WIDTH = 400;
+let fittedHeight = 0;
+function fitWindow() {
+  const frame = document.querySelector(".frame");
+  const minHeight = frame.style.minHeight;
+  frame.style.minHeight = "0";
+  const content = frame.offsetHeight;
+  frame.style.minHeight = minHeight;
+  if (!content || content === fittedHeight) return;
+  fittedHeight = content;
+
+  const extraW = window.outerWidth - window.innerWidth;
+  const extraH = window.outerHeight - window.innerHeight;
+  const height = Math.max(320, Math.min(content + extraH, Math.round(screen.availHeight * 0.9)));
+  try {
+    window.resizeTo(APP_WIDTH + extraW, height);
+  } catch {
+    // Nicht erlaubt (normaler Tab) — dann bleibt es, wie es ist.
+  }
 }
 
 $("btn-settings").addEventListener("click", () => {
   $("settings-panel").hidden = !$("settings-panel").hidden;
+  fitWindow();
 });
 $("btn-close").addEventListener("click", async () => {
-  // Beendet den ganzen Sync-Tool im Hintergrund (die Konsole ist ja
-  // versteckt) und schliesst danach dieses Fenster — in dieser Reihenfolge,
+  // Beendet den ganzen Sync-Tool im Hintergrund (die .exe hat keine
+  // Konsole) und schliesst danach dieses Fenster — in dieser Reihenfolge,
   // sonst käme die Anfrage nie an.
   try { await api("/api/quit", { method: "POST" }); } catch { /* egal, Fenster geht trotzdem zu */ }
   window.close();

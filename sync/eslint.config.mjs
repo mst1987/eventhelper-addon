@@ -19,6 +19,8 @@ export default [
                 fetch: "readonly",
                 URL: "readonly",
                 URLSearchParams: "readonly",
+                AbortSignal: "readonly",
+                Buffer: "readonly",
                 setTimeout: "readonly",
                 setInterval: "readonly",
                 clearInterval: "readonly",
@@ -40,6 +42,7 @@ export default [
             globals: {
                 describe: "readonly", it: "readonly", expect: "readonly",
                 jest: "readonly", beforeEach: "readonly", afterEach: "readonly",
+                afterAll: "readonly",
                 global: "writable",
             },
         },

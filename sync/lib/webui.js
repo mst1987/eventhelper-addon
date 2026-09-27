@@ -103,7 +103,7 @@ function createWebUI(runner, { onQuit } = {}) {
         if (!authorized(req, parsed)) {
             // Bewusst wortkarg: wer den Schlüssel nicht hat, erfährt auch nicht,
             // was es hier zu holen gäbe.
-            json(res, 403, { error: "Ungültiger Schlüssel. Bitte die Adresse aus der Konsole verwenden." });
+            json(res, 403, { error: "Ungültiger Schlüssel. Bitte das Fenster über die EventHelperSync.exe öffnen." });
             return;
         }
 
@@ -236,9 +236,9 @@ function createWebUI(runner, { onQuit } = {}) {
             }
 
             // Der ✕-Knopf im Fenster: beendet den ganzen Sync-Tool, nicht nur
-            // das Browserfenster. Wichtig, seit die Konsole beim Doppelklick
-            // versteckt wird (index.js) — ohne das hier gäbe es sonst keine
-            // sichtbare Möglichkeit mehr, den Hintergrundprozess zu beenden.
+            // das Browserfenster. Wichtig, weil die .exe keine Konsole hat
+            // (scripts/exeResources.js) — ohne das hier gäbe es sonst keine
+            // sichtbare Möglichkeit, den Hintergrundprozess zu beenden.
             if (req.method === "POST" && parsed.pathname === "/api/quit") {
                 json(res, 200, { ok: true });
                 runner.stop();

@@ -183,6 +183,10 @@ function createRunner(options = {}) {
             state.lastCheck = Date.now();
             if (state.file && state.file !== before) log("info", `Gefunden: ${state.file}`);
             if (!state.file) return;
+            // Die .exe startet auch uneingerichtet direkt mit der Oberfläche
+            // (dort wird eingerichtet) — bis dahin gibt es kein Ziel, an das
+            // sich hochladen liesse. Nach dem Speichern setzt reload() neu auf.
+            if (config.missing(cfg).length) return;
 
             const changed = state.fileMtime !== tick.lastSeenMtime;
             if (!changed && !firstRun) return;
@@ -223,7 +227,7 @@ function createRunner(options = {}) {
 
     function start() {
         readState();
-        log("info", `EventHelper Loot-Sync ${SYNC_VERSION} — Ziel: ${cfg.baseUrl}`);
+        log("info", `EventHelper Loot-Sync ${SYNC_VERSION} — Ziel: ${cfg.baseUrl || "noch nicht eingerichtet"}`);
         if (state.file) log("info", `Beobachte ${state.file}`);
         else log("warn", "Noch keine EventHelperSync.lua gefunden — suche weiter.");
         log("info", "WoW schreibt die Datei beim Ausloggen, bei /reload und über den Upload-Knopf im Spiel.");

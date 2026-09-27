@@ -151,9 +151,9 @@ Es gibt zwei Wege — der erste braucht **kein** installiertes Node.js.
 
 #### a) Als fertige `EventHelperSync.exe`
 
-Die `.exe` aus den [Releases](https://github.com/mst1987/eventhelper-addon/releases) herunterladen und **doppelklicken**. Beim ersten Start führt sie durch die Einrichtung (Server-Adresse, Token, WoW-Ordner) und geht danach direkt in den Beobachten-Modus über. Ab dann genügt ein Doppelklick zum Starten.
+Die `.exe` aus den [Releases](https://github.com/mst1987/eventhelper-addon/releases) herunterladen und **doppelklicken**. Beim ersten Start sind im Fenster gleich die Einstellungen aufgeklappt (Server-Adresse, Token, WoW-Ordner); nach dem Speichern beobachtet es von selbst. Ab dann genügt ein Doppelklick zum Starten.
 
-Dabei öffnet sich ein **eigenes Fenster** — kein Browser-Tab: `lib/appWindow.js` startet die vorhandene Edge- oder Chrome-Installation mit `--app=…` (weder Adressleiste noch Tabs zu sehen). Findet sich keine, fällt es auf einen normalen Browser-Tab zurück, technisch bleibt es in beiden Fällen dieselbe lokale Seite auf `127.0.0.1`:
+Dabei öffnet sich **nur** ein eigenes Fenster — keine Konsole, kein Browser-Tab. Die `.exe` ist als Windows-GUI-Programm gebaut (siehe „Wie die `.exe` gebaut wird"), und `lib/appWindow.js` startet die vorhandene Edge- oder Chrome-Installation mit `--app=…` (weder Adressleiste noch Tabs zu sehen). Das Fenster passt sich an seinen Inhalt an: schmal, und nur so hoch wie nötig. Findet sich kein Edge/Chrome, fällt es auf einen normalen Browser-Tab zurück, technisch bleibt es in beiden Fällen dieselbe lokale Seite auf `127.0.0.1`:
 
 ```
  ┌─ EVENTHELPER SYNC ──────────────────────────────── ⚙  ✕ ┐
@@ -173,7 +173,7 @@ Dabei öffnet sich ein **eigenes Fenster** — kein Browser-Tab: `lib/appWindow.
 
 Ein Klick auf eine bereite Zeile lädt **genau diesen einen Raid** hoch — nicht die ganze Datei. Die Zeile springt danach auf „Importiert". Das Zahnrad oben klappt Einstellungen (Server, Token, Addon-Datei) und den Verlauf ein; „Alles hochladen" für die ganze Datei auf einmal und „Verbindung testen" liegen dort mit drin, nicht mehr in der Hauptansicht.
 
-**Ohne bekannten Raid-Termin** (z.B. ein Pug-Abend ohne Raid-Helper-Event) landet trotzdem in „Bereit zum Hochladen" — nur ohne Raid-Namen, mit einem kleinen ✕ daneben, um genau diesen Abend abzuwählen. Das Fenster darf jederzeit zu — der Upload läuft im Hintergrund weiter. Wieder aufrufen: die Adresse steht in der Konsole.
+**Ohne bekannten Raid-Termin** (z.B. ein Pug-Abend ohne Raid-Helper-Event) landet trotzdem in „Bereit zum Hochladen" — nur ohne Raid-Namen, mit einem kleinen ✕ daneben, um genau diesen Abend abzuwählen. Das Fenster darf jederzeit zu — der Upload läuft im Hintergrund weiter. Wieder aufrufen: die `.exe` noch einmal doppelklicken. Sie merkt, dass schon eine läuft, öffnet deren Fenster und beendet sich (`lib/instance.js`) — es laufen nie zwei nebeneinander. Ganz beenden: das ✕ oben rechts im Fenster.
 
 **Die Abwahl ist die letzte Entscheidung vor dem Senden.** Ein abgewählter Abend erreicht den Server gar nicht erst und muss dort auch nicht von Hand verworfen werden.
 
@@ -181,7 +181,7 @@ Ein Klick auf eine bereite Zeile lädt **genau diesen einen Raid** hoch — nich
 
 > **Absicherung:** Der Server hört nur auf `127.0.0.1` und verlangt einen Schlüssel, der bei jedem Start neu ausgewürfelt wird — eine fremde Webseite, die im Hintergrund auf localhost schiesst, kommt nicht heran. Das Token selbst verlässt den Rechner nie: die Seite sieht nur seine letzten vier Zeichen und kann ein neues setzen.
 
-Ohne Oberfläche (z.B. als Dienst): `EventHelperSync.exe watch --no-ui`.
+Ohne Oberfläche (z.B. als Dienst): `EventHelperSync.exe watch --no-ui` — läuft dann ganz unsichtbar. Die übrigen Befehle (`init`, `once`, `status`) schreiben in die Konsole und gibt es deshalb nur mit Node.js (Weg b); die `.exe` antwortet darauf mit einem Hinweisdialog.
 
 > Die Datei enthält die Node-Laufzeit und ist deshalb ~66 MB gross. Sie ist nicht signiert — Windows SmartScreen fragt beim ersten Start nach („Weitere Informationen" → „Trotzdem ausführen").
 
@@ -200,7 +200,7 @@ npm start         # beobachtet die Datei und lädt hoch
 
 `npm run init` sucht die WoW-Installation selbst und listet die gefundenen Accounts zur Auswahl. Die Konfiguration landet in `~/.eventhelper-sync.json` (nicht im Programmordner — sie enthält das Token).
 
-**Weitere Befehle** — als `.exe` genauso, nur ohne `npm run` davor (`EventHelperSync.exe status`):
+**Weitere Befehle:**
 
 | Befehl | Wirkung |
 |---|---|
@@ -251,10 +251,10 @@ Wenn auf dem Rechner nichts laufen soll: `/ehs export` im Spiel, **Strg+A / Strg
 | Der Upload-Knopf taucht nicht auf | Es liegt nichts Ungespeichertes an — `/ehs` zeigt den Stand. Oder er wurde per `/ehs button` abgeschaltet. |
 | Minimap-Knopf ist weg | `/ehs minimap` schaltet ihn wieder ein. |
 | Ein Raid-Abend wird nicht hochgeladen | Wurde er per ✕ neben der Zeile abgewählt? Abgewählte Abende bleiben abgewählt und tauchen in „Bereit zum Hochladen" nicht mehr auf. |
-| Die Oberfläche öffnet sich nicht | Die Adresse steht in der Konsole (`http://127.0.0.1:…/?key=…`) und lässt sich von Hand aufrufen. Ohne den Schlüssel in der Adresse antwortet sie mit 403. Kein installierter Edge/Chrome gefunden: das Fenster öffnet sich dann als normaler Browser-Tab statt chromelos — technisch dieselbe Seite. |
+| Die Oberfläche öffnet sich nicht | Die `.exe` noch einmal doppelklicken — läuft sie schon, öffnet das ihr Fenster erneut. Die Adresse samt Schlüssel steht außerdem in `~/.eventhelper-sync.running.json` und lässt sich von Hand aufrufen (ohne den Schlüssel antwortet sie mit 403). Kein installierter Edge/Chrome gefunden: das Fenster öffnet sich dann als normaler Browser-Tab statt chromelos — technisch dieselbe Seite. Scheitert der Start ganz, sagt ein Fehlerdialog warum. |
 | Knopf ist grau | Du bist im Kampf. Nach dem Kampf wird er wieder klickbar. |
 | SmartScreen blockiert die `.exe` | Die Datei ist nicht signiert. „Weitere Informationen" → „Trotzdem ausführen", oder Weg (b) mit Node benutzen. |
-| Sync-Tool: „API-Token unbekannt oder zurückgezogen" | Token wurde im Menü gelöscht, oder falsch kopiert. Neu erstellen und `npm run init`. |
+| Sync-Tool: „API-Token unbekannt oder zurückgezogen" | Token wurde im Menü gelöscht, oder falsch kopiert. Neu erstellen und im Fenster unter ⚙ eintragen (mit Node: `npm run init`). |
 | Sync-Tool: „… nicht erreichbar" | `baseUrl` prüfen (mit `https://` und Port), Server erreichbar? |
 | WoW an einem ungewöhnlichen Ort installiert | In `~/.eventhelper-sync.json` `savedVariablesPath` direkt auf die Datei zeigen lassen. |
 | In der Inbox steht „mehrere Raids an diesem Tag" | Zwei Raid-Helper-Events am selben Tag — das Event in der Auswahlliste selbst wählen. |
@@ -372,6 +372,8 @@ Und im Sync-Tool:
 | `lib/wowPaths.js` | die Addon-Datei über alle Client-Varianten und Accounts finden |
 | `lib/uploader.js` | eine Session pro Anfrage hochladen |
 | `lib/runner.js` | der laufende Betrieb samt Zustand (letzter Upload, Fehler, Verlauf) |
+| `lib/appWindow.js` | das chromelose Edge/Chrome-Fenster, Hinweisdialoge der `.exe` |
+| `lib/instance.js` | höchstens eine laufende Instanz; ein zweiter Start öffnet deren Fenster |
 | `lib/webui.js` | der lokale HTTP-Server hinter der Oberfläche |
 | `lib/webui-page.js` | die Seite als eine Zeichenkette — kein Build-Schritt, packt sich mit |
 
@@ -401,7 +403,12 @@ Zum Ausprobieren ohne Release: **Actions → Release → Run workflow**. Dann we
 
 ### Wie die `.exe` gebaut wird
 
-`sync/scripts/build-exe.js` nutzt Nodes eingebaute [Single Executable Applications](https://nodejs.org/api/single-executable-applications.html) statt eines externen Packers — das Verfahren gehört zu Node selbst und braucht keine Werkzeugkette mit eigener Versionspflege. Drei Schritte: esbuild bündelt `index.js` samt `lib/` zu einer Datei, `node --experimental-sea-config` macht daraus einen Blob, `postject` spleisst ihn in eine Kopie der `node.exe`.
+`sync/scripts/build-exe.js` nutzt Nodes eingebaute [Single Executable Applications](https://nodejs.org/api/single-executable-applications.html) statt eines externen Packers — das Verfahren gehört zu Node selbst und braucht keine Werkzeugkette mit eigener Versionspflege. Die Schritte: esbuild bündelt `index.js` samt `lib/` zu einer Datei, `node --experimental-sea-config` macht daraus einen Blob, `postject` spleisst ihn in eine Kopie der `node.exe`. Danach wird aus „Node.js" ein eigenes Programm (`scripts/exeResources.js`):
+
+- **Icon und Versionsinfos** per [resedit](https://github.com/jet2jet/resedit-js) — Explorer, Taskleiste und Task-Manager zeigen „EventHelper Sync" mit eigenem Icon. Das geschieht bewusst *nach* postject: auf der unveränderten, signierten `node.exe` hinterlässt resedit eine Relocation-Tabelle, die postjects PE-Parser als beschädigt meldet.
+- **PE-Subsystem Konsole → GUI.** Ein Konsolenprogramm bekommt beim Doppelklick immer ein Konsolenfenster, bevor JavaScript überhaupt läuft; nachträglich verstecken hiesse, es blitzt auf. Als GUI-Programm entsteht gar keins. Meldungen, die sonst in der Konsole stünden, zeigt die `.exe` als Dialog.
+
+Das Icon liegt als `sync/assets/icon.svg` (Quelle) und `sync/assets/icon.ico` (eingecheckt, von `npm run build:icon` mit dem installierten Edge/Chrome gerendert). Dasselbe Motiv steckt als Favicon in `lib/webui-page.js` und ist damit das Icon des Fensters — beide gemeinsam ändern.
 
 ### Interface-Version
 

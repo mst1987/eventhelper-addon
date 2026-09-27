@@ -43,7 +43,9 @@ function findBrowser() {
  * @returns {boolean} ob ein Browser dafür gestartet wurde — false heisst: der
  *   Aufrufer soll stattdessen den normalen Weg (openInBrowser) versuchen.
  */
-function openAppWindow(url, { width = 480, height = 660 } = {}) {
+// Nur der Startwert: die Seite passt das Fenster danach selbst an ihren
+// Inhalt an (fitWindow() in webui-page.js).
+function openAppWindow(url, { width = 416, height = 560 } = {}) {
     // Der Sync-Tool wird praktisch nur für Windows gebaut (siehe
     // scripts/build-exe.js) — auf anderen Plattformen bleibt es beim Tab.
     if (process.platform !== "win32") return false;
@@ -62,47 +64,37 @@ function openAppWindow(url, { width = 480, height = 660 } = {}) {
 }
 
 /**
- * Das eigene Konsolenfenster verstecken. Die .exe ist ein Node-Konsolenprogramm
- * — beim Doppelklick öffnet Windows dafür immer eine Konsole, egal ob
- * zusätzlich das gestaltete Fenster (openAppWindow) aufgeht. Damit beim
- * Doppelklick nur Letzteres zu sehen ist, blendet dieser Aufruf die Konsole
- * danach aus.
+ * Eine Meldung als Windows-Dialog zeigen und warten, bis er weggeklickt ist.
  *
- * Node selbst hat dafür keine API — der Umweg über PowerShell + Win32
- * (GetConsoleWindow/ShowWindow) ist der übliche Trick dafür. Der
- * PowerShell-Prozess bekommt kein eigenes Fenster und teilt sich dieselbe
- * Konsole wie dieser Node-Prozess, GetConsoleWindow() liefert also genau das
- * Fenster, das versteckt werden soll.
+ * Für die .exe: sie ist ein GUI-Programm ohne Konsole (scripts/exeResources.js)
+ * — was dort nur in die Konsole ginge, sähe niemand. Das betrifft genau die
+ * Fälle, in denen die Oberfläche nicht aufgeht (Absturz beim Start) oder ein
+ * Konsolenbefehl an die .exe übergeben wurde.
  *
- * Nur aufrufen, nachdem die Oberfläche sicher steht (siehe index.js): eine
- * versteckte Konsole nimmt keine Tastatureingabe mehr an — ein Fehler davor
- * (z.B. unvollständige Konfiguration), der sonst zum Warten auf „Enter"
- * führt, würde sich in einem unsichtbaren Fenster verstecken statt lesbar zu
- * bleiben.
+ * Node selbst kann keine Dialoge; PowerShell mit WinForms ist auf jedem
+ * Windows da. `windowsHide: true` ist hier Pflicht: ohne eigene Konsole
+ * würde Windows dem PowerShell-Prozess sonst ein sichtbares Konsolenfenster
+ * aufmachen. Der Text reist als Umgebungsvariable, damit weder Anführungszeichen
+ * noch Zeilenumbrüche in der Meldung die Befehlszeile zerlegen.
+ *
+ * @returns {boolean} ob der Dialog gezeigt werden konnte
  */
-function hideConsoleWindow() {
+function showMessageBox(text, { title = "EventHelper Sync", error = false } = {}) {
     if (process.platform !== "win32") return false;
     try {
-        // Kein `windowsHide: true` hier — das setzt Windows' CREATE_NO_WINDOW,
-        // was PowerShell eine eigene (nur unsichtbare) Konsole gibt statt sie
-        // der bestehenden beitreten zu lassen. GetConsoleWindow() läuft dann
-        // gegen die eigene, leere Konsole statt gegen die, die verschwinden
-        // soll — ohne das Flag hängt sich PowerShell an die vorhandene
-        // Konsole dieses Node-Prozesses, es entsteht also kein sichtbares
-        // Extrafenster.
         execFileSync("powershell.exe", [
-            "-NoProfile", "-NonInteractive", "-Command",
-            "Add-Type -Name W -Namespace EHS -MemberDefinition "
-            + "'[DllImport(\"kernel32.dll\")]public static extern IntPtr GetConsoleWindow();"
-            + "[DllImport(\"user32.dll\")]public static extern bool ShowWindow(IntPtr h,int c);'; "
-            + "[EHS.W]::ShowWindow([EHS.W]::GetConsoleWindow(), 0) | Out-Null",
-        ], { timeout: 5000 });
+            "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command",
+            "Add-Type -AssemblyName System.Windows.Forms; "
+            + "[void][System.Windows.Forms.MessageBox]::Show($env:EHS_MSG_TEXT, $env:EHS_MSG_TITLE, "
+            + `'OK', '${error ? "Error" : "Information"}')`,
+        ], {
+            windowsHide: true,
+            env: { ...process.env, EHS_MSG_TEXT: String(text), EHS_MSG_TITLE: String(title) },
+        });
         return true;
     } catch {
-        // Kein Beinbruch: die Konsole bleibt dann sichtbar, die Oberfläche
-        // funktioniert trotzdem.
         return false;
     }
 }
 
-module.exports = { openAppWindow, findBrowser, hideConsoleWindow };
+module.exports = { openAppWindow, findBrowser, showMessageBox };

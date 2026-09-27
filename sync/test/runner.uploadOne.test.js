@@ -101,3 +101,32 @@ describe("createRunner — uploadNow refreshes state.sessions afterwards", () =>
         expect(runner.state.sessions[0].lastUpload).toMatchObject({ status: "pending", added: 1 });
     });
 });
+
+// The .exe now starts straight into the UI even before it is set up (the setup
+// happens there) — the first tick must not fire an upload without a target.
+describe("createRunner — tick", () => {
+    beforeEach(() => {
+        uploader.uploadFile.mockResolvedValue({ sessions: 1, skipped: 0, results: [] });
+    });
+
+    it("lädt beim ersten Durchlauf hoch, wenn die Einrichtung vollständig ist", async () => {
+        config.missing.mockReturnValue([]);
+        const runner = createRunner();
+
+        await runner.tick();
+
+        expect(uploader.uploadFile).toHaveBeenCalledWith(CFG, "x.lua");
+    });
+
+    it("lädt nichts hoch, solange Adresse oder Token fehlen, liest die Datei aber", async () => {
+        config.missing.mockReturnValue(["token (…)"]);
+        const runner = createRunner();
+
+        await runner.tick();
+
+        expect(uploader.uploadFile).not.toHaveBeenCalled();
+        // The UI still shows what was found locally while setup is pending.
+        expect(runner.state.file).toBe("x.lua");
+        expect(runner.state.sessions).toHaveLength(1);
+    });
+});

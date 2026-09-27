@@ -681,7 +681,10 @@ function render() {
 // geladen, Einstellungen auf/zu), damit eine eigene Grösse nicht bei jedem
 // 3-s-Poll wieder überschrieben wird. Im normalen Browser-Tab (Fallback)
 // ignoriert der Browser resizeTo() ohnehin.
-const APP_WIDTH = 400;
+// 490 statt 400: darunter bricht die längste Unterzeile einer Raid-Zeile
+// ("Mo, 27.4.2026 · 11 Items (RCLootcouncil) · kein Termin gefunden") um,
+// sobald die Scrollleiste Platz nimmt (gemessen: passt ab 480, Rest Puffer).
+const APP_WIDTH = 490;
 let fittedHeight = 0;
 function fitWindow() {
   const frame = document.querySelector(".frame");

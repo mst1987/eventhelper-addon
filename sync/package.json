@@ -13,7 +13,8 @@
     "status": "node index.js status",
     "test": "jest",
     "lint": "eslint .",
-    "build:exe": "node scripts/build-exe.js"
+    "build:exe": "node scripts/build-exe.js",
+    "build:icon": "node scripts/render-icon.js"
   },
   "engines": {
     "node": ">=18"
@@ -24,6 +25,8 @@
     "esbuild": "^0.28.1",
     "eslint": "^9.39.5",
     "jest": "^29.7.0",
-    "postject": "^1.0.0-alpha.6"
+    "postject": "^1.0.0-alpha.6",
+    "puppeteer-core": "^24.43.1",
+    "resedit": "^3.1.0"
   }
 }

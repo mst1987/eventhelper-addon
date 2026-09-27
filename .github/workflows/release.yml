@@ -109,9 +109,11 @@ jobs:
             den enthaltenen Ordner `EventHelperSync` nach `<WoW>/_classic_era_/Interface/AddOns/`
             entpacken. Danach im Spiel einmal `/reload`, prüfen mit `/ehs`.
 
-            **Sync-Tool** — `EventHelperSync.exe` herunterladen und doppelklicken. Beim ersten Start
-            führt sie durch die Einrichtung (Server-Adresse, API-Token aus
-            *Einstellungen → Loot-Sync*, WoW-Ordner) und beobachtet danach von selbst.
+            **Sync-Tool** — `EventHelperSync.exe` herunterladen und doppelklicken. Es öffnet sich
+            nur ihr Fenster, keine Konsole; beim ersten Start sind dort die Einstellungen aufgeklappt
+            (Server-Adresse, API-Token aus *Einstellungen → Loot-Sync*, WoW-Ordner). Danach
+            beobachtet sie von selbst. Fenster zu = läuft im Hintergrund weiter; erneuter
+            Doppelklick holt das Fenster zurück, ✕ im Fenster beendet sie.
 
             > Die .exe enthält die Node-Laufzeit und ist deshalb gross. Sie ist nicht signiert —
             > Windows SmartScreen fragt beim ersten Start nach

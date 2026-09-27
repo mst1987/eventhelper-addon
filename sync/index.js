@@ -21,7 +21,8 @@ const wowPaths = require("./lib/wowPaths");
 const { readEnvelope, uploadFile, describeResult, UploadError, SYNC_VERSION } = require("./lib/uploader");
 const { createRunner } = require("./lib/runner");
 const { createWebUI, openInBrowser } = require("./lib/webui");
-const { openAppWindow, hideConsoleWindow } = require("./lib/appWindow");
+const { openAppWindow, showMessageBox } = require("./lib/appWindow");
+const instance = require("./lib/instance");
 
 const stamp = () => new Date().toLocaleTimeString("de-DE");
 const log = (...args) => console.log(`[${stamp()}]`, ...args);
@@ -191,14 +192,45 @@ async function cmdOnce() {
 }
 
 /**
+ * Ob dies die gepackte Windows-.exe ist. Die ist ein GUI-Programm ohne Konsole
+ * (scripts/exeResources.js): Einrichtung läuft dort über die Oberfläche,
+ * Meldungen über einen Dialog — was in die Konsole ginge, sähe niemand.
+ */
+function isGuiExe() {
+    if (process.platform !== "win32") return false;
+    try {
+        return require("node:sea").isSea();
+    } catch {
+        return false;
+    }
+}
+
+/** Die Oberfläche öffnen: bevorzugt als eigenes Fenster, sonst als Browser-Tab. */
+function openUi(url) {
+    if (!openAppWindow(url)) openInBrowser(url);
+}
+
+/**
  * Dauerbetrieb. Standardmässig mit Oberfläche: ein eigenes Fenster (Edge/
  * Chrome ohne Adressleiste und Tabs, siehe lib/appWindow.js) zeigt Stand und
  * Raid-Liste, ohne dass jemand einen Befehl kennen muss. Mit --no-ui bleibt es
  * bei den Konsolenzeilen (für den Betrieb als Dienst).
  */
 async function cmdWatch() {
-    requireReady();
     const withUi = !process.argv.includes("--no-ui");
+    // Mit Oberfläche lässt sich dort einrichten; ohne gibt es nur die Datei.
+    if (!withUi) requireReady();
+
+    if (withUi) {
+        // Läuft schon eine Instanz (Fenster nur zugemacht), deren Fenster
+        // wieder öffnen statt eine zweite daneben zu starten (lib/instance.js).
+        const running = await instance.findRunning();
+        if (running) {
+            log(`Läuft bereits — öffne das vorhandene Fenster: ${running}`);
+            openUi(running);
+            return;
+        }
+    }
 
     // Jede Zeile aus dem Runner geht zusätzlich in die Konsole, damit beide
     // Wege denselben Verlauf zeigen.
@@ -213,18 +245,12 @@ async function cmdWatch() {
         try {
             const url = await ui.start(process.env.EVENTHELPER_SYNC_UI_PORT);
             log(`Oberfläche: ${url}`);
-            // Bevorzugt als eigenes Fenster; kein Edge/Chrome gefunden oder der
-            // Start schlägt fehl -> normaler Browser-Tab, damit die Oberfläche
-            // in jedem Fall erreichbar bleibt.
-            if (!openAppWindow(url)) openInBrowser(url);
-
-            // Bei einem Doppelklick auf die .exe soll nur das gestaltete
-            // Fenster zu sehen sein, nicht die Node-Konsole dahinter. Wer die
-            // .exe absichtlich mit "watch" aus einem Terminal heraus startet,
-            // soll sein eigenes Terminal dagegen nicht verschwinden sehen —
-            // launchedBare() unterscheidet genau das (siehe dort).
-            if (launchedBare()) hideConsoleWindow();
+            instance.register(url);
+            openUi(url);
         } catch (e) {
+            // In der .exe liefe der Upload ohne Oberfläche unsichtbar und
+            // unbeendbar weiter — dort lieber sagen, was los ist, und aufhören.
+            if (isGuiExe()) throw new Error(`Die Oberfläche konnte nicht gestartet werden: ${e.message}`);
             fail(`Oberfläche konnte nicht gestartet werden: ${e.message}`);
             fail("Der Upload läuft trotzdem weiter.");
         }
@@ -258,9 +284,20 @@ async function main() {
     // Ohne Argument: beim ersten Start durch die Einrichtung führen, sonst
     // beobachten. Ein Doppelklick auf die frisch heruntergeladene .exe soll
     // etwas Sinnvolles tun und nicht mit "Konfiguration unvollständig" abbrechen.
+    // Die .exe hat keine Konsole für die Fragen von "init": sie geht immer in
+    // die Oberfläche, die ein fehlendes Token selbst anmahnt.
     let cmd = (process.argv[2] || "").toLowerCase();
     if (!cmd) {
-        cmd = config.missing(config.load()).length ? "init" : "watch";
+        cmd = isGuiExe() || !config.missing(config.load()).length ? "watch" : "init";
+    }
+
+    if (isGuiExe() && cmd !== "watch") {
+        showMessageBox(
+            `„${cmd}" ist ein Konsolenbefehl — die EventHelperSync.exe hat keine Konsole.\n\n`
+            + "Ein Doppelklick öffnet das Fenster; Einrichtung und Upload liegen dort.\n"
+            + "Die Befehle init, once und status gibt es mit Node.js: npx eventhelper-sync <befehl>",
+        );
+        return;
     }
 
     switch (cmd) {
@@ -290,7 +327,8 @@ async function run() {
         await main();
     } catch (e) {
         fail(e.stack || e.message);
-        if (launchedBare()) await waitForEnter();
+        if (isGuiExe()) showMessageBox(e.message, { error: true });
+        else if (launchedBare()) await waitForEnter();
         process.exit(1);
     }
 }
@@ -299,4 +337,4 @@ async function run() {
 // scripts/sea-entry.js run() direkt auf.
 if (require.main === module) run();
 
-module.exports = { main, run, resolveFile };
+module.exports = { main, run, resolveFile, isGuiExe };

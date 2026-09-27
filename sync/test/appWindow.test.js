@@ -9,7 +9,7 @@ const path = require("path");
 
 jest.mock("child_process");
 const { execFile, execFileSync } = require("child_process");
-const { openAppWindow, findBrowser, hideConsoleWindow } = require("../lib/appWindow");
+const { openAppWindow, findBrowser, showMessageBox } = require("../lib/appWindow");
 
 let tmp;
 const ORIGINAL_ENV = { ...process.env };
@@ -96,7 +96,7 @@ describe("openAppWindow", () => {
         putEdge(tmp);
         process.env["ProgramFiles(x86)"] = tmp;
         openAppWindow("http://127.0.0.1:8730/?key=abc");
-        expect(execFile.mock.calls[0][1]).toContain("--window-size=480,660");
+        expect(execFile.mock.calls[0][1]).toContain("--window-size=416,560");
     });
 
     // Muss auf den normalen Browser-Tab zurückfallen können (webui.js's
@@ -123,29 +123,37 @@ describe("openAppWindow", () => {
     });
 });
 
-describe("hideConsoleWindow", () => {
-    it("ruft PowerShell mit dem GetConsoleWindow/ShowWindow-Trick auf", () => {
-        const ok = hideConsoleWindow();
+describe("showMessageBox", () => {
+    it("zeigt den Text per PowerShell/WinForms, ohne Konsolenfenster", () => {
+        const ok = showMessageBox('Fehler: "kaputt"\nzweite Zeile', { error: true });
 
         expect(ok).toBe(true);
         expect(execFileSync).toHaveBeenCalledTimes(1);
         const [cmd, args, opts] = execFileSync.mock.calls[0];
         expect(cmd).toBe("powershell.exe");
-        expect(args.join(" ")).toMatch(/GetConsoleWindow/);
-        expect(args.join(" ")).toMatch(/ShowWindow/);
-        // Bewusst OHNE windowsHide: das gäbe PowerShell eine eigene, leere
-        // Konsole statt der bestehenden beizutreten (siehe lib/appWindow.js).
-        expect(opts).not.toHaveProperty("windowsHide");
+        expect(args.join(" ")).toMatch(/MessageBox\]::Show/);
+        expect(args.join(" ")).toMatch(/'Error'/);
+        // Pflicht in der GUI-.exe: sonst öffnet Windows PowerShell eine Konsole.
+        expect(opts.windowsHide).toBe(true);
+        // Der Text reist unverändert als Umgebungsvariable, nicht in der Befehlszeile.
+        expect(opts.env.EHS_MSG_TEXT).toBe('Fehler: "kaputt"\nzweite Zeile');
+        expect(opts.env.EHS_MSG_TITLE).toBe("EventHelper Sync");
+        expect(args.join(" ")).not.toMatch(/kaputt/);
+    });
+
+    it("nimmt ohne error-Flag das Informations-Symbol", () => {
+        showMessageBox("Hinweis");
+        expect(execFileSync.mock.calls[0][1].join(" ")).toMatch(/'Information'/);
     });
 
     it("liefert false, statt zu werfen, wenn PowerShell fehlschlägt", () => {
         execFileSync.mockImplementation(() => { throw new Error("nicht gefunden"); });
-        expect(hideConsoleWindow()).toBe(false);
+        expect(showMessageBox("x")).toBe(false);
     });
 
     it("versucht es auf anderen Plattformen gar nicht erst", () => {
         setPlatform("darwin");
-        expect(hideConsoleWindow()).toBe(false);
+        expect(showMessageBox("x")).toBe(false);
         expect(execFileSync).not.toHaveBeenCalled();
     });
 });

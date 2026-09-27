@@ -150,6 +150,16 @@ describe("webui", () => {
             expect(html).toContain("EventHelper Loot-Sync");
         });
 
+        // Ein Raid, dessen Upload unbestätigt in der Addon-Inbox liegt, stand
+        // früher als "Importiert" da, obwohl beim Event noch nichts war.
+        it("zeigt Raids mit Status pending als eigene Gruppe mit Link zur Inbox", async () => {
+            await startUI(fakeRunner());
+            const html = await (await get("/")).text();
+            expect(html).toContain('r.status === "pending"');
+            expect(html).toContain("WARTEN&nbsp;AUF&nbsp;BESTÄTIGUNG");
+            expect(html).toContain('"/history/inbox"');
+        });
+
         it("hat das Token nicht im Seitenquelltext", async () => {
             await startUI(fakeRunner());
             const html = await (await get("/")).text();

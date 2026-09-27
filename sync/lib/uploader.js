@@ -87,8 +87,11 @@ async function postSession(config, payload) {
 
 /**
  * Der Raid-Status vom Server: pro Event der letzten Wochen, ob schon Loot da
- * ist, und — falls nicht — ob eine der übergebenen lokalen Sessions dafür
- * bereitsteht (Feld `status`: "done"/"ready"/"empty"). Nimmt nur die
+ * ist, ob ein Upload dafür noch unbestätigt in der Addon-Inbox liegt, und —
+ * falls beides nicht — ob eine der übergebenen lokalen Sessions dafür
+ * bereitsteht (Feld `status`: "done"/"pending"/"ready"/"empty"; bei "pending"
+ * zusätzlich `inboxItems`). Ein älterer Server kennt "pending" nicht und
+ * meldet solche Raids als "done". Nimmt nur die
  * Aggregat-Felder aus runner.state.sessions, keine Item-Details — das Matching
  * selbst passiert serverseitig (computeRaidStatus() im Bot-Repo), damit die
  * Vorschau hier nie vom tatsächlichen Upload-Verhalten abweichen kann.

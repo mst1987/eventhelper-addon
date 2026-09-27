@@ -28,6 +28,7 @@ module.exports.PAGE = String.raw`<!doctype html>
     --ready-bg1: #9a2a2a; --ready-bg2: #6b1414; --ready-bg3: #4a0d0d;
     --done-bg1: #2e3a26; --done-bg2: #1c2417; --done-line: #5a7a3e;
     --empty-bg1: #3a3320; --empty-bg2: #241f13; --empty-line: #8a7a2e;
+    --pending-bg1: #26344a; --pending-bg2: #161f2e; --pending-line: #5a82b8;
     --err: #ff8a7a; --warn: #e0c25a;
   }
   * { box-sizing: border-box; }
@@ -95,6 +96,7 @@ module.exports.PAGE = String.raw`<!doctype html>
   .row.ready:disabled { cursor: default; opacity: .6; filter: none; }
   .row.done { background: linear-gradient(180deg, var(--done-bg1) 0%, var(--done-bg2) 100%); border: 1px solid var(--done-line); }
   .row.empty { background: linear-gradient(180deg, var(--empty-bg1) 0%, var(--empty-bg2) 100%); border: 1px solid var(--empty-line); }
+  .row.pending { background: linear-gradient(180deg, var(--pending-bg1) 0%, var(--pending-bg2) 100%); border: 1px solid var(--pending-line); }
 
   .row .icon { flex: 0 0 auto; width: 16px; height: 16px; }
   .row .info { flex-grow: 1; min-width: 0; }
@@ -102,10 +104,12 @@ module.exports.PAGE = String.raw`<!doctype html>
   .row.ready .name { color: var(--cream); }
   .row.done .name { color: #bcd4a4; }
   .row.empty .name { color: #d9c988; }
+  .row.pending .name { color: #c3d6f2; }
   .row .sub { font-size: 11.5px; }
   .row.ready .sub { color: #e3b8a8; }
   .row.done .sub { color: #7fa066; }
   .row.empty .sub { color: #a89550; }
+  .row.pending .sub { color: #8eaedb; }
 
   .dismiss {
     flex: 0 0 auto; width: 22px; height: 22px; border-radius: 4px; line-height: 1;
@@ -419,14 +423,18 @@ function rowDiv(className, contents) {
 //   2. Ohne bekannten Termin — eine lokale Session, die zu keinem Raid der
 //      letzten Wochen passt (z.B. Pug-Abend). Trotzdem hochladbar: landet im
 //      Menü als unzugeordnete Inbox-Session, wie eh schon immer.
-//   3. Übrige Raids — grün (schon importiert) oder gelb (kein Loot gefunden).
+//   3. Warten auf Bestätigung — hochgeladen, liegt aber unbestätigt in der
+//      Addon-Inbox; im Verlauf des Events steht noch nichts. Braucht wie (1)
+//      noch einen Klick, nur auf der Website statt hier.
+//   4. Übrige Raids — grün (schon importiert) oder gelb (kein Loot gefunden).
 function buildGroups() {
   const sessions = (lastState && lastState.sessions) || [];
   const raids = lastRaids || [];
   const matchedIds = new Set(raids.filter((r) => r.matchedSessionId).map((r) => r.matchedSessionId));
 
   const ready = raids.filter((r) => r.status === "ready");
-  const rest = raids.filter((r) => r.status !== "ready");
+  const pending = raids.filter((r) => r.status === "pending");
+  const rest = raids.filter((r) => r.status !== "ready" && r.status !== "pending");
   const unmatched = sessions.filter((s) => (
     !s.excluded && s.items > 0 && !s.lastUpload && !matchedIds.has(s.sessionId)
   ));
@@ -439,7 +447,7 @@ function buildGroups() {
   const upcomingRest = rest.filter((r) => r.startTime * 1000 > now)
     .sort((a, b) => a.startTime - b.startTime);
 
-  return { ready, unmatched, pastRest, upcomingRest };
+  return { ready, unmatched, pending, pastRest, upcomingRest };
 }
 
 // Ein bereiter Eintrag ist immer ein Klick-Button (l\u00e4dt genau diese Session
@@ -484,6 +492,23 @@ function renderUnmatchedRow(s) {
     '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#f5e6c8" stroke-width="2.2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>'
     + '<div class="info"><div class="name outline">' + esc(s.instance || "Unbekannter Raid") + '</div>'
     + '<div class="sub">' + fmtDay(s.startedAt) + " &middot; " + sourceLabel(s.gargul, s.rclc) + " &middot; kein Termin gefunden</div></div>");
+}
+
+function renderPendingRow(r) {
+  const count = r.inboxItems ? r.inboxItems + " Items" : "Hochgeladen";
+  const row = rowDiv("pending",
+    '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#8eaedb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12M6 21h12M7 3c0 5 10 7 10 18M17 3c0 5-10 7-10 18"/></svg>'
+    + '<div class="info"><div class="name">' + esc(r.title) + '</div>'
+    + '<div class="sub">' + fmtDay(r.startTime * 1000) + " &middot; " + count + " warten in der Inbox</div></div>");
+  // Bestätigt wird in der Addon-Inbox, nicht am Event — dorthin führt der Link.
+  const base = lastState && lastState.config && lastState.config.baseUrl;
+  if (base) {
+    const link = linkButton(base.replace(/\/+$/, "") + "/history/inbox");
+    link.title = "In der Addon-Inbox bestätigen";
+    link.setAttribute("aria-label", "In der Addon-Inbox bestätigen");
+    row.appendChild(link);
+  }
+  return row;
 }
 
 function renderRestRow(r) {
@@ -540,12 +565,14 @@ function render() {
     $("banner").hidden = true;
   }
 
-  const { ready, unmatched, pastRest, upcomingRest } = buildGroups();
+  const { ready, unmatched, pending, pastRest, upcomingRest } = buildGroups();
   const readyCount = ready.length + unmatched.length;
-  const openCount = readyCount + pastRest.filter((r) => r.status === "empty").length;
+  const openCount = readyCount + pending.length + pastRest.filter((r) => r.status === "empty").length;
   $("summary").innerHTML = lastRaids === null
     ? "Raid-Liste wird geladen …"
-    : "<b>" + readyCount + "</b> bereit zum Hochladen &middot; " + openCount + " insgesamt offen";
+    : "<b>" + readyCount + "</b> bereit zum Hochladen &middot; "
+      + (pending.length ? "<b>" + pending.length + "</b> warten auf Bestätigung &middot; " : "")
+      + openCount + " insgesamt offen";
 
   const lists = $("lists");
   lists.innerHTML = "";
@@ -555,6 +582,13 @@ function render() {
     group.innerHTML = '<div class="group-label">BEREIT&nbsp;ZUM&nbsp;HOCHLADEN</div>';
     for (const r of ready) group.appendChild(renderReadyRow(r));
     for (const s of unmatched) group.appendChild(renderUnmatchedRow(s));
+    lists.appendChild(group);
+  }
+  if (pending.length) {
+    const group = document.createElement("div");
+    group.className = "group";
+    group.innerHTML = '<div class="group-label">WARTEN&nbsp;AUF&nbsp;BESTÄTIGUNG</div>';
+    for (const r of pending) group.appendChild(renderPendingRow(r));
     lists.appendChild(group);
   }
   if (pastRest.length || upcomingRest.length) {
@@ -609,7 +643,7 @@ function render() {
 
     lists.appendChild(group);
   }
-  if (!readyCount && !pastRest.length && !upcomingRest.length && lastRaids !== null) {
+  if (!readyCount && !pending.length && !pastRest.length && !upcomingRest.length && lastRaids !== null) {
     lists.innerHTML = '<div class="empty-hint">Keine Raid-Termine der letzten Wochen gefunden.</div>';
   }
 

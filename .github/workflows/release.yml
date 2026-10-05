@@ -75,6 +75,17 @@ jobs:
           npm test
           npm run lint
 
+      # Das Addon selbst, in einer Lua-VM gegen beide Clients (TBC Anniversary,
+      # WoW Forever) samt Latin-1-Prüfung. addon/test liegt neben dem
+      # Addon-Ordner und kommt deshalb nicht ins Zip.
+      - name: Lua-Abhängigkeiten installieren
+        working-directory: addon/test
+        run: npm ci
+
+      - name: Lua-Specs
+        working-directory: addon/test
+        run: npm test
+
       - name: Sync-Tool zur .exe bauen
         working-directory: sync
         run: npm run build:exe
@@ -106,8 +117,9 @@ jobs:
             ## Installation
 
             **Addon** — `EventHelperSync-${{ steps.version.outputs.version }}.zip` herunterladen und
-            den enthaltenen Ordner `EventHelperSync` nach `<WoW>/_classic_era_/Interface/AddOns/`
-            entpacken. Danach im Spiel einmal `/reload`, prüfen mit `/ehs`.
+            den enthaltenen Ordner `EventHelperSync` nach `<WoW>/_anniversary_/Interface/AddOns/`
+            (TBC Anniversary) bzw. `<WoW>/_classic_beta_/Interface/AddOns/` (WoW Forever)
+            entpacken. Danach im Spiel einmal `/reload`, prüfen mit `/ehs`; Loot-Council mit `/ehc`.
 
             **Sync-Tool** — `EventHelperSync.exe` herunterladen und doppelklicken. Es öffnet sich
             nur ihr Fenster, keine Konsole; beim ersten Start sind dort die Einstellungen aufgeklappt

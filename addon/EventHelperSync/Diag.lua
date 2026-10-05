@@ -23,7 +23,7 @@ local function bad(text) return "|cffdd4444" .. text .. "|r" end
 local function warn(text) return "|cffffd200" .. text .. "|r" end
 
 local function when(at)
-    if not at or at == 0 then return "—" end
+    if not at or at == 0 then return "-" end
     return date("%d.%m.%Y %H:%M", at)
 end
 
@@ -172,14 +172,14 @@ local function diagPipeline()
     for _, s in ipairs(sessions) do
         local aus = EHS:IsExcluded(s.sessionId)
         if aus then abgewaehlt = abgewaehlt + 1 end
-        EHS:Print(("  %s %s — %s, %d Item(s)"):format(
+        EHS:Print(("  %s %s - %s, %d Item(s)"):format(
             aus and bad("[abgewählt]") or ok("[dabei]"),
             date("%d.%m.%Y", s.startedAt),
             s.instance ~= "" and s.instance or "unbekannte Instanz",
             #s.items))
     end
     if abgewaehlt > 0 then
-        EHS:Print("  " .. warn(abgewaehlt .. " Abend(e) abgewählt — die werden nicht hochgeladen."))
+        EHS:Print("  " .. warn(abgewaehlt .. " Abend(e) abgewählt - die werden nicht hochgeladen."))
     end
 
     local envelope = EHS:BuildEnvelope(sessions)

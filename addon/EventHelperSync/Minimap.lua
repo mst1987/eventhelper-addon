@@ -40,7 +40,7 @@ local function build()
     button:SetSize(31, 31)
     button:SetFrameStrata("MEDIUM")
     button:SetFrameLevel(8)
-    button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    button:RegisterForClicks("LeftButtonUp", "RightButtonUp", "MiddleButtonUp")
     button:RegisterForDrag("LeftButton")
     button:SetMovable(true)
 
@@ -83,7 +83,11 @@ local function build()
     end)
 
     button:SetScript("OnClick", function(_, mouseButton)
-        if mouseButton == "RightButton" then
+        local shift = IsShiftKeyDown and IsShiftKeyDown()
+        if mouseButton == "MiddleButton" or (mouseButton == "LeftButton" and shift) then
+            -- Der Loot-Council: beim Verteilen der schnellste Weg dorthin.
+            EHS:ToggleCouncil()
+        elseif mouseButton == "RightButton" then
             -- Rechtsklick ist der schnelle Weg für alle, die das Fenster nicht
             -- brauchen, sondern nur speichern wollen.
             EHS:FlushAndReload()
@@ -118,6 +122,7 @@ local function build()
 
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine("Linksklick: Fenster öffnen", 1, 1, 1)
+        GameTooltip:AddLine("Shift-Linksklick / Mittelklick: Loot-Council", 1, 1, 1)
         GameTooltip:AddLine("Rechtsklick: jetzt speichern (lädt die UI neu)", 1, 1, 1)
         GameTooltip:AddLine("Ziehen: um die Minimap bewegen", .6, .6, .6)
         GameTooltip:Show()

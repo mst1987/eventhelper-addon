@@ -13,6 +13,7 @@
  *   npx eventhelper-sync once     einmal hochladen und beenden
  *   npx eventhelper-sync watch    dauerhaft beobachten (Standard)
  *   npx eventhelper-sync status   zeigen, was gefunden wurde, ohne zu senden
+ *   npx eventhelper-sync council  Council-Daten einmal holen und ins Addon schreiben
  */
 const fs = require("fs");
 const readline = require("readline");
@@ -20,6 +21,7 @@ const config = require("./lib/config");
 const wowPaths = require("./lib/wowPaths");
 const { readEnvelope, uploadFile, describeResult, UploadError, SYNC_VERSION } = require("./lib/uploader");
 const { createRunner } = require("./lib/runner");
+const council = require("./lib/council");
 const { createWebUI, openInBrowser } = require("./lib/webui");
 const { openAppWindow, showMessageBox } = require("./lib/appWindow");
 const instance = require("./lib/instance");
@@ -192,6 +194,33 @@ async function cmdOnce() {
 }
 
 /**
+ * Council-Daten einmal holen und als CouncilData.lua in jeden installierten
+ * Addon-Ordner schreiben (lib/council.js) — dasselbe, was der Dauerbetrieb
+ * alle 15 Minuten tut.
+ */
+async function cmdCouncil() {
+    const cfg = requireReady();
+    let result;
+    try {
+        result = await council.syncCouncil(cfg);
+    } catch (e) {
+        fail(`Council-Daten nicht geholt: ${e.message}`);
+        process.exit(1);
+    }
+    const filter = result.payload.filter || {};
+    log(`${result.raiders} Raider${filter.categoryName ? ` (${filter.categoryName})` : ""}, `
+        + `BiS-Liste ${filter.bisTier || "-"}.`);
+    if (!result.dirs.length) {
+        fail("Kein installierter Addon-Ordner EventHelperSync gefunden — nichts geschrieben.");
+        process.exit(1);
+    }
+    for (const file of result.files) log(`geschrieben: ${file}`);
+    for (const err of result.errors) fail(`nicht geschrieben: ${err}`);
+    if (result.errors.length) process.exit(1);
+    log("Im Spiel /reload, dann /ehc.");
+}
+
+/**
  * Ob dies die gepackte Windows-.exe ist. Die ist ein GUI-Programm ohne Konsole
  * (scripts/exeResources.js): Einrichtung läuft dort über die Oberfläche,
  * Meldungen über einen Dialog — was in die Konsole ginge, sähe niemand.
@@ -295,7 +324,7 @@ async function main() {
         showMessageBox(
             `„${cmd}" ist ein Konsolenbefehl — die EventHelperSync.exe hat keine Konsole.\n\n`
             + "Ein Doppelklick öffnet das Fenster; Einrichtung und Upload liegen dort.\n"
-            + "Die Befehle init, once und status gibt es mit Node.js: npx eventhelper-sync <befehl>",
+            + "Die Befehle init, once, status und council gibt es mit Node.js: npx eventhelper-sync <befehl>",
         );
         return;
     }
@@ -312,9 +341,10 @@ async function main() {
         return;
     case "once": return cmdOnce();
     case "status": return cmdStatus();
+    case "council": return cmdCouncil();
     case "watch": return cmdWatch();
     default:
-        console.log("Befehle: init | once | watch | status");
+        console.log("Befehle: init | once | watch | status | council");
         console.log("  watch --no-ui   ohne Browser-Oberfläche (für den Betrieb als Dienst)");
         console.log(`Konfiguration: ${config.CONFIG_FILE}`);
         process.exit(1);

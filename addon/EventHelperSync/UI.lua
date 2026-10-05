@@ -28,7 +28,7 @@ local function build()
 
     frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     frame.title:SetPoint("TOP", 0, -6)
-    frame.title:SetText("EventHelper — Loot-Export")
+    frame.title:SetText("EventHelper - Loot-Export")
 
     frame.hint = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     frame.hint:SetPoint("TOPLEFT", 14, -32)
@@ -79,7 +79,7 @@ function EHS:ShowExportFrame()
     for _, session in ipairs(envelope.sessions) do items = items + #session.items end
 
     if items == 0 then
-        self:Print("Nichts zu exportieren — in den letzten "
+        self:Print("Nichts zu exportieren - in den letzten "
             .. (self.db.settings.lookbackDays or 21) .. " Tagen wurde kein Loot vergeben.")
         self:Print("Weiter zurück schauen: /ehs days 60")
         return

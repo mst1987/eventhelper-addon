@@ -73,8 +73,13 @@ function safeConfig(cfg) {
         tokenHint: cfg.token ? String(cfg.token).slice(-4) : "",
         savedVariablesPath: cfg.savedVariablesPath || "",
         pollSeconds: cfg.pollSeconds || 15,
+        councilCategory: cfg.councilCategory || "",
+        councilRole: cfg.councilRole || "",
     };
 }
+
+// Rollen, nach denen der Server die Council-Daten filtern kann ("" = beide).
+const COUNCIL_ROLES = ["", "caster", "healer"];
 
 /**
  * @param {object} runner  aus createRunner()
@@ -127,6 +132,7 @@ function createWebUI(runner, { onQuit } = {}) {
                     lastUpload: s.lastUpload,
                     lastError: s.lastError,
                     uploading: s.uploading,
+                    council: s.council || null,
                     log: s.log,
                     config: safeConfig(runner.config),
                     candidates: wowPaths.discover(runner.config.extraRoots)
@@ -161,6 +167,15 @@ function createWebUI(runner, { onQuit } = {}) {
                     savedVariablesPath,
                     pollSeconds: Math.min(600, Math.max(5, Number(body.pollSeconds) || 15)),
                 };
+                // Nur übernehmen, was mitgeschickt wurde — ein Aufruf ohne diese
+                // Felder soll die Auswahl nicht leeren.
+                if (body.councilCategory !== undefined) {
+                    next.councilCategory = String(body.councilCategory || "").trim();
+                }
+                if (body.councilRole !== undefined) {
+                    const role = String(body.councilRole || "").trim();
+                    next.councilRole = COUNCIL_ROLES.includes(role) ? role : "";
+                }
                 // Ein leeres Feld heisst "unverändert lassen" — sonst wäre das
                 // Token nach jedem Speichern der anderen Werte weg.
                 const token = String(body.token || "").trim();
@@ -185,6 +200,21 @@ function createWebUI(runner, { onQuit } = {}) {
             if (req.method === "POST" && parsed.pathname === "/api/upload") {
                 const results = await runner.uploadNow();
                 json(res, 200, { ok: true, results });
+                return;
+            }
+
+            // "Council-Daten holen": sofort vom Server holen und in die
+            // Addon-Ordner schreiben (lib/council.js), statt auf den
+            // Viertelstunden-Takt zu warten.
+            if (req.method === "POST" && parsed.pathname === "/api/council") {
+                const result = await runner.refreshCouncil({ force: true });
+                const council = runner.state.council || {};
+                if (!result) {
+                    const message = council.lastError ? council.lastError.message : "Council-Daten nicht geholt.";
+                    json(res, 502, { error: message });
+                    return;
+                }
+                json(res, 200, { ok: true, council });
                 return;
             }
 

@@ -14,10 +14,17 @@ const fs = require("fs");
 const config = require("./config");
 const wowPaths = require("./wowPaths");
 const { readEnvelope, uploadFile, uploadOneSession, postSession, UploadError, SYNC_VERSION } = require("./uploader");
+const council = require("./council");
 
 // Wie viele Log-Zeilen aufgehoben werden. Genug für einen Raid-Abend, wenig
 // genug, dass der Speicher nicht mitwächst.
 const LOG_LIMIT = 300;
+
+// Council-Daten (lib/council.js): alle 15 Minuten von selbst, dazu nach jedem
+// Upload. Zwei automatische Anlässe kurz hintereinander (Start + erster
+// Upload) lösen nur einen Abruf aus; ein Klick in der Oberfläche immer.
+const COUNCIL_INTERVAL_MS = 15 * 60 * 1000;
+const COUNCIL_MIN_GAP_MS = 60 * 1000;
 
 function createRunner(options = {}) {
     const state = {
@@ -34,6 +41,19 @@ function createRunner(options = {}) {
         lastError: null,
         uploading: false,
         log: [],
+        /** Der letzte Abruf der Council-Daten — für die Statuszeile. */
+        council: {
+            fetching: false,
+            lastFetch: 0,
+            generatedAt: 0,
+            raiders: 0,
+            categoryName: "",
+            role: "",
+            bisTier: "",
+            categories: [],
+            files: [],
+            lastError: null,
+        },
     };
 
     let cfg = config.load();
@@ -41,6 +61,8 @@ function createRunner(options = {}) {
     let busy = false;
     // Beim Start einmal hochladen; danach nur, wenn sich die Datei geändert hat.
     let firstRun = true;
+    let councilTimer = null;
+    let councilRun = null;
 
     function log(level, text) {
         const entry = { at: Date.now(), level, text };
@@ -107,6 +129,73 @@ function createRunner(options = {}) {
         }
     }
 
+    /**
+     * Council-Daten vom Server holen und als CouncilData.lua in jeden
+     * installierten Addon-Ordner schreiben (lib/council.js).
+     *
+     * Wirft nie und lehnt nie ab: ein Fehler hier — Server ohne die Route,
+     * Addon-Ordner schreibgeschützt — darf den Upload-Takt nicht anhalten. Er
+     * landet in state.council.lastError und im Verlauf.
+     *
+     * @param {{ force?: boolean }} [options]  force: auch kurz nach dem letzten
+     *   Abruf und mit Meldung, wenn noch nichts eingerichtet ist (Klick in der
+     *   Oberfläche). Ohne force fallen automatische Anlässe binnen einer Minute
+     *   zu einem zusammen.
+     * @returns {Promise<object|null>} das Ergebnis von syncCouncil(), sonst null
+     */
+    function refreshCouncil({ force = false } = {}) {
+        if (councilRun) return councilRun;
+        const c = state.council;
+        if (!force && c.lastFetch && Date.now() - c.lastFetch < COUNCIL_MIN_GAP_MS) return Promise.resolve(null);
+        c.fetching = true;
+        const run = (async () => {
+            try {
+                if ((config.missing(cfg) || []).length) {
+                    if (force) throw new Error("Noch nicht eingerichtet — Adresse und Token fehlen.");
+                    return null;
+                }
+                const result = await council.syncCouncil(cfg);
+                const filter = result.payload.filter || {};
+                Object.assign(c, {
+                    lastFetch: Date.now(),
+                    generatedAt: Number(result.payload.generatedAt) || 0,
+                    raiders: result.raiders,
+                    categoryName: filter.categoryName || "",
+                    role: filter.role || "",
+                    bisTier: filter.bisTier || "",
+                    categories: Array.isArray(result.payload.categories)
+                        ? result.payload.categories.filter((k) => k && k.id !== undefined)
+                            .map((k) => ({ id: String(k.id), name: String(k.name || k.id) }))
+                        : [],
+                    files: result.files,
+                    lastError: result.errors.length ? { at: Date.now(), message: result.errors.join("; ") } : null,
+                });
+                if (!result.dirs.length) {
+                    log("warn", `Council-Daten geholt (${result.raiders} Raider), aber kein installierter `
+                        + "Addon-Ordner EventHelperSync gefunden — nichts geschrieben.");
+                } else if (result.files.length) {
+                    log("ok", `Council-Daten: ${result.raiders} Raider in ${result.files.length} Addon-Ordner `
+                        + "geschrieben — im Spiel nach /reload sichtbar.");
+                }
+                for (const err of result.errors) log("error", `Council-Daten nicht geschrieben: ${err}`);
+                return result;
+            } catch (e) {
+                c.lastError = { at: Date.now(), message: e.message };
+                log("error", `Council-Daten: ${e.message}`);
+                return null;
+            } finally {
+                c.fetching = false;
+            }
+        })();
+        // Erst nach der Zuweisung freigeben: ohne await im Körper (nicht
+        // eingerichtet) ist `run` schon fertig, bevor es hier ankommt.
+        councilRun = run;
+        run.then(() => {
+            if (councilRun === run) councilRun = null;
+        });
+        return run;
+    }
+
     /** Einmal hochladen, egal ob sich etwas geändert hat. */
     async function uploadNow() {
         if (!state.file) {
@@ -126,6 +215,9 @@ function createRunner(options = {}) {
             } else {
                 for (const r of results) log("ok", `${r.sessionId}: ${describe(r)}`);
             }
+            // Nicht abgewartet: der Abruf blockiert den Upload-Takt nicht und
+            // kann ihn auch nicht scheitern lassen (refreshCouncil wirft nie).
+            refreshCouncil();
             return results;
         } catch (e) {
             state.lastError = { at: Date.now(), message: e.message };
@@ -155,6 +247,7 @@ function createRunner(options = {}) {
                 state.lastError = null;
                 rememberResults(results);
                 for (const r of results) log("ok", `${r.sessionId}: ${describe(r)}`);
+                refreshCouncil();
             }
             return results;
         } catch (e) {
@@ -234,11 +327,15 @@ function createRunner(options = {}) {
 
         tick();
         timer = setInterval(tick, Math.max(5, Number(cfg.pollSeconds) || 15) * 1000);
+        refreshCouncil();
+        councilTimer = setInterval(() => refreshCouncil(), COUNCIL_INTERVAL_MS);
     }
 
     function stop() {
         if (timer) clearInterval(timer);
         timer = null;
+        if (councilTimer) clearInterval(councilTimer);
+        councilTimer = null;
     }
 
     /**
@@ -277,13 +374,20 @@ function createRunner(options = {}) {
 
     /** Nach dem Speichern neuer Einstellungen: alles neu aufsetzen. */
     function reload() {
+        const before = cfg;
         cfg = config.load();
         stop();
         firstRun = true;
         tick.lastSeenMtime = -1;
         readState();
         timer = setInterval(tick, Math.max(5, Number(cfg.pollSeconds) || 15) * 1000);
+        councilTimer = setInterval(() => refreshCouncil(), COUNCIL_INTERVAL_MS);
         log("info", "Einstellungen neu geladen.");
+        // Andere Kategorie/Rolle oder ein neues Ziel: gleich neu holen, nicht
+        // erst in einer Viertelstunde.
+        const councilChanged = ["baseUrl", "token", "councilCategory", "councilRole"]
+            .some((k) => (before[k] || "") !== (cfg[k] || ""));
+        refreshCouncil({ force: councilChanged });
     }
 
     return {
@@ -298,6 +402,7 @@ function createRunner(options = {}) {
         testConnection,
         readState,
         setExcluded,
+        refreshCouncil,
         get config() { return cfg; },
     };
 }
@@ -351,4 +456,4 @@ function describe(r) {
     }
 }
 
-module.exports = { createRunner, describe, whyNothing, LOG_LIMIT };
+module.exports = { createRunner, describe, whyNothing, LOG_LIMIT, COUNCIL_INTERVAL_MS, COUNCIL_MIN_GAP_MS };

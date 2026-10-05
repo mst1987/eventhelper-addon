@@ -64,9 +64,7 @@ end
 
 function EHS:StartZoneTracking()
     local frame = CreateFrame("Frame")
-    frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-    frame:RegisterEvent("ENCOUNTER_END")
+    self:RegisterEvents(frame, "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA", "ENCOUNTER_END")
     frame:SetScript("OnEvent", function() EHS:RecordZone() end)
     self:RecordZone()
 end

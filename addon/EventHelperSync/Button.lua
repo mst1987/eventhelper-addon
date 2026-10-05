@@ -56,7 +56,7 @@ local function build()
 
     button:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("EventHelper — Loot hochladen")
+        GameTooltip:AddLine("EventHelper - Loot hochladen")
         GameTooltip:AddLine("Speichert den bisherigen Loot und lädt dazu die UI neu.", 1, 1, 1, true)
         GameTooltip:AddLine("Danach holt ihn das Sync-Tool von selbst ab.", 1, 1, 1, true)
         GameTooltip:AddLine(" ")
@@ -94,8 +94,7 @@ function EHS:StartButton()
     if not button then build() end
 
     local frame = CreateFrame("Frame")
-    frame:RegisterEvent("PLAYER_REGEN_DISABLED")
-    frame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    self:RegisterEvents(frame, "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED")
     frame:SetScript("OnEvent", function()
         EHS:RefreshButton()
         EHS:RefreshOptions()

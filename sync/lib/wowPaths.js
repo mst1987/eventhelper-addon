@@ -254,7 +254,61 @@ function findBelow(dir, depth, out = []) {
     return out;
 }
 
+// Der Ordnername des Addons unter Interface/AddOns.
+const ADDON_FOLDER = "EventHelperSync";
+
+/**
+ * Alle installierten Addon-Ordner (`<Variante>/Interface/AddOns/EventHelperSync`)
+ * — dorthin schreibt lib/council.js die Council-Daten. Anders als bei den
+ * SavedVariables zählt hier jede Variante, nicht nur die zuletzt geschriebene:
+ * wer auf TBC Anniversary und auf WoW Forever raidet, soll in beiden Clients
+ * denselben Stand sehen.
+ *
+ * Gefunden wird nur, was es schon gibt — ein fehlender Addon-Ordner wird nie
+ * angelegt (ein Addon-Ordner mit nur der Datendatei wäre im AddOn-Menü ein
+ * kaputtes Addon). Zwei Wege auf denselben Ordner (Junction, Symlink) zählen
+ * einmal.
+ *
+ * @param {string[]} extraRoots zusätzliche Suchorte aus der Konfiguration
+ * @param {{ savedVariablesPath?: string, roots?: string[] }} [options]
+ *   savedVariablesPath: von Hand festgelegte Datei — deren Variante gehört
+ *   sicher dazu, auch wenn die Suche die Installation nicht kennt.
+ *   roots: statt der automatischen Suche genau diese WoW-Ordner (für Tests).
+ * @returns {{ flavor: string, dir: string }[]}
+ */
+function findAddonDirs(extraRoots = [], { savedVariablesPath = "", roots } = {}) {
+    const found = [];
+    const seen = new Set();
+    const add = (flavor, dir) => {
+        if (!isDir(dir)) return;
+        let real = dir;
+        try {
+            real = fs.realpathSync(dir);
+        } catch {
+            // nicht auflösbar — dann eben der Pfad selbst
+        }
+        const key = path.normalize(real).toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        found.push({ flavor, dir: path.normalize(dir) });
+    };
+    const addonDir = (flavorDir) => path.join(flavorDir, "Interface", "AddOns", ADDON_FOLDER);
+
+    if (savedVariablesPath) {
+        // <Variante>/WTF/Account/<ACC>/SavedVariables/EventHelperSync.lua
+        const flavorDir = path.resolve(path.dirname(savedVariablesPath), "..", "..", "..", "..");
+        add(path.basename(flavorDir), addonDir(flavorDir));
+    }
+    for (const root of roots || candidateRoots(extraRoots)) {
+        if (!isDir(root)) continue;
+        for (const flavor of listDirs(root)) add(flavor, addonDir(path.join(root, flavor)));
+        // Falls der Suchort direkt ein Varianten-Ordner ist.
+        add(path.basename(root), addonDir(root));
+    }
+    return found;
+}
+
 module.exports = {
-    discover, findInRoot, searchedRoots, candidateRoots, resolveUserPath, findBelow,
-    SAVED_VARIABLES_FILE, FLAVORS, GAME_FOLDERS,
+    discover, findInRoot, searchedRoots, candidateRoots, resolveUserPath, findBelow, findAddonDirs,
+    SAVED_VARIABLES_FILE, FLAVORS, GAME_FOLDERS, ADDON_FOLDER,
 };

@@ -2,6 +2,8 @@
 
 Bringt den vergebenen Raid-Loot aus **RCLootcouncil** und **Gargul** automatisch in den EventHelper-Bot — ohne nach dem Raid zwei Export-Dialoge durchzuklicken und zwei Formate von Hand einzufügen.
 
+Und in die Gegenrichtung den **Loot-Council ins Spiel**: Bedarf und erhaltener Loot je Raider, als Fenster und direkt im Item-Tooltip beim Verteilen (siehe [Loot-Council im Spiel](#loot-council-im-spiel)).
+
 Das Repo enthält zwei Teile:
 
 | Ordner | Was es ist | Wo es läuft |
@@ -49,7 +51,7 @@ Den Ordner `addon/EventHelperSync` nach
 <WoW>/<Variante>/Interface/AddOns/EventHelperSync
 ```
 
-kopieren. `<Variante>` ist der Ordner deines Clients — bei den **TBC-Anniversary-Realms `_anniversary_`**, sonst `_classic_era_`, `_classic_` oder `_retail_`. Danach im Spiel einloggen und einmal `/reload` ausführen.
+kopieren. `<Variante>` ist der Ordner deines Clients — bei den **TBC-Anniversary-Realms `_anniversary_`**, bei **WoW Forever `_classic_beta_`**, sonst `_classic_era_`, `_classic_` oder `_retail_`. Danach im Spiel einloggen und einmal `/reload` ausführen. Wer auf mehreren Clients spielt, kopiert den Ordner in jeden davon.
 
 > Das Sync-Tool sucht die Varianten selbst und erkennt auch künftige Ordner, die Blizzard anlegt — es muss also nicht wissen, welcher es bei dir ist.
 
@@ -112,7 +114,7 @@ Ein normaler Wurf mit der Antwort „PvP/Bank" bleibt dabei drin — der ging ja
 
 **Abwählen, was nicht interessiert.** Der Pug vom Dienstag, die Runde mit Freunden — Häkchen weg, und der Abend wird nicht hochgeladen. Die Auswahl wird gespeichert und gilt dauerhaft. Abgewählte Abende bleiben sichtbar, nur blass: man muss sie ja wiederfinden können, um sie zurückzuholen.
 
-**Der Minimap-Knopf** zeigt schon von aussen, ob etwas ansteht — goldener Ring heisst ungespeicherter Loot. Linksklick öffnet das Fenster, Rechtsklick speichert sofort, Ziehen verschiebt ihn um die Minimap.
+**Der Minimap-Knopf** zeigt schon von aussen, ob etwas ansteht — goldener Ring heisst ungespeicherter Loot. Linksklick öffnet das Fenster, Shift-Linksklick oder Mittelklick den [Loot-Council](#loot-council-im-spiel), Rechtsklick speichert sofort, Ziehen verschiebt ihn um die Minimap.
 
 **Befehle**
 
@@ -125,6 +127,7 @@ Ein normaler Wurf mit der Antwort „PvP/Bank" bleibt dabei drin — der ging ja
 | `/ehs minimap` | Minimap-Knopf ein-/ausblenden |
 | `/ehs button` | Upload-Knopf ein-/ausblenden |
 | `/ehs export` | Export als JSON in einer Kopierbox (Weg ohne Sync-Tool) |
+| `/ehs council` oder `/ehc` | das [Loot-Council-Fenster](#loot-council-im-spiel) öffnen |
 | `/ehs days <n>` | wie viele Tage zurück exportiert werden (Standard: 21) |
 | `/ehs debug` | Debug-Ausgaben umschalten |
 
@@ -171,7 +174,7 @@ Dabei öffnet sich **nur** ein eigenes Fenster — keine Konsole, kein Browser-T
  └────────────────────────────────────────────────────────────┘
 ```
 
-Ein Klick auf eine bereite Zeile lädt **genau diesen einen Raid** hoch — nicht die ganze Datei. Die Zeile springt danach auf „Importiert". Das Zahnrad oben klappt Einstellungen (Server, Token, Addon-Datei) und den Verlauf ein; „Alles hochladen" für die ganze Datei auf einmal und „Verbindung testen" liegen dort mit drin, nicht mehr in der Hauptansicht.
+Ein Klick auf eine bereite Zeile lädt **genau diesen einen Raid** hoch — nicht die ganze Datei. Die Zeile springt danach auf „Importiert". Das Zahnrad oben klappt Einstellungen (Server, Token, Addon-Datei, Loot-Council-Kategorie und -Rolle) und den Verlauf ein; „Alles hochladen" für die ganze Datei auf einmal, „Verbindung testen" und „Council-Daten holen" liegen dort mit drin, nicht in der Hauptansicht. Dort steht vom [Loot-Council](#loot-council-im-spiel) nur eine Zeile: „Council: 24 Raider, Stand 21:30 — nach /reload im Spiel sichtbar".
 
 **Ohne bekannten Raid-Termin** (z.B. ein Pug-Abend ohne Raid-Helper-Event) landet trotzdem in „Bereit zum Hochladen" — nur ohne Raid-Namen, mit einem kleinen ✕ daneben, um genau diesen Abend abzuwählen. Das Fenster darf jederzeit zu — der Upload läuft im Hintergrund weiter. Wieder aufrufen: die `.exe` noch einmal doppelklicken. Sie merkt, dass schon eine läuft, öffnet deren Fenster und beendet sich (`lib/instance.js`) — es laufen nie zwei nebeneinander. Ganz beenden: das ✕ oben rechts im Fenster.
 
@@ -208,6 +211,7 @@ npm start         # beobachtet die Datei und lädt hoch
 | `npm run once` | einmal hochladen und beenden |
 | `npm run status` | zeigen, was gefunden wurde, ohne zu senden |
 | `npm run init` | Konfiguration (neu) anlegen |
+| `npm run council` | Council-Daten einmal holen und in die Addon-Ordner schreiben |
 
 ---
 
@@ -240,6 +244,68 @@ Wenn auf dem Rechner nichts laufen soll: `/ehs export` im Spiel, **Strg+A / Strg
 
 ---
 
+## Loot-Council im Spiel
+
+Die Council-Seite des EventHelper rechnet aus der Loot-Historie für jeden Raider einen **Bedarf** — wie lange sein letztes Item her ist, wie viel er im Vergleich zum Schnitt bekommen hat, wie viel seiner BiS-Liste noch fehlt. Genau das will man beim Verteilen im Spiel sehen, nicht in einem Browser daneben. Die Daten fliessen dafür in die Gegenrichtung:
+
+```
+   Server                              auf dem PC                                   im Spiel
+   ──────                              ──────────                                   ────────
+GET /api/ingest/council ─► Sync-Tool ─► CouncilData.lua in jedem installierten ─► /reload ─► Fenster (/ehc)
+ (Bedarf, erhaltener Loot,  (Node)      Interface/AddOns/EventHelperSync                    + Item-Tooltip
+  fehlende BiS-Teile)                   (_anniversary_, _classic_beta_, …)
+```
+
+**Warum eine Lua-Datei?** Ein Addon kann nichts aus dem Netz holen und keine fremden Dateien lesen. Was es aber tut: beim Laden jede `.lua`-Datei ausführen, die in seiner `.toc` steht. Das Sync-Tool schreibt die Daten deshalb als `CouncilData.lua` direkt in den Addon-Ordner (im Repo liegt dort ein leerer Platzhalter). WoW liest Addon-Dateien nur beim Einloggen und bei `/reload` — neue Daten sind also **nach dem nächsten `/reload`** im Spiel.
+
+Das sieht nur, wer das Addon hat: es wird nichts an den Raid geschickt.
+
+### Wann geholt wird
+
+- beim Start des Sync-Tools, danach **alle 15 Minuten**,
+- nach jedem Upload,
+- auf Klick: ⚙ → **„Council-Daten holen"**, oder `npm run council` (mit Node.js).
+
+Geschrieben wird in **jeden** installierten Addon-Ordner, den die Suche findet — wer auf TBC Anniversary und WoW Forever raidet, hat in beiden denselben Stand. Ein fehlender Addon-Ordner wird nie angelegt. Die Datei wird erst daneben geschrieben und dann umbenannt, WoW sieht also nie eine halbe. Zeichen, die die Spielschrift nicht kennt (`–`, `…`, typografische Anführungszeichen, Emoji), werden dabei zu ASCII bzw. `?`; Umlaute bleiben.
+
+Ein Fehler beim Holen (Server nicht erreichbar, Server noch ohne diese Route, Ordner schreibgeschützt) hält den Upload nie an. Er steht im Verlauf und in der Statuszeile der Oberfläche.
+
+Unter ⚙ lassen sich **Raid-Kategorie** (die Liste kommt vom Server, nach dem ersten Abruf) und **Rolle** (Caster und Heiler / nur Caster / nur Heiler) wählen; beides geht als Filter an den Server.
+
+### Das Fenster
+
+`/ehs council`, `/ehc`, Shift-Linksklick oder Mittelklick auf den Minimap-Knopf, oder der Knopf „Loot-Council" im Hauptfenster:
+
+```
+ ┌ Loot-Council ─────────────────────────────────────────── [Alle][Caster][Heiler] [x] ┐
+ │ Stand: 05.10. 21:30, vor 2 Std.                                                      │
+ │ SSC/TK Mittwoch · BiS T6 · 24 Raider                                             [?] │
+ │ ──────────────────────────────────────────────────────────────────────────────────── │
+ │ Neuling             ████████████▓▓▓▓▓▓▓▓▒▒  Bedarf 95   0 Items  BiS -        noch nie │
+ │ Gemli Shadow        ██████████▓▓▓▓▓▒        Bedarf 82   2 Items  BiS 9/16 vor 12 Tagen │
+ │ Naphfß Resto        ████████▓▓▓▓▒           Bedarf 64   3 Items  BiS 4/16   vor 3 Std. │
+ │ …                                                                   (Mausrad scrollt) │
+ └──────────────────────────────────────────────────────────────────────────────────────┘
+      █ Wartezeit (50 %)   ▓ Loot-Anteil (40 %)   ▒ BiS-Lücke (10 %)
+```
+
+Eine kompakte Zeile pro Raider, nach Bedarf sortiert: Name in Klassenfarbe mit Spezialisierung, ein **Balken aus drei Teilen** — jeder Teil ist *Gewicht × Wert*, zusammen ergeben sie den Bedarf —, die Bedarfszahl, wie viele zählende Items er schon hat, sein BiS-Stand und wann er zuletzt etwas bekam. Mehr steht nicht in der Zeile; der **Tooltip** einer Zeile zeigt die drei Teile mit Erklärung, die erhaltenen Items (neueste zuerst, mit Datum, Item-Link, Boss und Grund) und wie viele BiS-Teile noch offen sind. Das `?` erklärt die Farben. Escape schliesst das Fenster, die Position wird gespeichert.
+
+### Im Item-Tooltip
+
+Auf jedem Item-Tooltip — Loot-Fenster, RCLootcouncils Abstimmungsfenster, Taschen, Item-Links im Chat — steht, wem das Item als **BiS fehlt**, nach Bedarf sortiert, höchstens fünf:
+
+```
+Loot-Council:
+Gemli (Shadow) Bedarf 82 - 2 Items
+Naphfß (Resto) Bedarf 64 - 3 Items
+... und 3 weitere
+```
+
+Auf WoW Forever hängt das an `TooltipDataProcessor`, auf TBC Anniversary an `OnTooltipSetItem` von `GameTooltip` und `ItemRefTooltip`. Der Abschnitt steht nie doppelt in einem Tooltip.
+
+---
+
 ## Fehlersuche
 
 | Symptom | Ursache / Abhilfe |
@@ -253,6 +319,10 @@ Wenn auf dem Rechner nichts laufen soll: `/ehs export` im Spiel, **Strg+A / Strg
 | Ein Raid-Abend wird nicht hochgeladen | Wurde er per ✕ neben der Zeile abgewählt? Abgewählte Abende bleiben abgewählt und tauchen in „Bereit zum Hochladen" nicht mehr auf. |
 | Die Oberfläche öffnet sich nicht | Die `.exe` noch einmal doppelklicken — läuft sie schon, öffnet das ihr Fenster erneut. Die Adresse samt Schlüssel steht außerdem in `~/.eventhelper-sync.running.json` und lässt sich von Hand aufrufen (ohne den Schlüssel antwortet sie mit 403). Kein installierter Edge/Chrome gefunden: das Fenster öffnet sich dann als normaler Browser-Tab statt chromelos — technisch dieselbe Seite. Scheitert der Start ganz, sagt ein Fehlerdialog warum. |
 | Knopf ist grau | Du bist im Kampf. Nach dem Kampf wird er wieder klickbar. |
+| Loot-Council: „Noch keine Council-Daten" | Läuft das Sync-Tool, und steht in seiner Statuszeile „Council: … Raider"? Danach im Spiel `/reload` — Addon-Dateien liest WoW nur beim Laden. |
+| Statuszeile: „kein Addon-Ordner gefunden" | Das Addon liegt nicht unter `<WoW>/<Variante>/Interface/AddOns/EventHelperSync`, oder WoW an einem Ort, den die Suche nicht kennt — unter ⚙ „Pfad selbst angeben". |
+| Statuszeile: „Der Server kennt noch keine Council-Daten" | Der EventHelper ist älter als diese Funktion (Route `GET /api/ingest/council` fehlt). |
+| Loot-Council: „neuer als dieses Addon" | Sync-Tool und Server sprechen eine neuere Version des Formats — das Addon aktualisieren. |
 | SmartScreen blockiert die `.exe` | Die Datei ist nicht signiert. „Weitere Informationen" → „Trotzdem ausführen", oder Weg (b) mit Node benutzen. |
 | Sync-Tool: „API-Token unbekannt oder zurückgezogen" | Token wurde im Menü gelöscht, oder falsch kopiert. Neu erstellen und im Fenster unter ⚙ eintragen (mit Node: `npm run init`). |
 | Sync-Tool: „… nicht erreichbar" | `baseUrl` prüfen (mit `https://` und Port), Server erreichbar? |
@@ -306,11 +376,19 @@ Woran man was erkennt:
 
 ```bash
 cd sync
-npm test          # Jest: Lua-Parser und Uploader
+npm test          # Jest: Lua-Parser, Uploader, Council-Daten, Oberfläche
 npm run lint
+
+cd ../addon/test
+npm install
+npm test          # das Addon in einer Lua-VM (fengari), je einmal als TBC Anniversary und als WoW Forever
 ```
 
 Der Lua-Parser (`sync/lib/luaParser.js`) führt die SavedVariables **nicht** als Code aus, sondern liest sie als Daten — in dem Verzeichnis schreibt jedes beliebige Addon.
+
+`addon/test` lädt alle Dateien der `.toc` gegen eine nachgebaute WoW-API (`mock/wow.lua`) — einmal Classic-artig (TBC Anniversary: `GetItemInfo`, `UIDropDownMenu`, `OnTooltipSetItem`) und einmal Retail-artig (WoW Forever: nur `C_Item`/`C_AddOns`, `TooltipDataProcessor`, `MenuUtil`, unbekannte Ereignisse werfen, ohne die Classic-Vorlagen). Die Council-Daten dafür schreibt der echte Serializer aus `sync/lib/council.js`. Vorher prüft `latin1.js`, dass jeder String im Addon nur Zeichen enthält, die die Spielschrift darstellen kann (kein `→`, `–`, `…`, keine typografischen Anführungszeichen). Der Ordner liegt bewusst neben `addon/EventHelperSync`, nicht darin — er kommt nicht ins Release-Zip.
+
+> Ist der Addon-Ordner im Spiel per Junction mit diesem Repo verbunden, überschreibt das Sync-Tool die eingecheckte Platzhalter-`CouncilData.lua`. Damit `git status` sauber bleibt: `git update-index --skip-worktree addon/EventHelperSync/CouncilData.lua`.
 
 ### Das Format
 
@@ -350,6 +428,47 @@ Addon, Sync-Tool und Server sprechen `eventhelper-loot` Version 1. Serverseitig 
 }
 ```
 
+### Das Council-Format
+
+Für die Gegenrichtung sprechen Server, Sync-Tool und Addon `eventhelper-council` Version 1. Serverseitig liefert es `GET /api/ingest/council?category=&role=` im Repo `d:/programming/eventhelper` (Hülle `{ data }`, Fehler `{ error: { code, message } }`, Token wie beim Upload). Wird es geändert, muss die Version auf **beiden** Seiten mitwachsen — das Sync-Tool lehnt eine höhere Version ab, statt sie halb zu schreiben, und das Addon zeigt dann einen Hinweis statt halber Daten.
+
+```jsonc
+{
+  "format": "eventhelper-council",
+  "version": 1,
+  "generatedAt": 1791234567,          // Unix-Sekunden, wie alle Zeiten hier
+  "filter": { "category": "", "categoryName": "", "role": "", "bisTier": "t6", "bisTierDerived": true },
+  "categories": [{ "id": "123", "name": "SSC/TK Mittwoch" }],   // Auswahl im Sync-Tool
+  "weights": { "drought": 50, "share": 40, "need": 10 },        // Gewichte in Prozent
+  "avgLootCount": 3.4,
+  "raiders": [{                       // Bedarf absteigend, dann Name
+    "character": "Gemli",
+    "classFile": "PRIEST",            // RAID_CLASS_COLORS-Schlüssel, "" wenn unbekannt
+    "specLabel": "Shadow",
+    "role": "caster",                 // "caster" | "healer"
+    "need": 82,                       // 0..100
+    "parts": { "drought": 100, "share": 60, "need": 40 },   // je 0..100, ungewichtet
+    "lootCount": 2, "lootTotal": 5, "otherCount": 1,
+    "lastAwardAt": 1791000000,        // 0 = noch nie
+    "daysSinceLoot": 12,              // -1 = noch nie
+    "bis": { "tier": "t6", "source": "wowsims", "owned": 9, "total": 16, "missing": [30000, 30001] },
+    "items": [{ "itemId": 30000, "itemName": "…", "awardedAt": 1791000000,
+                "boss": "Lady Vashj", "reason": "Main Spec", "event": "SSC/TK Mittwoch" }]   // neueste zuerst, höchstens 25
+  }]
+}
+```
+
+Das Sync-Tool schreibt daraus `CouncilData.lua` — dieselbe Struktur als Lua-Tabelle, Arrays als Sequenzen:
+
+```lua
+-- Generated by EventHelper Sync 1.9.0 at 2026-10-05T19:30:00.000Z. Do not edit; it is overwritten.
+EventHelperSync_Council = {
+  format = "eventhelper-council",
+  version = 1,
+  ...
+}
+```
+
 ### Aufbau des Addons
 
 | Datei | Aufgabe |
@@ -363,14 +482,18 @@ Addon, Sync-Tool und Server sprechen `eventhelper-loot` Version 1. Serverseitig 
 | `Minimap.lua` | Knopf an der Minimap, mit Hinweisring bei Ungespeichertem |
 | `Options.lua` | das Fenster: Status, Raid-Abende zum Abwählen, Einstellungen |
 | `UI.lua` | Kopierbox hinter `/ehs export` |
+| `CouncilData.lua` | Platzhalter; das Sync-Tool überschreibt ihn mit den Council-Daten |
+| `Council.lua` | Council-Logik ohne Fenster: Daten prüfen, Item → Raider, denen es fehlt, Texte und Farben |
+| `CouncilUI.lua` | Loot-Council-Fenster, Item-Tooltip, `/ehc` |
 
 Und im Sync-Tool:
 
 | Datei | Aufgabe |
 |---|---|
 | `lib/luaParser.js` | SavedVariables als Daten lesen, nicht als Code ausführen |
-| `lib/wowPaths.js` | die Addon-Datei über alle Client-Varianten und Accounts finden |
+| `lib/wowPaths.js` | die Addon-Datei über alle Client-Varianten und Accounts finden, ebenso die installierten Addon-Ordner |
 | `lib/uploader.js` | eine Session pro Anfrage hochladen |
+| `lib/council.js` | Council-Daten holen, prüfen, als `CouncilData.lua` in jeden Addon-Ordner schreiben |
 | `lib/runner.js` | der laufende Betrieb samt Zustand (letzter Upload, Fehler, Verlauf) |
 | `lib/appWindow.js` | das chromelose Edge/Chrome-Fenster, Hinweisdialoge der `.exe` |
 | `lib/instance.js` | höchstens eine laufende Instanz; ein zweiter Start öffnet deren Fenster |
@@ -412,7 +535,16 @@ Das Icon liegt als `sync/assets/icon.svg` (Quelle) und `sync/assets/icon.ico` (e
 
 ### Interface-Version
 
-`EventHelperSync.toc` steht auf `20504` (TBC 2.5.x). Bei einem Client-Update reicht es, die Zahl anzupassen — Loot-Historien-Zugriff und SavedVariables sind seit Jahren stabil.
+`EventHelperSync.toc` steht auf `## Interface: 20506, 16001` — eine Liste, die beide Clients lesen:
+
+| Zahl | Client | Ordner |
+|---|---|---|
+| `20506` | TBC Anniversary (2.5.6, Classic-API) | `_anniversary_` |
+| `16001` | WoW Forever (Retail/Midnight-Client, `WOW_PROJECT_MAINLINE`) | `_classic_beta_` |
+
+Die TBC-Zahl stammt aus den `_TBC.toc` der aktuell installierten Addons (Gargul, WeakAuras, Details, Questie u.a. stehen dort alle auf `20506`, passend zum Client 2.5.6). Bei einem Client-Update reicht es, die Zahl anzupassen.
+
+WoW Forever ist kein Classic-Client: dort fehlen `GetItemInfo`, `GetAddOnMetadata` und Co. (nur `C_Item`, `C_AddOns`), unbekannte Ereignisse werfen schon bei `RegisterEvent`, und die Schrift kennt nur Latin-1. Das Addon fragt deshalb jede Funktion ab, die es nicht auf beiden Clients gibt, meldet Ereignisse über `EHS:RegisterEvents()` (in `pcall`), nimmt für den Raid-Filter `MenuUtil` statt `UIDropDownMenu` und scrollt die Raid-Tabelle notfalls selbst, falls `FauxScrollFrame` fehlt. RCLootcouncil und Gargul dürfen dort fehlen — dann steht „nicht geladen" im Fenster, mehr passiert nicht.
 
 ---
 

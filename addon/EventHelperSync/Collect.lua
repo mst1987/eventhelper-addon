@@ -116,11 +116,17 @@ local function isGargulPlaceholder(winner)
     return type(winner) == "string" and winner:match("^||.*||$") ~= nil
 end
 
-local function collectRclc(rows, since)
+--- Bank-/Entzauber-Vergaben weglassen? (Einstellung, Standard: ja)
+local function skipAwardReasons()
+    local settings = EHS.db and EHS.db.settings
+    return not settings or settings.skipAwardReasons ~= false
+end
+
+local function collectRclc(rows, since, stats)
     local db = rclcHistory()
     if not db then return 0 end
 
-    local skip = EHS.db.settings.skipAwardReasons ~= false
+    local skip = skipAwardReasons()
     local count = 0
     for player, entries in pairs(db) do
         if type(entries) == "table" then
@@ -129,7 +135,7 @@ local function collectRclc(rows, since)
                     local at = rclcTimestamp(entry)
                     local itemId = idFromLink(entry.lootWon)
                     if skip and at >= since and itemId and isRclcHousekeeping(entry) then
-                        EHS.collectStats.skippedRclc = EHS.collectStats.skippedRclc + 1
+                        stats.skippedRclc = stats.skippedRclc + 1
                     elseif at >= since and itemId then
                         rows[#rows + 1] = {
                             source = "rclc",
@@ -160,12 +166,12 @@ local function collectRclc(rows, since)
     return count
 end
 
-local function collectGargul(rows, since)
+local function collectGargul(rows, since, stats)
     local db = _G.GargulDB
     local history = type(db) == "table" and db.AwardHistory or nil
     if type(history) ~= "table" then return 0 end
 
-    local skip = EHS.db.settings.skipAwardReasons ~= false
+    local skip = skipAwardReasons()
     local count = 0
     -- Nach Checksum gekeyt, nicht als Liste — pairs(), nicht ipairs().
     for key, entry in pairs(history) do
@@ -174,7 +180,7 @@ local function collectGargul(rows, since)
             local itemId = tonumber(entry.itemID) or idFromLink(entry.itemLink)
             local winner = entry.awardedTo or ""
             if skip and at >= since and itemId and isGargulPlaceholder(winner) then
-                EHS.collectStats.skippedGargul = EHS.collectStats.skippedGargul + 1
+                stats.skippedGargul = stats.skippedGargul + 1
             elseif at >= since and itemId and winner ~= "" then
                 rows[#rows + 1] = {
                     source = "gargul",
@@ -216,8 +222,8 @@ function EHS:CollectRows()
     local rows = {}
 
     self.collectStats = { rclc = 0, gargul = 0, skippedRclc = 0, skippedGargul = 0 }
-    local fromRclc = collectRclc(rows, since)
-    local fromGargul = collectGargul(rows, since)
+    local fromRclc = collectRclc(rows, since, self.collectStats)
+    local fromGargul = collectGargul(rows, since, self.collectStats)
     self.collectStats.rclc = fromRclc
     self.collectStats.gargul = fromGargul
     self:Debug(("gesammelt: %d aus RCLootcouncil, %d aus Gargul, %d aussortiert"):format(
@@ -225,4 +231,44 @@ function EHS:CollectRows()
 
     table.sort(rows, function(a, b) return a.awardedAt < b.awardedAt end)
     return rows
+end
+
+--- Die Vergaben NACH `after` (Unix-Sekunden), aus beiden Addons, in derselben
+-- Zeilenform und mit denselben Ausnahmen wie der Upload (Award-Reasons,
+-- Gargul-Platzhalter). Für den Loot-Council im Spiel: was seit dem letzten
+-- Council-Sync vergeben wurde (CouncilUI.lua). Lässt EHS.collectStats in Ruhe
+-- und wirft nie, auch ohne RCLootcouncil/Gargul.
+function EHS:AwardsSince(after)
+    local since = math.floor(tonumber(after) or 0) + 1
+    local rows, stats = {}, { skippedRclc = 0, skippedGargul = 0 }
+    local okRclc, errRclc = pcall(collectRclc, rows, since, stats)
+    if not okRclc then self:Debug("Vergaben (RCLootcouncil):", tostring(errRclc)) end
+    local okGargul, errGargul = pcall(collectGargul, rows, since, stats)
+    if not okGargul then self:Debug("Vergaben (Gargul):", tostring(errGargul)) end
+    table.sort(rows, function(a, b) return a.awardedAt < b.awardedAt end)
+    return rows
+end
+
+--- Ein billiger Fingerabdruck beider Historien: die Zahl der Einträge je
+-- Addon (ohne einen Zeitstempel zu lesen) und die Einstellung, die
+-- aussortiert. Ändert er sich, ist etwas dazugekommen (oder weg), und der
+-- Council im Spiel rechnet neu. Wirft nie.
+function EHS:AwardHistorySignature()
+    local rclc, gargul = -1, -1
+    local ok, db = pcall(rclcHistory)
+    if ok and type(db) == "table" then
+        rclc = 0
+        for _, entries in pairs(db) do
+            if type(entries) == "table" then
+                for _ in pairs(entries) do rclc = rclc + 1 end
+            end
+        end
+    end
+    local gargulDb = _G.GargulDB
+    local history = type(gargulDb) == "table" and gargulDb.AwardHistory or nil
+    if type(history) == "table" then
+        gargul = 0
+        for _ in pairs(history) do gargul = gargul + 1 end
+    end
+    return ("%d:%d:%s"):format(rclc, gargul, skipAwardReasons() and "1" or "0")
 end

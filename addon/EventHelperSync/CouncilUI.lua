@@ -15,6 +15,10 @@ wer wie dringend etwas braucht, und wer was schon hat.
     und gemerkt in EHS.db.settings.councilCategory; in einer Raid-Instanz,
     zu der genau eine Kategorie passt, gilt die von selbst ("(auto)").
 
+  * Vergaben seit dem letzten Sync: was RCLootcouncil/Gargul seitdem
+    vergeben haben, rechnet das Fenster samt Tooltip live und vorlaeufig
+    dazu (Council.ApplyAwards, markiert mit "*").
+
 Sieht nur, wer das Addon hat - es wird nichts an den Raid geschickt.
 
 Gebaut ohne Blizzard-Vorlagen (nur Texturen, Schriften, Knoepfe): WoW Forever
@@ -80,10 +84,74 @@ local function manualId()
     return EHS.db and EHS.db.settings and EHS.db.settings.councilCategory or nil
 end
 
+-- ---------------------------------------------------------------------------
+-- Vergaben seit dem letzten Sync, live
+-- ---------------------------------------------------------------------------
+--
+-- Die Council-Daten sind der Stand des letzten Syncs. Was seitdem vergeben
+-- wurde, steht schon in RCLootcouncils und Garguls Historie: das rechnet
+-- Council.ApplyAwards() vorlaeufig dazu. Neu gerechnet wird nur, wenn sich
+-- die Historien (Zahl der Eintraege) oder die Council-Daten geaendert haben -
+-- beim Oeffnen des Fensters, beim Item-Tooltip (hoechstens einmal pro
+-- Sekunde nachgesehen) und alle LIVE_INTERVAL Sekunden bei offenem Fenster.
+-- Keine Haken in RCLootcouncil: nur Lesen, alles unter pcall.
+
+local LIVE_INTERVAL = 3
+local live = { base = nil, signature = nil, data = nil, checkedAt = nil }
+
+local function historySignature()
+    local ok, signature = pcall(EHS.AwardHistorySignature, EHS)
+    return ok and signature or "?"
+end
+
+--- Die Vergaben seit `since`; Gargul-Zeilen ohne Instanz bekommen sie aus
+--- der eigenen Zonen-Zeitleiste (wie die Sessions).
+local function awardsSince(since)
+    local ok, rows = pcall(EHS.AwardsSince, EHS, since)
+    if not ok or type(rows) ~= "table" then return {} end
+    for _, row in ipairs(rows) do
+        if (row.instance or "") == "" and EHS.ZoneAt then
+            local okZone, zone = pcall(EHS.ZoneAt, EHS, row.awardedAt)
+            if okZone and type(zone) == "string" then row.instance = zone end
+        end
+    end
+    return rows
+end
+
+--- Die Council-Daten samt den Vergaben seit dem letzten Sync.
+-- @param force nachsehen, auch wenn es eben erst geschah (Fenster)
+-- @return data|nil, status wie Council.Load()
+function EHS:CouncilData(force)
+    local data, status = Council.Load()
+    if not data then return data, status end
+    local current = now()
+    if live.base == data and live.data and not force and live.checkedAt == current then
+        return live.data, status
+    end
+    live.checkedAt = current
+    local signature = historySignature()
+    if live.base == data and live.data and live.signature == signature then return live.data, status end
+    local ok, adjusted = pcall(Council.ApplyAwards, data, awardsSince(data.generatedAt))
+    if not ok then
+        self:Debug("Loot-Council, Vergaben seit dem Sync:", tostring(adjusted))
+        adjusted = data
+    end
+    live.base, live.signature, live.data = data, signature, adjusted or data
+    return live.data, status
+end
+
+--- Alle LIVE_INTERVAL Sekunden bei offenem Fenster: hat sich eine Historie
+--- geaendert, neu rechnen und neu zeichnen.
+function EHS:CouncilLiveTick()
+    if live.signature ~= historySignature() or live.base ~= Council.Load() then
+        self:RefreshCouncil()
+    end
+end
+
 --- Die Kategorie, die gerade gilt.
 -- @return category|nil, how ("auto" | "manual" | "default"), data
 function EHS:CouncilActive()
-    local data = Council.Load()
+    local data = self:CouncilData()
     if not data then return nil, nil, nil end
     local category, how = Council.ActiveCategory(data, manualId(), autoId)
     return category, how, data
@@ -154,8 +222,27 @@ local function showRowTooltip(row)
 
     GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
     GameTooltip:AddLine(Council.NameLabel(raider))
-    GameTooltip:AddDoubleLine("Bedarf", ("%d von 100"):format(math.floor((tonumber(raider.need) or 0) + 0.5)),
-        1, 0.82, 0, Council.NeedColor(raider.need))
+    GameTooltip:AddDoubleLine("Bedarf", ("%d von 100"):format(math.floor((tonumber(raider.need) or 0) + 0.5))
+        .. Council.ProvisionalMark(raider), 1, 0.82, 0, Council.NeedColor(raider.need))
+
+    -- Vorlaeufig: Vergaben seit dem letzten Sync, oder nur ein neuer Schnitt.
+    local provisional = Council.ProvisionalRaiderLine(raider)
+    local pr, pg, pb = unpack(Council.PROVISIONAL_COLOR)
+    if provisional then
+        GameTooltip:AddLine(provisional, pr, pg, pb, true)
+        for _, award in ipairs(raider.provisional.awards) do
+            local name = itemLink(award.itemId)
+                or Council.Color(award.itemName ~= "" and award.itemName or ("Item " .. tostring(award.itemId)), 0.8, 0.8, 0.8)
+            local right = award.reason or ""
+            if not award.counts then right = right .. " (zählt nicht)" end
+            if award.bis then right = right .. ", BiS" end
+            GameTooltip:AddDoubleLine("  " .. Council.FormatStamp(award.awardedAt) .. " " .. name, right,
+                1, 1, 1, 0.6, 0.6, 0.6)
+        end
+    elseif Council.ProvisionalKind(raider) == "avg" then
+        GameTooltip:AddLine(("Vorläufig: vorher Bedarf %d, der Schnitt hat sich durch Vergaben seit dem letzten Sync verschoben.")
+            :format(math.floor((tonumber(raider.needBefore) or 0) + 0.5)), 0.6, 0.6, 0.6, true)
+    end
 
     for _, key in ipairs(Council.PARTS) do
         local r, g, b = unpack(Council.PART_COLOR[key])
@@ -181,7 +268,9 @@ local function showRowTooltip(row)
         if item.reason and item.reason ~= "" then
             right = right ~= "" and (right .. " - " .. item.reason) or item.reason
         end
-        GameTooltip:AddDoubleLine(Council.FormatStamp(item.awardedAt):sub(1, 6) .. " " .. name, right,
+        local stamp = Council.FormatStamp(item.awardedAt):sub(1, 6)
+        if item.provisional then stamp = Council.Color(stamp .. "*", unpack(Council.PROVISIONAL_COLOR)) end
+        GameTooltip:AddDoubleLine(stamp .. " " .. name, right,
             1, 1, 1, 0.6, 0.6, 0.6)
     end
     if #items > MAX_TOOLTIP_ITEMS then
@@ -230,7 +319,10 @@ function EHS:PickCouncilCategory(owner, button)
             root:CreateTitle("Kategorie")
             for _, category in ipairs(categories) do
                 root:CreateRadio(category.name,
-                    function() return select(1, EHS:CouncilActive()) == category end,
+                    function()
+                        local current = EHS:CouncilActive()
+                        return current ~= nil and current.id == category.id
+                    end,
                     function() EHS:SetCouncilCategory(category.id) end)
             end
         end)
@@ -402,6 +494,8 @@ local function build()
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine("Der Balken zeigt die drei Teile, gewichtet. Über eine Zeile fahren zeigt Details und erhaltene Items.", 1, 1, 1, true)
         GameTooltip:AddLine("Auf Item-Tooltips steht, wem das Item als BiS fehlt (in der gewählten Kategorie).", 1, 1, 1, true)
+        GameTooltip:AddLine("* = vorläufig: Vergaben aus RCLootCouncil/Gargul seit dem letzten Sync sind schon mitgerechnet "
+            .. "(orange: eigene Vergaben, grau: nur der Schnitt hat sich verschoben).", 1, 0.55, 0.15, true)
         GameTooltip:AddLine("Welche Kategorien und Filter, stellt die Webseite ein (Loot-Council-Seite).", 1, 1, 1, true)
         GameTooltip:AddLine("Neue Daten: EventHelper Sync holt sie, im Spiel dann /reload.", 0.6, 0.6, 0.6, true)
         GameTooltip:Show()
@@ -432,6 +526,16 @@ local function build()
     frame.empty:SetPoint("TOP", frame.list, "TOP", 0, -40)
     frame.empty:SetWidth(WIDTH - 60)
 
+    -- Live: alle LIVE_INTERVAL Sekunden, solange das Fenster offen ist (OnUpdate
+    -- laeuft nur bei sichtbarem Frame), billig nachsehen, ob neue Vergaben da sind.
+    frame:SetScript("OnUpdate", function(self, elapsed)
+        self.liveElapsed = (self.liveElapsed or 0) + (tonumber(elapsed) or 0)
+        if self.liveElapsed < LIVE_INTERVAL then return end
+        self.liveElapsed = 0
+        local ok, err = pcall(EHS.CouncilLiveTick, EHS)
+        if not ok then EHS:Debug("Loot-Council live:", tostring(err)) end
+    end)
+
     tinsert(UISpecialFrames, "EventHelperSyncCouncilFrame")
     frame:Hide()
 end
@@ -448,7 +552,7 @@ local EMPTY_TEXT = {
 
 function EHS:RefreshCouncil()
     if not frame or not frame:IsShown() then return end
-    local data, status = Council.Load()
+    local data, status = self:CouncilData(true)
     local role = selectedRole()
 
     for _, button in ipairs(frame.roleButtons) do
@@ -476,7 +580,12 @@ function EHS:RefreshCouncil()
         frame.category:Hide()
     else
         list = Council.Raiders(category, role)
-        frame.header:SetText(Council.Header(data, now()))
+        local header = Council.Header(data, now())
+        local provisional = Council.ProvisionalHeader(data, category)
+        if provisional then
+            header = header .. "  ·  " .. Council.Color(provisional, unpack(Council.PROVISIONAL_COLOR))
+        end
+        frame.header:SetText(header)
         frame.filter:SetText(("%s · %d Raider"):format(Council.FilterLine(category), #list))
         if #list == 0 then
             frame.empty:SetText(Council.RoleBlockedText(category, role) or "Keine Raider für diesen Filter.")
@@ -515,7 +624,8 @@ function EHS:RefreshCouncil()
                 end
             end
             local need = math.floor((tonumber(raider.need) or 0) + 0.5)
-            row.need:SetText(Council.Color(("Bedarf %d"):format(need), Council.NeedColor(need)))
+            row.need:SetText(Council.Color(("Bedarf %d"):format(need), Council.NeedColor(need))
+                .. Council.ProvisionalMark(raider))
             row.items:SetText(Council.ItemsLabel(raider.lootCount))
             row.bis:SetText(Council.BisLabel(raider))
             row.last:SetText(Council.FormatAge(raider.lastAwardAt, current))
@@ -676,7 +786,7 @@ end
 
 --- Die Zeilen fuer /ehs status.
 function EHS:CouncilStatusLines()
-    local data, status = Council.Load()
+    local data, status = self:CouncilData(true)
     if not data then
         if status == "none" then return {} end
         return { "Loot-Council: " .. (EMPTY_TEXT[status] or EMPTY_TEXT.none) }
@@ -692,6 +802,10 @@ function EHS:CouncilStatusLines()
         local mark = ""
         if category == active then mark = how == "auto" and " (aktiv, auto)" or " (aktiv)" end
         lines[#lines + 1] = (" · %s%s - %d Raider"):format(category.name, mark, #category.raiders)
+    end
+    local provisional = Council.ProvisionalHeader(data)
+    if provisional then
+        lines[#lines + 1] = (" · %s (RCLootCouncil/Gargul, vom Sync noch nicht erfasst)"):format(provisional)
     end
     if #categories > 1 then lines[#lines + 1] = "Kategorie wechseln: /ehc <Name>" end
     return lines

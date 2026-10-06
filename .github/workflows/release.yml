@@ -75,6 +75,14 @@ jobs:
           npm test
           npm run lint
 
+      # Die Lua-Specs des Addons (fengari, eigener Ordner addon-test/) — nicht
+      # Teil des Sync-Tools und nicht im Zip.
+      - name: Lua-Specs des Addons
+        working-directory: addon-test
+        run: |
+          npm ci
+          npm test
+
       - name: Sync-Tool zur .exe bauen
         working-directory: sync
         run: npm run build:exe

@@ -12,6 +12,7 @@ Zones.lua
 Collect.lua
 Sessions.lua
 Export.lua
+GuildBank.lua
 Button.lua
 Minimap.lua
 Options.lua

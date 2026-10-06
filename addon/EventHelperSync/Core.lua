@@ -77,6 +77,8 @@ local DEFAULTS = {
     -- Open the guild bank handout list (GuildBankUI.lua) by itself when the
     -- guild bank or the mailbox opens and something is waiting to be handed out.
     autoOpenHandouts = true,
+    -- The second minimap button, just for the guild bank handouts (Minimap.lua).
+    showBankMinimap = true,
 }
 
 local function applyDefaults(target, defaults)
@@ -286,6 +288,15 @@ SlashCmdList.EVENTHELPERSYNC = function(msg)
         EHS.db.settings.showMinimap = not EHS.db.settings.showMinimap
         EHS:Print("Minimap-Knopf " .. (EHS.db.settings.showMinimap and "an" or "aus") .. ".")
         EHS:RefreshMinimap()
+    elseif cmd == "bankbutton" then
+        EHS.db.settings.showBankMinimap = EHS.db.settings.showBankMinimap == false
+        EHS:Print("Gildenbank-Knopf an der Minimap " .. (EHS.db.settings.showBankMinimap and "an" or "aus") .. ".")
+        if EHS.StartBankMinimap and EHS.db.settings.showBankMinimap then
+            EHS:StartBankMinimap()
+        elseif EHS.RefreshBankMinimap then
+            EHS:RefreshBankMinimap()
+        end
+        if EHS.RefreshOptions then EHS:RefreshOptions() end
     elseif cmd == "export" then
         EHS:ShowExportFrame()
     elseif cmd == "council" or cmd == "lc" then
@@ -310,6 +321,7 @@ SlashCmdList.EVENTHELPERSYNC = function(msg)
         EHS:Print("  /ehs status     - dasselbe kurz im Chat")
         EHS:Print("  /ehs diag       - warum findet er nichts? Zeigt jede Stufe einzeln")
         EHS:Print("  /ehs minimap    - Minimap-Knopf ein-/ausblenden")
+        EHS:Print("  /ehs bankbutton - Gildenbank-Knopf an der Minimap ein-/ausblenden")
         EHS:Print("  /ehs button     - Upload-Knopf ein-/ausblenden")
         EHS:Print("  /ehs export     - Export als JSON zum Kopieren anzeigen")
         EHS:Print("  /ehs council    - Loot-Council: Bedarf und erhaltener Loot je Raider (auch /ehc)")

@@ -300,17 +300,33 @@ function Mail.BagCounts(stacks)
 end
 
 --- Bag check for the rows: entries of the same item share the bag stock in
--- list order. Sets entry.bagMissing and group.missing (both amounts).
-function Mail.CheckBags(groups, counts)
+-- list order. What was taken out of the guild bank for an entry this session
+-- (`reserved`, { [id] = amount }, GuildBankWithdraw.lua) counts for that
+-- entry first. Sets entry.bagMissing and group.missing (both amounts).
+function Mail.CheckBags(groups, counts, reserved)
     local left = {}
     for id, count in pairs(counts or {}) do left[id] = count end
+    local pre = {}
+    if type(reserved) == "table" then
+        for _, group in ipairs(groups) do
+            for _, entry in ipairs(group.entries) do
+                local want = math.min(tonumber(reserved[entry.id]) or 0, entry.amount)
+                if want > 0 then
+                    local take = math.min(left[entry.itemId] or 0, want)
+                    left[entry.itemId] = (left[entry.itemId] or 0) - take
+                    pre[entry] = take
+                end
+            end
+        end
+    end
     for _, group in ipairs(groups) do
         group.missing = 0
         for _, entry in ipairs(group.entries) do
+            local need = entry.amount - (pre[entry] or 0)
             local have = left[entry.itemId] or 0
-            local take = math.min(have, entry.amount)
+            local take = math.min(have, need)
             left[entry.itemId] = have - take
-            entry.bagMissing = entry.amount - take
+            entry.bagMissing = need - take
             group.missing = group.missing + entry.bagMissing
         end
     end
@@ -484,6 +500,12 @@ local function clearCursor()
     call(ClearCursor)
 end
 
+-- The bag and cursor helpers for taking items out of the guild bank
+-- (GuildBankWithdraw.lua).
+Mail.ContainerFn = containerFn
+Mail.CursorHasItem = cursorHasItem
+Mail.ClearCursor = clearCursor
+
 -- ---------------------------------------------------------------------------
 -- Highlighting bag slots (fallback)
 -- ---------------------------------------------------------------------------
@@ -526,12 +548,18 @@ function Mail.FindItemButton(bag, slot)
     return found
 end
 
-local function hideHighlights()
-    for _, h in ipairs(highlights) do pcall(h.Hide, h) end
+--- Hide every outline of a pool (Mail's bag slots, or another module's).
+function Mail.HideOutlines(pool)
+    for _, h in ipairs(pool) do pcall(h.Hide, h) end
 end
 
-local function highlight(index, button)
-    local h = highlights[index]
+local function hideHighlights()
+    Mail.HideOutlines(highlights)
+end
+
+--- Outline `button` with frame `index` of `pool` (gold, as for the mail).
+function Mail.Outline(pool, index, button)
+    local h = pool[index]
     if not h then
         h = CreateFrame("Frame", nil, UIParent)
         h:SetFrameStrata("TOOLTIP")
@@ -550,7 +578,7 @@ local function highlight(index, button)
             if e[3] then line:SetWidth(e[3]) end
             if e[4] then line:SetHeight(e[4]) end
         end
-        highlights[index] = h
+        pool[index] = h
     end
     h:ClearAllPoints()
     h:SetAllPoints(button)
@@ -568,7 +596,7 @@ function Mail.Highlight(steps)
         local ok, button = pcall(Mail.FindItemButton, step.bag, step.slot)
         if ok and button then
             n = n + 1
-            pcall(highlight, n, button)
+            pcall(Mail.Outline, highlights, n, button)
         end
     end
     return n
@@ -778,7 +806,7 @@ function EHS:GetMailRows()
         group.missing = 0
         if group.hasCharacter and factionOk then mailable[#mailable + 1] = group end
     end
-    Mail.CheckBags(mailable, Mail.BagCounts())
+    Mail.CheckBags(mailable, Mail.BagCounts(), self.WithdrawnAmounts and self:WithdrawnAmounts() or nil)
     local prepared = state.prepared
     for _, group in ipairs(groups) do
         if not group.hasCharacter then

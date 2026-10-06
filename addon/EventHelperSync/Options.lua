@@ -537,6 +537,19 @@ local function build()
         function(v) EHS.db.settings.showMinimap = v; EHS:RefreshMinimap() end)
     frame.minimap:SetPoint("TOPLEFT", 300, settingsTop - 96)
 
+    frame.bankMinimap = checkbox(frame,
+        "Gildenbank-Knopf an der Minimap", "",
+        function() return EHS.db.settings.showBankMinimap ~= false end,
+        function(v)
+            EHS.db.settings.showBankMinimap = v
+            if v then
+                EHS:StartBankMinimap()
+            else
+                EHS:RefreshBankMinimap()
+            end
+        end)
+    frame.bankMinimap:SetPoint("TOPLEFT", 560, settingsTop - 96)
+
     frame.autoHandouts = checkbox(frame,
         "Gildenbank-Ausgabe mit Bank und Briefkasten öffnen", "",
         function() return EHS.db.settings.autoOpenHandouts ~= false end,
@@ -662,6 +675,7 @@ function EHS:RefreshOptions()
     frame.gap.refresh()
     frame.showButton.refresh()
     frame.minimap.refresh()
+    frame.bankMinimap.refresh()
     frame.skipAward.refresh()
     frame.autoHandouts.refresh()
 

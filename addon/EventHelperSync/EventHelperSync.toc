@@ -24,4 +24,5 @@ CouncilUI.lua
 GuildBankData.lua
 GuildBankHandouts.lua
 GuildBankMail.lua
+GuildBankWithdraw.lua
 GuildBankUI.lua

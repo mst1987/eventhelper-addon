@@ -94,7 +94,7 @@ Der Knopf an der **Minimap** öffnet es — oder `/ehs`. Es beantwortet auf eine
  │ Einstellungen                                                                       │
  │ Zeitraum (Tage)       [ 21 ]   Neuer Abend ab (Std.)  [ 6 ]                         │
  │ ☑ Bank- und Entzauber-Items weglassen                                               │
- │ ☑ Upload-Knopf anzeigen        ☑ Minimap-Knopf anzeigen                             │
+ │ ☑ Upload-Knopf anzeigen  ☑ Minimap-Knopf anzeigen  ☑ Gildenbank-Knopf an der Minimap│
  │   Zuletzt 574 Item(s) übersprungen (486 RCLootcouncil, 88 Gargul).                  │
  └─────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -114,7 +114,9 @@ Ein normaler Wurf mit der Antwort „PvP/Bank" bleibt dabei drin — der ging ja
 
 **Abwählen, was nicht interessiert.** Der Pug vom Dienstag, die Runde mit Freunden — Häkchen weg, und der Abend wird nicht hochgeladen. Die Auswahl wird gespeichert und gilt dauerhaft. Abgewählte Abende bleiben sichtbar, nur blass: man muss sie ja wiederfinden können, um sie zurückzuholen.
 
-**Der Minimap-Knopf** zeigt schon von aussen, ob etwas ansteht — goldener Ring heisst ungespeicherter Loot. Linksklick öffnet das Fenster, Shift-Linksklick oder Mittelklick den [Loot-Council](#loot-council-im-spiel), Rechtsklick speichert sofort, Ziehen verschiebt ihn um die Minimap.
+**Der Minimap-Knopf** zeigt schon von aussen, ob etwas ansteht — goldener Ring heisst ungespeicherter Loot. Linksklick öffnet das Fenster, Shift-Linksklick oder Mittelklick den [Loot-Council](#loot-council-im-spiel), Strg-Linksklick die Gildenbank-Ausgabe, Rechtsklick speichert sofort, Ziehen verschiebt ihn um die Minimap.
+
+**Der Gildenbank-Knopf** (eine Truhe) daneben ist nur für die [Gildenbank-Ausgabe](#gildenbank-ausgabe-im-spiel): goldener Ring und eine kleine Zahl, solange Posten offen sind; Linksklick öffnet/schliesst das Fenster, Rechtsklick das EventHelper-Fenster mit den Einstellungen, Ziehen verschiebt ihn (eigene Position). Der Tooltip zeigt „N Posten offen", ggf. „M abgehakt, wird beim nächsten Sync gemeldet" und den Stand der Liste. Ausblenden: `/ehs bankbutton` oder der Haken „Gildenbank-Knopf an der Minimap".
 
 **Befehle**
 
@@ -125,6 +127,7 @@ Ein normaler Wurf mit der Antwort „PvP/Bank" bleibt dabei drin — der ging ja
 | `/ehs status` | dasselbe kurz im Chat |
 | `/ehs diag` | **findet er nichts? Das hier sagt, woran es liegt** |
 | `/ehs minimap` | Minimap-Knopf ein-/ausblenden |
+| `/ehs bankbutton` | Gildenbank-Knopf an der Minimap ein-/ausblenden |
 | `/ehs button` | Upload-Knopf ein-/ausblenden |
 | `/ehs export` | Export als JSON in einer Kopierbox (Weg ohne Sync-Tool) |
 | `/ehs council` oder `/ehc` | das [Loot-Council-Fenster](#loot-council-im-spiel) öffnen |
@@ -326,7 +329,7 @@ POST /api/ingest/guildbank/handouts ◄─ Sync-Tool ◄─ EventHelperSyncDB.gu
 
 ### Das Fenster
 
-`/ehs bank`, `/ehb`, Strg-Linksklick auf den Minimap-Knopf, der Knopf „Gildenbank" im Hauptfenster — und **von selbst, wenn die Gildenbank geöffnet wird** und etwas offen ist (abschaltbar im Hauptfenster). Dann schliesst es sich auch mit der Bank.
+`/ehs bank`, `/ehb`, der eigene Gildenbank-Knopf an der Minimap, Strg-Linksklick auf den EventHelper-Minimap-Knopf, der Knopf „Gildenbank" im Hauptfenster — und **von selbst, wenn die Gildenbank geöffnet wird** und etwas offen ist (abschaltbar im Hauptfenster). Dann schliesst es sich auch mit der Bank.
 
 ```
  ┌ Gildenbank-Ausgabe ───────────────────────────────────────────── [Offen][Alle] [x] ┐
@@ -339,9 +342,19 @@ POST /api/ingest/guildbank/handouts ◄─ Sync-Tool ◄─ EventHelperSyncDB.gu
  └────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Eine Zeile pro Posten, nach Empfänger gruppiert: Häkchen, Name in Klassenfarbe (hat der Raider keinen Charakter hinterlegt, steht sein Discord-Name in Grau), Icon, Menge und Gegenstand in Qualitätsfarbe, der Bank-Tab und wie viele da sind. Reicht der Bestand nicht, steht dort in Gelb **„nur 1!"** — offene Posten desselben Gegenstands teilen sich den Bestand der Reihe nach. Ist die Gildenbank offen und wurde bei diesem Besuch gescannt, zählt der **live** gezählte Bestand, sonst der Stand des letzten hochgeladenen Scans. Gezeigt werden die Posten der Gildenbank dieses Charakters (Client, Realm, Gilde); gibt es die nicht, die Banken dieses Clients bzw. alle, mit Hinweis in der Kopfzeile.
+Das Fenster ist 640 px breit und zeigt 12 Zeilen à 30 px (Mausrad scrollt, der Balken rechts zeigt die Position), Icons 24 px, Name und Gegenstand in normaler Schriftgrösse. Eine Zeile pro Posten, nach Empfänger gruppiert: Häkchen, Name in Klassenfarbe (hat der Raider keinen Charakter hinterlegt, steht sein Discord-Name in Grau), Icon, Menge und Gegenstand in Qualitätsfarbe, der Bank-Tab und wie viele da sind. Reicht der Bestand nicht, steht dort in Gelb **„nur 1!"** — offene Posten desselben Gegenstands teilen sich den Bestand der Reihe nach. Ist die Gildenbank offen und wurde bei diesem Besuch gescannt, zählt der **live** gezählte Bestand, sonst der Stand des letzten hochgeladenen Scans. Gezeigt werden die Posten der Gildenbank dieses Charakters (Client, Realm, Gilde); gibt es die nicht, die Banken dieses Clients bzw. alle, mit Hinweis in der Kopfzeile.
 
 Abhaken legt den Posten unter `EventHelperSyncDB.guildBankDone` ab (`{ id, via = "manual", by = "Name-Realm", at }`), die Zeile wird gedimmt und durchgestrichen, „Offen" blendet sie aus. Haken wieder weg nimmt es zurück, solange es noch nicht gemeldet ist. `/ehs upload` speichert auch, wenn nur abgehakt wurde. Der Tooltip einer Zeile zeigt Zweck, wer angefragt und wer bestätigt hat, den Bestand je Tab und „Abhaken, wenn rausgegeben." bzw. den Hinweis auf die Fehlmenge.
+
+### Aus der Gildenbank nehmen (Klick auf eine Zeile)
+
+Ist die Gildenbank offen, nimmt ein **Klick auf eine Zeile** (nicht auf das Häkchen) den Posten aus der Bank in die Taschen, **Shift-Klick** alle offenen Posten dieses Empfängers. Genommen wird, was in den Taschen noch fehlt (was schon drin ist, zählt wie am Briefkasten mit). Abgehakt wird dabei **nichts** — das passiert beim Senden der Post oder per Häkchen.
+
+- Die Stapel werden live aus den sichtbaren Tabs gelesen; sah der Scan oder der Server den Gegenstand in einem Tab, den der Client gerade nicht zeigt, wird der Tab erst abgefragt (`QueryGuildBankTab`).
+- Reihenfolge: ein genau passender Stapel, sonst ganze kleinere Stapel, sonst wird vom kleinsten ausreichenden Stapel abgeteilt. Ganze Stapel gehen mit `AutoStoreGuildBankItem` in die Taschen, Teilmengen mit `SplitGuildBankItem` und `PickupContainerItem` in einen freien Taschenplatz. Jeder Schritt wartet, bis die Gegenstände wirklich in den Taschen sind; der gespeicherte Scan wird für den Tab neu gelesen.
+- Das Tageslimit je Tab (`GetGuildBankTabInfo`, verbleibende Entnahmen; -1 = unbegrenzt) wird beachtet: es wird genommen, was geht, der Rest steht im Chat („Super Healing Potion: 1 von 2 nicht genommen - Tageslimit des Tabs erreicht."). Ohne freien Taschenplatz passiert nichts („Kein freier Taschenplatz - erst Platz schaffen."). Nie im Kampf.
+- Danach steht in der Zeile in Grün **„in den Taschen"** und im Chat „Aus der Gildenbank genommen: 2x Bold Living Ruby"; solange es läuft, „wird geholt ...". Bei geschlossener Bank tut der Klick nichts, der Tooltip sagt „Klick bei offener Gildenbank: in die Taschen nehmen".
+- **Sperrt der Client das** (Fehler, leerer Cursor nach dem Teilen, `ADDON_ACTION_BLOCKED`/`ADDON_ACTION_FORBIDDEN`), hört es auf, leert den Cursor und nennt die Plätze im Chat („Tab 3 Platz 1: 1x Arcane Powder (von 49, Shift-Klick teilt den Stapel)"); im gerade gezeigten Tab sind sie gold umrandet. Das gilt für die Sitzung.
 
 Dieselbe Logik gibt es als API in `GuildBankHandouts.lua`: `EHS:GetHandouts()` (offene Posten dieses Charakters, nach Empfänger gruppiert), `EHS:MarkHandedOut(ids, via, by)`, `EHS:UnmarkHandedOut(ids)`, `EHS:IsHandedOut(id)`, `EHS:HandoutCounts()`, und `EHS:OnGuildBankEvent(fn)` in `GuildBank.lua` meldet „open", „close" und „scan".
 
@@ -374,7 +387,7 @@ Danach steht in der Zeile in Gold **„in der Post"** / **„Vorbereitet"**. Das
 
 **Wenn der Client das Anhängen sperrt** (offen bei WoW Forever): Wirft ein Aufruf einen Fehler, bleibt der Cursor leer oder meldet der Client `ADDON_ACTION_BLOCKED`/`ADDON_ACTION_FORBIDDEN` für dieses Addon, hört es auf. Empfänger, Betreff und Text bleiben ausgefüllt, der Chat nennt die Plätze („Tasche 1 Platz 4: 2x Bold Living Ruby (von 5, Shift-Klick teilt den Stapel)") und in den offenen Taschen sind sie gold umrandet — hineinziehen, Senden, abgehakt wird trotzdem. Das merkt sich das Addon für die Sitzung und geht beim nächsten Brief gleich so vor.
 
-Nicht enthalten: der Knopf „Aus der Bank nehmen" an der Gildenbank (optional in #18) — die Gegenstände holt man wie bisher selbst in die Taschen.
+Was noch in der Gildenbank liegt, holt ein Klick auf die Zeile an der offenen Bank in die Taschen ([siehe oben](#aus-der-gildenbank-nehmen-klick-auf-eine-zeile)). Am Briefkasten hat das Fenster 6 Zeilen à 60 px mit bis zu drei Posten (Icons 18 px).
 
 ---
 
@@ -387,7 +400,7 @@ Nicht enthalten: der Knopf „Aus der Bank nehmen" an der Gildenbank (optional i
 | `/ehs` findet 0 Items | Der Loot ist älter als das Export-Fenster. `/ehs days 60` |
 | Sync-Tool: „Keine EventHelperSync.lua gefunden" | Erstens: war das Addon im Spiel schon einmal geladen? Falls ja, listet die Oberfläche die durchsuchten Orte auf — ist dein WoW-Ordner nicht dabei, ihn unter **„Pfad selbst angeben"** eintragen. Der blosse WoW-Ordner genügt. |
 | Der Upload-Knopf taucht nicht auf | Es liegt nichts Ungespeichertes an — `/ehs` zeigt den Stand. Oder er wurde per `/ehs button` abgeschaltet. |
-| Minimap-Knopf ist weg | `/ehs minimap` schaltet ihn wieder ein. |
+| Minimap-Knopf ist weg | `/ehs minimap` schaltet ihn wieder ein, den Gildenbank-Knopf `/ehs bankbutton`. |
 | Ein Raid-Abend wird nicht hochgeladen | Wurde er per ✕ neben der Zeile abgewählt? Abgewählte Abende bleiben abgewählt und tauchen in „Bereit zum Hochladen" nicht mehr auf. |
 | Die Oberfläche öffnet sich nicht | Die `.exe` noch einmal doppelklicken — läuft sie schon, öffnet das ihr Fenster erneut. Die Adresse samt Schlüssel steht außerdem in `~/.eventhelper-sync.running.json` und lässt sich von Hand aufrufen (ohne den Schlüssel antwortet sie mit 403). Kein installierter Edge/Chrome gefunden: das Fenster öffnet sich dann als normaler Browser-Tab statt chromelos — technisch dieselbe Seite. Scheitert der Start ganz, sagt ein Fehlerdialog warum. |
 | Knopf ist grau | Du bist im Kampf. Nach dem Kampf wird er wieder klickbar. |
@@ -606,7 +619,7 @@ Zurück geht `POST { "done": [{ "id", "via": "manual" | "mail", "by": "Name-Real
 | `Export.lua` | Envelope bauen (ohne abgewählte Abende), JSON kodieren |
 | `GuildBank.lua` | Gildenbank beim Öffnen scannen (TBC: `GUILDBANKFRAME_OPENED`, Forever: `PLAYER_INTERACTION_MANAGER_FRAME_SHOW`), letzter Scan nach `EventHelperSyncDB.guildBank` |
 | `Button.lua` | Upload-Knopf: erscheint bei ungespeichertem Loot, Klick löst den Reload aus |
-| `Minimap.lua` | Knopf an der Minimap, mit Hinweisring bei Ungespeichertem |
+| `Minimap.lua` | Knopf an der Minimap, mit Hinweisring bei Ungespeichertem; der Gildenbank-Knopf daneben |
 | `Options.lua` | das Fenster: Status, Raid-Abende zum Abwählen, Einstellungen |
 | `UI.lua` | Kopierbox hinter `/ehs export` |
 | `CouncilData.lua` | Platzhalter; das Sync-Tool überschreibt ihn mit den Council-Daten |
@@ -615,6 +628,7 @@ Zurück geht `POST { "done": [{ "id", "via": "manual" | "mail", "by": "Name-Real
 | `GuildBankData.lua` | Platzhalter; das Sync-Tool überschreibt ihn mit der Gildenbank-Ausgabeliste |
 | `GuildBankHandouts.lua` | Ausgabe-Logik ohne Fenster: Daten prüfen, Banken dieses Charakters, Bestand und Fehlmenge, Abhaken (`guildBankDone`), API für die Post-Ausgabe |
 | `GuildBankMail.lua` | Ausgabe per Post: Briefkasten erkennen, Taschen zählen, Brief ausfüllen und Anhänge planen/anhängen, Fallback bei gesperrtem Anhängen, Abhaken bei `MAIL_SEND_SUCCESS` |
+| `GuildBankWithdraw.lua` | Aus der Gildenbank nehmen (Klick auf eine Zeile): Stapel live lesen, planen (Tageslimit), `AutoStoreGuildBankItem` / `SplitGuildBankItem`, Fallback bei Sperre |
 | `GuildBankUI.lua` | Fenster „Gildenbank-Ausgabe", `/ehs bank`, `/ehb`, öffnet sich mit der Gildenbank und am Briefkasten (Post-Modus) |
 
 Und im Sync-Tool:

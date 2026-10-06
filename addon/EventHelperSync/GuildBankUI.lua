@@ -1,7 +1,12 @@
 --[[
-Guild bank handouts - the window (/ehs bank, /ehb, Ctrl-click on the minimap
-button, the button in the options window, and by itself when the guild bank
-opens and something is waiting).
+Guild bank handouts - the window (/ehs bank, /ehb, its own minimap button,
+Ctrl-click on the EventHelper minimap button, the button in the options
+window, and by itself when the guild bank opens and something is waiting).
+
+While the guild bank is open, a click on a row (not on its checkbox) takes
+what the bags still lack of it out of the bank, Shift-click everything of
+that recipient (GuildBankWithdraw.lua). The count column then shows "wird
+geholt ..." and, once the bags hold it, "in den Taschen" in green.
 
 What has to go to whom: one row per handout, sorted by recipient - checkbox,
 name in class colour, icon, "2x Item" in quality colour, bank tab, how many
@@ -43,14 +48,19 @@ local autoOpened = false
 -- The mode of the last refresh, to start a switched list at the top.
 local lastMode = nil
 
-local WIDTH = 540
-local ROW_HEIGHT = 22
-local VISIBLE_ROWS = 14
-local MAIL_ROW_HEIGHT = 44
-local VISIBLE_MAIL_ROWS = 7
+local WIDTH = 640
+local ROW_HEIGHT = 30
+local VISIBLE_ROWS = 12
+local ICON_SIZE = 24
+local MAIL_ROW_HEIGHT = 60
+local VISIBLE_MAIL_ROWS = 6
 local MAIL_LINES = 3
+local MAIL_ICON_SIZE = 18
+local MAIL_LINE_GAP = 19
 local LIST_TOP = -70
 local ROW_WIDTH = WIDTH - 24
+-- Names, items, tab and count in the normal font; the header lines stay small.
+local ROW_FONT = "GameFontHighlight"
 
 local GOLD = { 1, 0.82, 0 }
 local GREY = { 0.5, 0.5, 0.5 }
@@ -75,12 +85,18 @@ end
 
 -- Columns: x position and width inside a row.
 local COL = {
-    check = { 2, 20 },
-    name = { 26, 112 },
-    icon = { 142, 18 },
-    item = { 164, 210 },
-    tab = { 378, 58 },
-    count = { 438, 74 },
+    check = { 2, 26 },
+    name = { 32, 120 },
+    icon = { 156, ICON_SIZE },
+    item = { 186, 252 },
+    tab = { 442, 64 },
+    count = { 508, 102 },
+}
+
+-- The geometry, for the specs.
+EHS.GuildBankLayout = {
+    width = WIDTH, rowHeight = ROW_HEIGHT, visibleRows = VISIBLE_ROWS, iconSize = ICON_SIZE, rowFont = ROW_FONT,
+    mailRowHeight = MAIL_ROW_HEIGHT, visibleMailRows = VISIBLE_MAIL_ROWS, mailIconSize = MAIL_ICON_SIZE, columns = COL,
 }
 
 local VIEW_BUTTONS = {
@@ -149,11 +165,23 @@ local function showRowTooltip(owner)
             Council.FormatStamp(entry.done.at)), 0.35, 0.9, 0.35, true)
         GameTooltip:AddLine("Wird beim nächsten Sync gemeldet (speichern mit /ehs upload). Haken weg nimmt es zurück.",
             0.6, 0.6, 0.6, true)
-    elseif entry.short then
-        GameTooltip:AddLine(("Nur noch %d in der Bank, %d vorgemerkt!"):format(entry.left, entry.amount), 1, 0.82, 0, true)
-        GameTooltip:AddLine("Abhaken, wenn rausgegeben.", 1, 1, 1, true)
     else
+        if entry.short then
+            GameTooltip:AddLine(("Nur noch %d in der Bank, %d vorgemerkt!"):format(entry.left, entry.amount), 1, 0.82, 0, true)
+        end
         GameTooltip:AddLine("Abhaken, wenn rausgegeben.", 1, 1, 1, true)
+        -- taking it out of the guild bank (GuildBankWithdraw.lua)
+        local missing = tonumber(entry.bagMissing) or entry.amount
+        if missing <= 0 then
+            GameTooltip:AddLine("In den Taschen - bereit für die Post.", 0.35, 0.9, 0.35, true)
+        elseif EHS:IsGuildBankOpen() then
+            local line = "Klick: in die Taschen nehmen"
+            if missing < entry.amount then line = line .. (" (fehlen noch %d)"):format(missing) end
+            GameTooltip:AddLine(line, 0.35, 0.9, 0.35, true)
+            GameTooltip:AddLine(("Shift-Klick: alles für %s"):format(entry.recipient), 0.35, 0.9, 0.35, true)
+        else
+            GameTooltip:AddLine("Klick bei offener Gildenbank: in die Taschen nehmen", 0.6, 0.6, 0.6, true)
+        end
     end
     GameTooltip:Show()
 end
@@ -177,7 +205,8 @@ local function buildCheck(parent)
     check:SetSize(COL.check[2], COL.check[2])
     local box = W.solid(check, "ARTWORK", 0.12, 0.12, 0.12, 1)
     box:SetPoint("CENTER", 0, 0)
-    box:SetSize(12, 12)
+    box:SetSize(16, 16)
+    check.box = box
     local edges = {
         { "TOPLEFT", "TOPRIGHT", nil, 1 }, { "BOTTOMLEFT", "BOTTOMRIGHT", nil, 1 },
         { "TOPLEFT", "BOTTOMLEFT", 1, nil }, { "TOPRIGHT", "BOTTOMRIGHT", 1, nil },
@@ -191,10 +220,10 @@ local function buildCheck(parent)
     end
     local hl = W.solid(check, "HIGHLIGHT", 1, 1, 1, 0.15)
     hl:SetPoint("CENTER", 0, 0)
-    hl:SetSize(12, 12)
+    hl:SetSize(16, 16)
     check.mark = check:CreateTexture(nil, "OVERLAY")
     check.mark:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-    check.mark:SetSize(18, 18)
+    check.mark:SetSize(24, 24)
     check.mark:SetPoint("CENTER", 1, 1)
     check.mark:Hide()
     check:SetScript("OnClick", function(self) toggleEntry(self.entry) end)
@@ -218,7 +247,7 @@ local function buildRow(parent, index)
     row.check = buildCheck(row)
     row.check:SetPoint("LEFT", COL.check[1], 0)
 
-    row.name = W.text(row)
+    row.name = W.text(row, ROW_FONT)
     row.name:SetPoint("LEFT", COL.name[1], 0)
     row.name:SetWidth(COL.name[2])
     if row.name.SetWordWrap then row.name:SetWordWrap(false) end
@@ -228,7 +257,7 @@ local function buildRow(parent, index)
     row.icon:SetPoint("LEFT", COL.icon[1], 0)
     row.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 
-    row.item = W.text(row)
+    row.item = W.text(row, ROW_FONT)
     row.item:SetPoint("LEFT", COL.item[1], 0)
     row.item:SetWidth(COL.item[2])
     if row.item.SetWordWrap then row.item:SetWordWrap(false) end
@@ -239,14 +268,24 @@ local function buildRow(parent, index)
     row.strike:SetPoint("LEFT", row.item, "LEFT", 0, 0)
     row.strike:Hide()
 
-    row.tab = W.text(row)
+    row.tab = W.text(row, ROW_FONT)
     row.tab:SetPoint("LEFT", COL.tab[1], 0)
     row.tab:SetWidth(COL.tab[2])
 
-    row.count = W.text(row, nil, "RIGHT")
+    row.count = W.text(row, ROW_FONT, "RIGHT")
     row.count:SetPoint("LEFT", COL.count[1], 0)
     row.count:SetWidth(COL.count[2])
 
+    -- A click on the row (not on the checkbox) takes it out of the open guild
+    -- bank, Shift-click everything of this recipient (GuildBankWithdraw.lua).
+    row:RegisterForClicks("LeftButtonUp")
+    row:SetScript("OnClick", function(self, button)
+        local entry = self.entry
+        if button ~= "LeftButton" or not entry or entry.done or not EHS:IsGuildBankOpen() then return end
+        local all = IsShiftKeyDown and IsShiftKeyDown() and true or false
+        local ok, entries = pcall(EHS.Withdraw.EntriesFor, entry, all)
+        if ok then EHS:WithdrawHandouts(entries) end
+    end)
     row:SetScript("OnEnter", showRowTooltip)
     row:SetScript("OnLeave", function() GameTooltip:Hide() end)
     return row
@@ -329,28 +368,29 @@ local function buildMailRow(parent, index)
     local hl = W.solid(row, "HIGHLIGHT", 1, 1, 1, 0.07)
     hl:SetAllPoints()
 
-    row.name = W.text(row)
+    row.name = W.text(row, ROW_FONT)
     row.name:SetPoint("LEFT", 8, 0)
-    row.name:SetWidth(80)
+    row.name:SetWidth(108)
     if row.name.SetWordWrap then row.name:SetWordWrap(false) end
 
     row.lines = {}
     for k = 1, MAIL_LINES do
         local line = {}
         line.icon = row:CreateTexture(nil, "ARTWORK")
-        line.icon:SetSize(14, 14)
+        line.icon:SetSize(MAIL_ICON_SIZE, MAIL_ICON_SIZE)
         line.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-        line.text = W.text(row)
-        line.text:SetWidth(214)
+        line.text = W.text(row, ROW_FONT)
+        line.text:SetWidth(252)
         if line.text.SetWordWrap then line.text:SetWordWrap(false) end
         row.lines[k] = line
     end
 
-    row.state = W.text(row)
-    row.state:SetPoint("LEFT", 330, 0)
-    row.state:SetWidth(108)
+    row.state = W.text(row, ROW_FONT)
+    row.state:SetPoint("LEFT", 402, 0)
+    row.state:SetWidth(120)
 
-    row.button = W.textButton(row, "Post", 70)
+    row.button = W.textButton(row, "Post", 80)
+    row.button:SetHeight(22)
     row.button:SetPoint("RIGHT", -6, 0)
     row.button:SetScript("OnClick", function(self)
         local group = self:GetParent().group
@@ -370,11 +410,11 @@ local function setMailLines(row, entries)
     local count = #entries > MAIL_LINES and MAIL_LINES or #entries
     for k = 1, MAIL_LINES do
         local line = row.lines[k]
-        local y = ((count - 1) / 2 - (k - 1)) * 13
+        local y = ((count - 1) / 2 - (k - 1)) * MAIL_LINE_GAP
         line.icon:ClearAllPoints()
-        line.icon:SetPoint("LEFT", row, "LEFT", 92, y)
+        line.icon:SetPoint("LEFT", row, "LEFT", 122, y)
         line.text:ClearAllPoints()
-        line.text:SetPoint("LEFT", row, "LEFT", 110, y)
+        line.text:SetPoint("LEFT", row, "LEFT", 146, y)
         if k <= shown then
             local entry = entries[k]
             line.icon:SetTexture(Handouts.IconTexture(entry))
@@ -596,7 +636,20 @@ local function refreshMail(self)
     setThumb(#list, VISIBLE_MAIL_ROWS, MAIL_ROW_HEIGHT, frame.mailList)
 end
 
+--- The count column: "14 da" / "nur 1!", or for an open entry "wird geholt
+-- ..." while it is taken out of the bank and "in den Taschen" once the bags
+-- hold it.
+local function countText(entry)
+    if not entry.done then
+        if EHS:WithdrawingHandout(entry.id) then return Council.Color("wird geholt ...", 1, 0.82, 0) end
+        if entry.bagMissing == 0 then return Council.Color("in den Taschen", 0.35, 0.9, 0.35) end
+    end
+    return Handouts.CountLabel(entry)
+end
+
 function EHS:RefreshGuildBankUI()
+    -- the number on the guild bank minimap button follows every change
+    if self.RefreshBankMinimap then pcall(self.RefreshBankMinimap, self) end
     if not frame or not frame:IsShown() then return end
     local mode = mailMode() and "mail" or "bank"
     if mode ~= lastMode then
@@ -624,6 +677,8 @@ function EHS:RefreshGuildBankUI()
     frame.bankOpen:SetShown(self:IsGuildBankOpen() and true or false)
 
     local entries, scope, data, status, banks = self:GetHandoutEntries()
+    -- what the bags already hold (shared in list order, as at the mailbox)
+    pcall(EHS.Withdraw.CheckBags, entries)
     local open, done = 0, 0
     for _, entry in ipairs(entries) do
         if entry.done then done = done + 1 else open = open + 1 end
@@ -671,7 +726,7 @@ function EHS:RefreshGuildBankUI()
             row.icon:SetTexture(Handouts.IconTexture(entry))
             row.item:SetText(Handouts.ItemLabel(entry))
             row.tab:SetText(Handouts.TabLabel(entry))
-            row.count:SetText(Handouts.CountLabel(entry))
+            row.count:SetText(countText(entry))
             if entry.done then
                 row.check.mark:Show()
             else

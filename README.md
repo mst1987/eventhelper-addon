@@ -308,7 +308,13 @@ Woran man was erkennt:
 cd sync
 npm test          # Jest: Lua-Parser und Uploader
 npm run lint
+
+cd addon-test
+npm install
+npm test          # Lua-Specs des Addons (fengari) + Latin-1-Prüfung der Texte
 ```
+
+`addon-test/` führt die Addon-Dateien in **fengari** (Lua 5.3 in JavaScript) gegen eine nachgebaute WoW-API (`mock/wow.lua`) aus — übernommen aus den Test-Harnessen von DuoLevel und ProfessionKit. Der Ordner ist bewusst eigenständig: er ist weder Abhängigkeit des Sync-Tools noch Teil des Addon-Zips. Jeder Spec in `addon-test/spec/` läuft in einem frischen Lua-Zustand, richtet erst den Client ein (welche Events er kennt, `WOW_PROJECT_ID`, Gildenbank) und ruft dann `loadAddon()` auf. Dazu prüft der Lauf, dass kein Text im Addon Zeichen ausserhalb von Latin-1 enthält (die Spielschrift zeigt dafür nur Kästchen); ältere Dateien mit „—" sind davon vorerst ausgenommen, neue nicht.
 
 Der Lua-Parser (`sync/lib/luaParser.js`) führt die SavedVariables **nicht** als Code aus, sondern liest sie als Daten — in dem Verzeichnis schreibt jedes beliebige Addon.
 
@@ -350,6 +356,32 @@ Addon, Sync-Tool und Server sprechen `eventhelper-loot` Version 1. Serverseitig 
 }
 ```
 
+#### Gildenbank: `eventhelper-guildbank` Version 1
+
+Öffnet jemand mit dem Addon die Gildenbank, liest `GuildBank.lua` alle sichtbaren Tabs nacheinander aus (der Server drosselt die Abfragen) und legt **nur den letzten Scan** unter `EventHelperSyncDB.guildBank` ab. Im Chat steht danach „Gildenbank gescannt: X Tabs, Y Gegenstände" — auf die Platte kommt der Scan wie der Loot erst mit `/ehs upload`, `/reload` oder dem Ausloggen. Im Kampf wird nicht gescannt.
+
+Das Sync-Tool lädt den Scan per `POST /api/ingest/guildbank` (dasselbe Token) hoch, sobald sein `scannedAt` neuer ist als der zuletzt angenommene Scan **dieser** Gildenbank. Der Schlüssel einer Gildenbank ist `client.project` + `guild.realm` + `guild.name`; den Stand je Schlüssel merkt sich das Tool in `~/.eventhelper-sync.json` (`guildBankUploads`). Schlägt der Upload fehl, steht das im Verlauf und im Fenster, und das Tool versucht es nach 5 Minuten oder bei der nächsten Änderung der Datei erneut — der Loot-Upload läuft davon unberührt weiter.
+
+```jsonc
+{
+  "format": "eventhelper-guildbank",
+  "version": 1,
+  "generatedAt": 1784574100,          // Unix-Sekunden
+  "client": { "project": "tbc", "build": "2.5.5" },   // project: "tbc" | "forever" | "classic"
+  "guild": { "name": "Pulse", "realm": "Thunderstrike", "faction": "Alliance" },
+  "scannedBy": "Gemli-Thunderstrike",
+  "scannedAt": 1784574100,            // Unix-Sekunden, Ende des Scans
+  "money": 123456789,                 // Kupfer
+  "tabs": [{
+    "index": 1,                       // Tab-Nummer im Spiel; nicht sichtbare Tabs fehlen
+    "name": "Mats",
+    "items": [{ "itemId": 22445, "count": 20, "slot": 1 }]   // slot 1-98, ein Eintrag je Stapel
+  }]
+}
+```
+
+`client.project` kommt aus `WOW_PROJECT_ID` (5 = TBC, 1 = Forever/Retail, 2 = Classic Era), ersatzweise aus der Interface-Nummer. `build` ist die Versionsnummer aus `GetBuildInfo()`.
+
 ### Aufbau des Addons
 
 | Datei | Aufgabe |
@@ -359,6 +391,7 @@ Addon, Sync-Tool und Server sprechen `eventhelper-loot` Version 1. Serverseitig 
 | `Collect.lua` | beide Historien auslesen und auf eine Zeilenform bringen |
 | `Sessions.lua` | Zeilen zu Raid-Abenden bündeln |
 | `Export.lua` | Envelope bauen (ohne abgewählte Abende), JSON kodieren |
+| `GuildBank.lua` | Gildenbank beim Öffnen scannen (TBC: `GUILDBANKFRAME_OPENED`, Forever: `PLAYER_INTERACTION_MANAGER_FRAME_SHOW`), letzter Scan nach `EventHelperSyncDB.guildBank` |
 | `Button.lua` | Upload-Knopf: erscheint bei ungespeichertem Loot, Klick löst den Reload aus |
 | `Minimap.lua` | Knopf an der Minimap, mit Hinweisring bei Ungespeichertem |
 | `Options.lua` | das Fenster: Status, Raid-Abende zum Abwählen, Einstellungen |
@@ -370,8 +403,8 @@ Und im Sync-Tool:
 |---|---|
 | `lib/luaParser.js` | SavedVariables als Daten lesen, nicht als Code ausführen |
 | `lib/wowPaths.js` | die Addon-Datei über alle Client-Varianten und Accounts finden |
-| `lib/uploader.js` | eine Session pro Anfrage hochladen |
-| `lib/runner.js` | der laufende Betrieb samt Zustand (letzter Upload, Fehler, Verlauf) |
+| `lib/uploader.js` | eine Session pro Anfrage hochladen; Gildenbank-Scan lesen und hochladen |
+| `lib/runner.js` | der laufende Betrieb samt Zustand (letzter Upload, Fehler, Verlauf, Gildenbank) |
 | `lib/appWindow.js` | das chromelose Edge/Chrome-Fenster, Hinweisdialoge der `.exe` |
 | `lib/instance.js` | höchstens eine laufende Instanz; ein zweiter Start öffnet deren Fenster |
 | `lib/webui.js` | der lokale HTTP-Server hinter der Oberfläche |

@@ -13,11 +13,19 @@
 const fs = require("fs");
 const config = require("./config");
 const wowPaths = require("./wowPaths");
-const { readEnvelope, uploadFile, uploadOneSession, postSession, UploadError, SYNC_VERSION } = require("./uploader");
+const {
+    readEnvelope, uploadFile, uploadOneSession, postSession, UploadError, SYNC_VERSION,
+    readGuildBank, guildBankKey, postGuildBank,
+} = require("./uploader");
 
 // Wie viele Log-Zeilen aufgehoben werden. Genug für einen Raid-Abend, wenig
 // genug, dass der Speicher nicht mitwächst.
 const LOG_LIMIT = 300;
+
+// After a failed guild bank upload: wait this long before the next try (a
+// file change retries at once). Keeps a missing endpoint from filling the log
+// every poll.
+const GUILD_BANK_RETRY_MS = 5 * 60 * 1000;
 
 function createRunner(options = {}) {
     const state = {
@@ -33,6 +41,12 @@ function createRunner(options = {}) {
         lastUpload: null,
         lastError: null,
         uploading: false,
+        /**
+         * The latest guild bank scan in the file, as a summary for the UI:
+         * { guild, realm, faction, project, scannedAt (ms), tabs, items, uploaded, lastError },
+         * or null if there is none.
+         */
+        guildBank: null,
         log: [],
     };
 
@@ -41,6 +55,10 @@ function createRunner(options = {}) {
     let busy = false;
     // Beim Start einmal hochladen; danach nur, wenn sich die Datei geändert hat.
     let firstRun = true;
+    // The full scan behind state.guildBank, as it is uploaded.
+    let guildBankScan = null;
+    let guildBankRetryAt = 0;
+    let guildBankError = null;
 
     function log(level, text) {
         const entry = { at: Date.now(), level, text };
@@ -65,6 +83,8 @@ function createRunner(options = {}) {
         if (!state.file) {
             state.sessions = [];
             state.readError = null;
+            guildBankScan = null;
+            state.guildBank = null;
             return;
         }
         try {
@@ -105,6 +125,68 @@ function createRunner(options = {}) {
             state.readError = e.message;
             state.sessions = [];
         }
+        readGuildBankState();
+    }
+
+    /** The guild bank scan in the file; on its own, so it never breaks the loot part. */
+    function readGuildBankState() {
+        try {
+            guildBankScan = readGuildBank(state.file) || null;
+        } catch {
+            guildBankScan = null;
+        }
+        if (!guildBankScan) {
+            state.guildBank = null;
+            return;
+        }
+        const scan = guildBankScan;
+        const guild = scan.guild || {};
+        const uploadedAt = (cfg.guildBankUploads || {})[guildBankKey(scan)] || 0;
+        state.guildBank = {
+            guild: guild.name || "",
+            realm: guild.realm || "",
+            faction: guild.faction || "",
+            project: (scan.client && scan.client.project) || "",
+            scannedAt: Number(scan.scannedAt) * 1000,
+            tabs: scan.tabs.length,
+            items: scan.tabs.reduce((sum, tab) => sum + tab.items.length, 0),
+            uploaded: Number(scan.scannedAt) <= uploadedAt,
+            lastError: guildBankError,
+        };
+    }
+
+    /**
+     * Upload the guild bank scan if it is newer than the last one the server
+     * accepted for this guild bank. Runs after the loot upload and on its own:
+     * a failure here (the endpoint may not exist yet, 404) is logged and
+     * retried later, but never stops or delays the loot.
+     * @param {{ force?: boolean }} [opts] force: ignore the retry pause
+     * @returns {Promise<boolean>} whether a scan was uploaded
+     */
+    async function syncGuildBank(opts = {}) {
+        const scan = guildBankScan;
+        if (!scan || !state.guildBank || state.guildBank.uploaded) return false;
+        if (!opts.force && Date.now() < guildBankRetryAt) return false;
+        const label = `Gildenbank ${state.guildBank.guild || "?"}`;
+        try {
+            await postGuildBank(cfg, scan);
+        } catch (e) {
+            guildBankRetryAt = Date.now() + GUILD_BANK_RETRY_MS;
+            guildBankError = { at: Date.now(), message: e.message };
+            state.guildBank.lastError = guildBankError;
+            const why = e instanceof UploadError && e.status === 404
+                ? "der Server kennt /api/ingest/guildbank noch nicht (HTTP 404)"
+                : e.message;
+            log("error", `${label}: Upload fehlgeschlagen — ${why}. Neuer Versuch in 5 min oder bei der nächsten Änderung.`);
+            return false;
+        }
+        guildBankRetryAt = 0;
+        guildBankError = null;
+        const uploads = { ...(cfg.guildBankUploads || {}), [guildBankKey(scan)]: Number(scan.scannedAt) };
+        cfg = config.save({ ...config.load(), guildBankUploads: uploads });
+        log("ok", `${label}: hochgeladen — ${state.guildBank.tabs} Tab(s), ${state.guildBank.items} Stapel.`);
+        readGuildBankState();
+        return true;
     }
 
     /** Einmal hochladen, egal ob sich etwas geändert hat. */
@@ -189,17 +271,26 @@ function createRunner(options = {}) {
             if (config.missing(cfg).length) return;
 
             const changed = state.fileMtime !== tick.lastSeenMtime;
-            if (!changed && !firstRun) return;
-
-            if (changed && !firstRun) {
-                log("info", "Datei hat sich geändert — lade hoch.");
-                // Kurz warten, damit ein noch laufender Schreibvorgang durch ist.
-                await new Promise((r) => setTimeout(r, 1500));
-                readState();
+            if (changed || firstRun) {
+                if (changed && !firstRun) {
+                    log("info", "Datei hat sich geändert — lade hoch.");
+                    // Kurz warten, damit ein noch laufender Schreibvorgang durch ist.
+                    await new Promise((r) => setTimeout(r, 1500));
+                    readState();
+                }
+                tick.lastSeenMtime = state.fileMtime;
+                firstRun = false;
+                try {
+                    await uploadNow();
+                } catch {
+                    // Already logged. The guild bank below goes on regardless.
+                }
+                // A changed file retries a failed guild bank upload at once.
+                guildBankRetryAt = 0;
             }
-            tick.lastSeenMtime = state.fileMtime;
-            firstRun = false;
-            await uploadNow();
+            // Every tick, not only on a change: a failed upload is retried
+            // once its pause is over.
+            await syncGuildBank();
         } catch {
             // Bereits protokolliert; der nächste Durchlauf versucht es erneut.
         } finally {
@@ -295,6 +386,7 @@ function createRunner(options = {}) {
         tick,
         uploadNow,
         uploadOne,
+        syncGuildBank,
         testConnection,
         readState,
         setExcluded,
@@ -351,4 +443,4 @@ function describe(r) {
     }
 }
 
-module.exports = { createRunner, describe, whyNothing, LOG_LIMIT };
+module.exports = { createRunner, describe, whyNothing, LOG_LIMIT, GUILD_BANK_RETRY_MS };

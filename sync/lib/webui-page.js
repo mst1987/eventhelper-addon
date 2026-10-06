@@ -120,6 +120,10 @@ module.exports.PAGE = String.raw`<!doctype html>
 
   .empty-hint { color: #8a8067; font-size: 12.5px; padding: 4px 2px; }
 
+  .guildbank { font-size: 11.5px; color: #a4916a; padding: 0 2px 6px; }
+  .guildbank .ok { color: #7fa066; }
+  .guildbank .err { color: var(--err); }
+
   .pager {
     display: flex; align-items: center; justify-content: center; gap: 12px;
     padding: 2px 2px 0; font-size: 11.5px; color: #a4916a;
@@ -199,6 +203,8 @@ module.exports.PAGE = String.raw`<!doctype html>
   <div class="summary" id="summary">&nbsp;</div>
 
   <div class="lists" id="lists"></div>
+
+  <div class="guildbank" id="guildbank" hidden></div>
 
   <div class="footer">
     <div id="f-status">–</div>
@@ -645,6 +651,24 @@ function render() {
   }
   if (!readyCount && !pending.length && !pastRest.length && !upcomingRest.length && lastRaids !== null) {
     lists.innerHTML = '<div class="empty-hint">Keine Raid-Termine der letzten Wochen gefunden.</div>';
+  }
+
+  // One line for the guild bank scan (GuildBank.lua in the addon): which
+  // guild, as of when, and whether the server has it. A failed upload shows
+  // here, not in the banner: until the server knows the endpoint, that is
+  // expected and retried on its own.
+  const gb = d.guildBank;
+  if (gb) {
+    const status = gb.uploaded
+      ? '<span class="ok">hochgeladen</span>'
+      : gb.lastError
+        ? '<span class="err" title="' + esc(gb.lastError.message).replace(/"/g, "&quot;") + '">Upload fehlgeschlagen, neuer Versuch folgt</span>'
+        : "wird hochgeladen";
+    $("guildbank").innerHTML = "Gildenbank " + esc(gb.guild) + " &middot; Stand " + esc(fmtTime(gb.scannedAt))
+      + " &middot; " + gb.tabs + " Tab(s), " + gb.items + " Stapel &middot; " + status;
+    $("guildbank").hidden = false;
+  } else {
+    $("guildbank").hidden = true;
   }
 
   $("f-status").textContent = d.file

@@ -137,7 +137,9 @@ function EHS:FlushAndReload()
     local envelope = self:Rebuild()
     local items = 0
     for _, session in ipairs(envelope.sessions) do items = items + #session.items end
-    if items == 0 then
+    -- A fresh guild bank scan alone is worth a reload too (GuildBank.lua).
+    local guildBank = self:GuildBankUnsaved()
+    if items == 0 and not guildBank then
         self:Print("Nichts zu speichern - es wurde kein Loot gefunden.")
         return false
     end
@@ -145,7 +147,11 @@ function EHS:FlushAndReload()
     -- Erst merken, dann neu laden: der Wert muss mit in die Datei, die der
     -- Reload gleich schreibt.
     self.db.lastFlushedAt = time()
-    self:Print(("Speichere %d Item(s) und lade die UI neu - das Sync-Tool holt sie gleich ab."):format(items))
+    if items == 0 then
+        self:Print("Speichere den Gildenbank-Scan und lade die UI neu.")
+    else
+        self:Print(("Speichere %d Item(s) und lade die UI neu - das Sync-Tool holt sie gleich ab."):format(items))
+    end
     ReloadUI()
     return true
 end
@@ -221,6 +227,12 @@ local function reportStatus()
             date("%d.%m.%Y %H:%M", session.startedAt),
             session.instance ~= "" and session.instance or "unbekannte Instanz",
             #session.items))
+    end
+
+    local guildBank = EHS.db.guildBank
+    if guildBank and guildBank.scannedAt then
+        EHS:Print(("Gildenbank: Stand %s, %d Tabs."):format(
+            date("%d.%m.%Y %H:%M", guildBank.scannedAt), #(guildBank.tabs or {})))
     end
 
     if EHS.db.lastError then

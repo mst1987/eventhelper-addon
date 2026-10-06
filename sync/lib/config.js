@@ -42,6 +42,10 @@ const DEFAULTS = {
     // welche Rolle die Daten geholt werden. "" = alle bzw. Caster und Heiler.
     councilCategory: "",
     councilRole: "",
+    // The scannedAt of the last guild bank scan the server accepted, per guild
+    // bank: { ["<project>|<realm>|<guild>"]: scannedAt }. A scan is uploaded
+    // once, not on every file change.
+    guildBankUploads: {},
 };
 
 function load() {

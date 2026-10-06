@@ -133,6 +133,7 @@ function createWebUI(runner, { onQuit } = {}) {
                     lastError: s.lastError,
                     uploading: s.uploading,
                     council: s.council || null,
+                    guildBank: s.guildBank || null,
                     log: s.log,
                     config: safeConfig(runner.config),
                     candidates: wowPaths.discover(runner.config.extraRoots)

@@ -75,16 +75,15 @@ jobs:
           npm test
           npm run lint
 
-      # Das Addon selbst, in einer Lua-VM gegen beide Clients (TBC Anniversary,
-      # WoW Forever) samt Latin-1-Prüfung. addon/test liegt neben dem
-      # Addon-Ordner und kommt deshalb nicht ins Zip.
-      - name: Lua-Abhängigkeiten installieren
-        working-directory: addon/test
-        run: npm ci
-
-      - name: Lua-Specs
-        working-directory: addon/test
-        run: npm test
+      # Die Lua-Specs des Addons (fengari, eigener Ordner addon-test/) — nicht
+      # Teil des Sync-Tools und nicht im Zip. Samt flavors/: das ganze Addon
+      # gegen beide Clients (TBC Anniversary, WoW Forever) mit Council-Daten
+      # aus dem echten Serializer (braucht das installierte sync/ oben).
+      - name: Lua-Specs des Addons
+        working-directory: addon-test
+        run: |
+          npm ci
+          npm test
 
       - name: Sync-Tool zur .exe bauen
         working-directory: sync

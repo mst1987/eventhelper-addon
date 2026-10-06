@@ -16,7 +16,7 @@ noch fehlen. Daraus macht diese Datei:
   * die Texte und Farben, die Fenster und Tooltip anzeigen.
 
 Bewusst ohne Client-Aufrufe ausser date(): so laesst sie sich ausserhalb des
-Spiels testen (addon/test), und sie laeuft auf TBC Anniversary wie auf WoW
+Spiels testen (addon-test), und sie laeuft auf TBC Anniversary wie auf WoW
 Forever gleich.
 ]]
 

@@ -1,4 +1,9 @@
 "use strict";
+// Second suite of addon-test (`npm test` runs ../run.js, then this): the whole
+// addon preloaded per client flavour, with council data from the real
+// serializer. ../run.js instead lets each spec set up the client and call
+// loadAddon() itself (guild bank).
+//
 // Loads the WoW API mock, then the addon files in .toc order (with the
 // (addonName, namespace) varargs WoW passes), then runs every spec in spec/ -
 // once per client flavour (TBC Anniversary and WoW Forever), each in a fresh
@@ -16,7 +21,7 @@ const { checkLua, checkToc } = require("./latin1");
 const { buildCouncilFile } = require("../../sync/lib/council");
 
 const ADDON_NAME = "EventHelperSync";
-const ADDON_DIR = path.join(__dirname, "..", ADDON_NAME);
+const ADDON_DIR = path.join(__dirname, "..", "..", "addon", ADDON_NAME);
 const FLAVORS = ["anniversary", "forever"];
 
 function tocText() {

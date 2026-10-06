@@ -155,6 +155,53 @@ async function uploadOneSession(config, file, sessionId) {
     return { results: (answer && answer.results) || [] };
 }
 
+// ---------------------------------------------------------------------------
+// Guild bank ("eventhelper-guildbank" v1, written by GuildBank.lua)
+// ---------------------------------------------------------------------------
+
+const GUILD_BANK_FORMAT = "eventhelper-guildbank";
+
+/** A Lua list as an array, even if WoW wrote it with explicit [n] keys. */
+function asList(value) {
+    if (Array.isArray(value)) return value;
+    if (!value || typeof value !== "object") return [];
+    return Object.keys(value).filter((k) => /^\d+$/.test(k)).sort((a, b) => a - b).map((k) => value[k]);
+}
+
+/**
+ * The latest guild bank scan from a SavedVariables file
+ * (EventHelperSyncDB.guildBank), with tabs and items as arrays.
+ * @returns {object|null} null if there is no (valid) scan
+ */
+function readGuildBank(file) {
+    const text = fs.readFileSync(file, "utf8");
+    const db = parseSavedVariables(text).EventHelperSyncDB;
+    if (!db || typeof db !== "object") return null;
+    const scan = db.guildBank;
+    if (!scan || typeof scan !== "object" || scan.format !== GUILD_BANK_FORMAT) return null;
+    if (!Number(scan.scannedAt)) return null;
+    return {
+        ...scan,
+        tabs: asList(scan.tabs).map((tab) => ({ ...tab, items: asList(tab && tab.items) })),
+    };
+}
+
+/**
+ * Which guild bank a scan belongs to: client project + realm + guild. The
+ * last uploaded scannedAt is remembered per key, so a second account or a
+ * second guild does not hide a newer scan of the first one.
+ */
+function guildBankKey(scan) {
+    const client = scan.client || {};
+    const guild = scan.guild || {};
+    return [client.project || "", guild.realm || "", guild.name || ""].join("|");
+}
+
+/** Upload one scan exactly as the addon wrote it. */
+async function postGuildBank(config, scan) {
+    return postJson(config, "/api/ingest/guildbank", scan);
+}
+
 /** Eine Ergebniszeile des Servers als Satz für die Konsole. */
 function describeResult(r) {
     switch (r.status) {
@@ -177,4 +224,5 @@ function describeResult(r) {
 module.exports = {
     readEnvelope, uploadFile, uploadOneSession, postSession, fetchRaidStatus, envelopeForSession,
     describeResult, getJson, UploadError, SYNC_VERSION,
+    readGuildBank, guildBankKey, postGuildBank, GUILD_BANK_FORMAT,
 };

@@ -41,7 +41,7 @@ local rows = {}
 for _, child in ipairs(WoWMock.frames) do
     if child.__parent == win.mailList and child.__kind == "Button" then rows[#rows + 1] = child end
 end
-expectEqual(#rows, 7, "7 mail rows")
+expectEqual(#rows, 6, "6 mail rows")
 
 local anna, naph, raider = rows[1], rows[2], rows[3]
 expectEqual(anna.name:GetText(), "|cff999999Anna|r", "no character: grey")
@@ -63,7 +63,7 @@ expect(win.thumb:IsShown(), "15 recipients scroll")
 
 -- scroll to Zibbo (the last of 15, one row per notch)
 for _ = 1, 10 do WoWMock.Run(win.mailList, "OnMouseWheel", -1) end
-local zibbo = rows[7]
+local zibbo = rows[6]
 expectEqual(zibbo.group.recipient, "Zibbo", "Zibbo at the end")
 expectEqual(zibbo.lines[1].text:GetText(), "|cff0070de2x Bold Living Ruby|r", "ruby in quality colour")
 expectEqual(plain(zibbo.lines[2].text:GetText()), "1x Flask of Supreme Power", "second line")

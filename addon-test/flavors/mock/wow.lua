@@ -28,6 +28,8 @@ WoWMock = {
 local FOREVER = WoWMock.flavor == "forever"
 
 unpack = unpack or table.unpack
+-- Lua 5.1 (the game) has math.atan2, fengari (5.3) only the two-argument math.atan
+math.atan2 = math.atan2 or function(y, x) return math.atan(y, x) end
 
 -- Events both clients know. Forever throws on anything else; Anniversary
 -- accepts it silently. COMBAT_LOG_EVENT_UNFILTERED is forbidden on Forever.
@@ -52,9 +54,9 @@ end
 -- Widget methods that only have to exist.
 local NOOP = {}
 for _, name in ipairs({
-    "SetSize", "SetAllPoints", "SetFrameStrata", "SetFrameLevel", "RegisterForClicks", "RegisterForDrag",
+    "SetAllPoints", "SetFrameStrata", "SetFrameLevel", "RegisterForClicks", "RegisterForDrag",
     "SetMovable", "EnableMouse", "EnableMouseWheel", "SetClampedToScreen", "StartMoving", "StopMovingOrSizing",
-    "SetTexture", "SetTexCoord", "SetVertexColor", "SetColorTexture", "SetJustifyH", "SetJustifyV",
+    "SetTexCoord", "SetVertexColor", "SetColorTexture", "SetJustifyH", "SetJustifyV",
     "SetWordWrap", "SetFontObject", "SetMultiLine", "SetAutoFocus", "SetNumeric", "SetMaxLetters",
     "ClearFocus", "SetFocus", "HighlightText", "SetScrollChild", "SetHighlightTexture", "SetEnabled",
     "Enable", "Disable", "SetScale", "UnregisterEvent",
@@ -115,6 +117,8 @@ function Widget:GetText() return self.__text end
 function Widget:SetTextColor(r, g, b) self.__color = { r, g, b } end
 function Widget:SetAlpha(a) self.__alpha = a end
 function Widget:SetWidth(w) self.__width = w end
+function Widget:SetSize(w, h) self.__width, self.__height = w, h end
+function Widget:SetTexture(texture) self.__texture = texture end
 function Widget:SetHeight(h) self.__height = h end
 function Widget:GetWidth() return self.__width end
 function Widget:GetHeight() return self.__height end
@@ -263,7 +267,7 @@ function UnitName() return "Gemli" end
 function GetRealmName() return "Thunderstrike" end
 function UnitFactionGroup() return "Alliance" end
 function GetInstanceInfo() return "", "none" end
-function GetCursorPosition() return 0, 0 end
+function GetCursorPosition() return WoWMock.cursorX or 0, WoWMock.cursorY or 0 end
 function ReloadUI() WoWMock.reloaded = true end
 
 C_Timer = {}
@@ -381,7 +385,9 @@ local function pickup(bag, slot)
         if item then WoWMock.cursor = { id = item.id, count = item.count, bag = bag, slot = slot } end
     elseif not item then
         WoWMock.bags[bag].slots[slot] = { id = cursor.id, count = cursor.count }
-        if cursor.split then
+        if cursor.bankTab then
+            WoWMock.BankTook(cursor.bankTab, cursor.bankSlot, cursor.count)
+        elseif cursor.split then
             bagSlot(cursor.bag, cursor.slot).count = bagSlot(cursor.bag, cursor.slot).count - cursor.count
         else
             WoWMock.bags[cursor.bag].slots[cursor.slot] = nil
@@ -430,6 +436,99 @@ end
 
 function CursorHasItem() return WoWMock.cursor ~= nil end
 function ClearCursor() WoWMock.cursor = nil end
+
+-- The guild bank (immediate) ------------------------------------------------------------------
+-- WoWMock.bank.tabs[i] = { name, remaining (-1 = unlimited), slots = { [slot] = { id, count } } };
+-- WoWMock.bankBlock = true makes the withdraw calls raise. Calls are listed in
+-- WoWMock.bank.calls. The bag frames of the guild bank: Anniversary has
+-- GuildBankColumnXButtonY, Forever GuildBankFrame.Columns[x].Buttons[y].
+
+WoWMock.bank = { tabs = {}, current = 1, calls = {}, queries = {} }
+
+local function bankItem(tab, slot)
+    local t = WoWMock.bank.tabs[tab]
+    return t and t.slots[slot] or nil
+end
+
+local function bankGuard(fname)
+    table.insert(WoWMock.bank.calls, fname)
+    if WoWMock.bankBlock then error("Interface action failed because of an AddOn: " .. fname) end
+end
+
+function WoWMock.BankTook(tab, slot, count)
+    local t = WoWMock.bank.tabs[tab]
+    local item = t.slots[slot]
+    item.count = item.count - count
+    if item.count <= 0 then t.slots[slot] = nil end
+    if t.remaining and t.remaining > 0 then t.remaining = t.remaining - 1 end
+end
+
+function GetNumGuildBankTabs() return #WoWMock.bank.tabs end
+function GetGuildBankTabInfo(tab)
+    local t = WoWMock.bank.tabs[tab]
+    if not t then return nil end
+    local remaining = t.remaining or -1
+    -- name, icon, isViewable, canDeposit, numWithdrawals, remainingWithdrawals
+    return t.name, 133784, true, true, remaining < 0 and -1 or 10, remaining
+end
+function GetGuildBankItemLink(tab, slot)
+    local item = bankItem(tab, slot)
+    return item and mailItemLink(item.id) or nil
+end
+function GetGuildBankItemInfo(tab, slot)
+    local item = bankItem(tab, slot)
+    if not item then return nil, 0, false end
+    return 134400, item.count, false, false, 1
+end
+function GetGuildBankMoney() return 0 end
+function GetCurrentGuildBankTab() return WoWMock.bank.current end
+function QueryGuildBankTab(tab)
+    table.insert(WoWMock.bank.queries, tab)
+    WoWMock.Fire("GUILDBANKBAGSLOTS_CHANGED")
+end
+function AutoStoreGuildBankItem(tab, slot)
+    bankGuard("AutoStoreGuildBankItem")
+    local item = bankItem(tab, slot)
+    if not item or WoWMock.bank.tabs[tab].remaining == 0 then return end
+    for bag = 0, 4 do
+        local b = WoWMock.bags[bag]
+        for s = 1, b and b.size or 0 do
+            if not b.slots[s] then
+                b.slots[s] = { id = item.id, count = item.count }
+                WoWMock.BankTook(tab, slot, item.count)
+                return
+            end
+        end
+    end
+end
+function SplitGuildBankItem(tab, slot, count)
+    bankGuard("SplitGuildBankItem")
+    local item = bankItem(tab, slot)
+    if item and not WoWMock.cursor and count < item.count and WoWMock.bank.tabs[tab].remaining ~= 0 then
+        WoWMock.cursor = { id = item.id, count = count, bankTab = tab, bankSlot = slot, split = true }
+    end
+end
+
+WoWMock.bankButtons = {}
+if FOREVER then
+    GuildBankFrame = newWidget("Frame", "GuildBankFrame")
+    GuildBankFrame.Columns = {}
+    for column = 1, 7 do
+        GuildBankFrame.Columns[column] = { Buttons = {} }
+        for index = 1, 14 do
+            local button = newWidget("Button", nil, GuildBankFrame)
+            GuildBankFrame.Columns[column].Buttons[index] = button
+            WoWMock.bankButtons[(column - 1) * 14 + index] = button
+        end
+    end
+else
+    for column = 1, 7 do
+        for index = 1, 14 do
+            WoWMock.bankButtons[(column - 1) * 14 + index] =
+                newWidget("Button", "GuildBankColumn" .. column .. "Button" .. index)
+        end
+    end
+end
 
 function ClickSendMailItemButton(index, clear)
     guard("ClickSendMailItemButton")

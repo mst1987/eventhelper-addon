@@ -21,9 +21,14 @@ local button
 -- Randes, dort, wo auch alle anderen Addon-Knöpfe sitzen.
 local RADIUS = 80
 
-local function positionAt(angle)
+local function placeAt(target, angle)
     local rad = math.rad(angle)
-    button:SetPoint("CENTER", Minimap, "CENTER", RADIUS * math.cos(rad), RADIUS * math.sin(rad))
+    target:ClearAllPoints()
+    target:SetPoint("CENTER", Minimap, "CENTER", RADIUS * math.cos(rad), RADIUS * math.sin(rad))
+end
+
+local function positionAt(angle)
+    placeAt(button, angle)
 end
 
 --- Winkel zwischen Minimap-Mittelpunkt und Mauszeiger.
@@ -162,4 +167,136 @@ end
 function EHS:StartMinimap()
     if not button then build() end
     self:RefreshMinimap()
+    -- The guild bank button is an extra: should it break on a client, the
+    -- main button must still be there.
+    local ok, err = pcall(self.StartBankMinimap, self)
+    if not ok then self:Debug("Gildenbank-Knopf:", tostring(err)) end
+end
+
+-- ---------------------------------------------------------------------------
+-- The second button: the guild bank handouts (GuildBankUI.lua)
+-- ---------------------------------------------------------------------------
+--
+-- Built like the one above, with its own angle (bankMinimapAngle) and its own
+-- switch (settings.showBankMinimap, /ehs bankbutton). A chest from the
+-- original game, which TBC Anniversary and WoW Forever both have. Gold ring
+-- and a small number when handouts are open.
+
+local bankButton
+local BANK_ICON = "Interface\\Icons\\INV_Box_02"
+
+local function bankTooltip(self)
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    GameTooltip:AddLine("Gildenbank-Ausgabe")
+    local Handouts = EHS.Handouts
+    local data, status = Handouts.Load()
+    if data then
+        local ok, open, done = pcall(EHS.HandoutCounts, EHS)
+        if ok then
+            GameTooltip:AddLine(("%d Posten offen"):format(open), 1, 1, 1)
+            if done > 0 then
+                GameTooltip:AddLine(("%d abgehakt, wird beim nächsten Sync gemeldet"):format(done), 0.6, 0.6, 0.6)
+            end
+        end
+        GameTooltip:AddLine(EHS.Council.Header(data, time()), 0.6, 0.6, 0.6)
+    else
+        GameTooltip:AddLine(Handouts.EMPTY_TEXT[status] or Handouts.EMPTY_TEXT.none, 0.6, 0.6, 0.6, true)
+    end
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("Linksklick: Fenster öffnen/schliessen", 1, 1, 1)
+    GameTooltip:AddLine("Rechtsklick: EventHelper-Fenster und Einstellungen", 1, 1, 1)
+    GameTooltip:AddLine("Ziehen: um die Minimap bewegen", .6, .6, .6)
+    GameTooltip:Show()
+end
+
+local function buildBank()
+    bankButton = CreateFrame("Button", "EventHelperSyncBankMinimapButton", Minimap)
+    bankButton:SetSize(31, 31)
+    bankButton:SetFrameStrata("MEDIUM")
+    bankButton:SetFrameLevel(8)
+    bankButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    bankButton:RegisterForDrag("LeftButton")
+    bankButton:SetMovable(true)
+
+    local icon = bankButton:CreateTexture(nil, "BACKGROUND")
+    icon:SetTexture(BANK_ICON)
+    icon:SetSize(20, 20)
+    icon:SetPoint("CENTER", 0, 1)
+    icon:SetTexCoord(.07, .93, .07, .93)
+    bankButton.icon = icon
+
+    local border = bankButton:CreateTexture(nil, "OVERLAY")
+    border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+    border:SetSize(53, 53)
+    border:SetPoint("TOPLEFT")
+    bankButton.border = border
+
+    local glow = bankButton:CreateTexture(nil, "OVERLAY")
+    glow:SetTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+    glow:SetSize(31, 31)
+    glow:SetPoint("CENTER", 0, 1)
+    glow:SetVertexColor(1, .82, 0)
+    glow:Hide()
+    bankButton.glow = glow
+
+    -- How many are open, small at the lower right of the icon. An outlined
+    -- number font where the client has one, else the plain small font.
+    local ok, count = pcall(bankButton.CreateFontString, bankButton, nil, "OVERLAY", "NumberFontNormalSmall")
+    if not ok or not count then count = bankButton:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall") end
+    count:SetPoint("BOTTOMRIGHT", -5, 6)
+    count:SetJustifyH("RIGHT")
+    count:Hide()
+    bankButton.count = count
+
+    bankButton:SetScript("OnDragStart", function(self)
+        self.dragging = true
+        self:SetScript("OnUpdate", function()
+            local angle = angleToCursor()
+            EHS.db.bankMinimapAngle = angle
+            placeAt(self, angle)
+        end)
+    end)
+    bankButton:SetScript("OnDragStop", function(self)
+        self.dragging = false
+        self:SetScript("OnUpdate", nil)
+    end)
+
+    bankButton:SetScript("OnClick", function(_, mouseButton)
+        if mouseButton == "RightButton" then
+            EHS:ToggleOptions()
+        else
+            EHS:ToggleGuildBankUI()
+        end
+    end)
+    bankButton:SetScript("OnEnter", bankTooltip)
+    bankButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- next to the main button (200 degrees), not on top of it
+    placeAt(bankButton, EHS.db.bankMinimapAngle or 235)
+end
+
+--- Visibility, gold ring and number of the guild bank button.
+function EHS:RefreshBankMinimap()
+    if not bankButton then return end
+    if self.db.settings.showBankMinimap == false then
+        bankButton:Hide()
+        return
+    end
+    bankButton:Show()
+    local ok, open = pcall(self.HandoutCounts, self)
+    open = ok and tonumber(open) or 0
+    if open > 0 then
+        bankButton.glow:Show()
+        bankButton.count:SetText(open > 99 and "99+" or tostring(open))
+        bankButton.count:Show()
+    else
+        bankButton.glow:Hide()
+        bankButton.count:SetText("")
+        bankButton.count:Hide()
+    end
+end
+
+function EHS:StartBankMinimap()
+    if not bankButton then buildBank() end
+    self:RefreshBankMinimap()
 end

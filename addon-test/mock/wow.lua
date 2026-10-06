@@ -194,7 +194,9 @@ function GetGuildBankTabInfo(tab)
     local t = bankTab(tab)
     if not t then return nil end
     -- name, icon, isViewable, canDeposit, numWithdrawals, remainingWithdrawals
-    return t.name, 133784, t.viewable ~= false, true, 0, 0
+    -- (t.remaining: withdrawals left today, -1 = unlimited, the default)
+    local remaining = t.remaining or -1
+    return t.name, 133784, t.viewable ~= false, true, remaining < 0 and -1 or 10, remaining
 end
 function GetGuildBankMoney() return WoWMock.guildBank.money end
 
@@ -229,8 +231,10 @@ function GetGuildBankItemInfo(tab, slot)
     local item = bankSlot(tab, slot)
     if not item then return nil, 0, false end
     -- texture, itemCount, locked, isFiltered, quality
-    return 134400, item.count or 1, false, false, 2
+    return 134400, item.count or 1, item.locked and true or false, false, 2
 end
+
+function GetCurrentGuildBankTab() return WoWMock.guildBank.current or 1 end
 
 --- Open the guild bank the way the given client family does.
 function WoWMock.openGuildBank(path)
@@ -323,6 +327,17 @@ local function pickup(bag, slot)
     if blocked("PickupContainerItem") then return end
     local item = bagSlot(bag, slot)
     local cursor = WoWMock.cursor
+    if cursor and cursor.bankTab then
+        -- a split guild bank stack into an empty bag slot
+        local b = WoWMock.bags[bag]
+        if item or not b or slot > b.size then return end
+        local placed = { id = cursor.id, count = cursor.count, locked = true }
+        b.slots[slot] = placed
+        WoWMock.cursor = nil
+        WoWMock.guildBankTook(cursor.bankTab, cursor.bankSlot, cursor.count)
+        unlockLater(placed)
+        return
+    end
     if not cursor then
         if item and not item.locked then
             item.locked = true
@@ -417,9 +432,91 @@ function CursorHasItem() return WoWMock.cursor ~= nil end
 function ClearCursor()
     local cursor = WoWMock.cursor
     if not cursor then return end
-    local source = bagSlot(cursor.bag, cursor.slot)
+    local source
+    if cursor.bankTab then
+        source = bankTab(cursor.bankTab) and bankTab(cursor.bankTab).slots[cursor.bankSlot]
+    else
+        source = bagSlot(cursor.bag, cursor.slot)
+    end
     if source then source.locked = false end
     WoWMock.cursor = nil
+end
+
+-- Taking out of the guild bank ---------------------------------------------------------------
+--
+-- AutoStoreGuildBankItem moves a whole stack into the first free bag slot
+-- after `guildBank.withdrawAfter` seconds (0 = at once; the stack is locked
+-- meanwhile). SplitGuildBankItem puts a part on the cursor, PickupContainerItem
+-- on an empty bag slot puts it down. Each withdrawal counts against the tab's
+-- `remaining` (-1 = unlimited). `guildBank.block` works like `mail.block`;
+-- the calls are listed in `guildBank.calls`.
+
+local function bankBlocked(fname)
+    local gb = WoWMock.guildBank
+    gb.calls = gb.calls or {}
+    gb.calls[#gb.calls + 1] = fname
+    local mode = gb.block
+    if mode == "error" then error("Interface action failed because of an AddOn") end
+    if mode == "event" then
+        WoWMock.fire("ADDON_ACTION_BLOCKED", "EventHelperSync", fname)
+        return true
+    end
+    return mode == "silent"
+end
+
+--- `count` of the stack in tab/slot went to the bags.
+function WoWMock.guildBankTook(tab, slot, count)
+    local t = bankTab(tab)
+    local item = t and t.slots[slot]
+    if not item then return end
+    item.count = (item.count or 1) - count
+    item.locked = false
+    if item.count <= 0 then t.slots[slot] = nil end
+    if t.remaining and t.remaining > 0 then t.remaining = t.remaining - 1 end
+    WoWMock.fire("GUILDBANKBAGSLOTS_CHANGED")
+end
+
+local function firstFreeBagSlot()
+    for bag = 0, NUM_BAG_SLOTS do
+        local b = WoWMock.bags[bag]
+        if b and (b.family or 0) == 0 then
+            for slot = 1, b.size do
+                if not b.slots[slot] then return bag, slot end
+            end
+        end
+    end
+    return nil
+end
+
+function AutoStoreGuildBankItem(tab, slot)
+    if bankBlocked("AutoStoreGuildBankItem") then return end
+    local t = bankTab(tab)
+    local item = bankSlot(tab, slot)
+    if not item or item.locked or t.remaining == 0 then return end
+    item.locked = true
+    local function move()
+        local bag, bagSlotIndex = firstFreeBagSlot()
+        if not bag then
+            item.locked = false
+            return
+        end
+        local placed = { id = item.id, count = item.count or 1, locked = true }
+        WoWMock.bags[bag].slots[bagSlotIndex] = placed
+        WoWMock.guildBankTook(tab, slot, item.count or 1)
+        unlockLater(placed)
+        WoWMock.fire("BAG_UPDATE_DELAYED")
+    end
+    local delay = WoWMock.guildBank.withdrawAfter
+    if delay and delay > 0 then schedule(delay, move) else move() end
+end
+
+function SplitGuildBankItem(tab, slot, count)
+    if bankBlocked("SplitGuildBankItem") then return end
+    local t = bankTab(tab)
+    local item = bankSlot(tab, slot)
+    if WoWMock.cursor or not item or item.locked or count >= (item.count or 1) or t.remaining == 0 then return end
+    item.locked = true
+    WoWMock.cursor = { id = item.id, count = count, bankTab = tab, bankSlot = slot, split = true }
 end
 
 function ClickSendMailItemButton(index, clear)

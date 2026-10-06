@@ -265,6 +265,26 @@ function EHS:IsGuildBankScanning()
     return bank.scanning
 end
 
+--- Read one tab again into the stored scan of this visit, after the addon
+-- took something out of it (GuildBankWithdraw.lua): the live counts of the
+-- handout window stay true, and the sync tool uploads the new stock.
+-- Nothing happens without a scan of this visit or while a scan runs.
+-- @return boolean whether the scan was updated
+function EHS:RereadGuildBankTab(index)
+    local scan = self.db and self.db.guildBank
+    if not bank.open or bank.scanning or type(scan) ~= "table" or type(scan.tabs) ~= "table" then return false end
+    if (tonumber(scan.scannedAt) or 0) < bank.openedAt then return false end
+    for _, tab in ipairs(scan.tabs) do
+        if tab.index == index then
+            tab.items = readTab(index)
+            scan.scannedAt = time()
+            scan.generatedAt = scan.scannedAt
+            return true
+        end
+    end
+    return false
+end
+
 --- Whether the last scan is newer than the last write of the SavedVariables.
 function EHS:GuildBankUnsaved()
     local scan = self.db and self.db.guildBank

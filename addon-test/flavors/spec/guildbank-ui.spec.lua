@@ -36,7 +36,7 @@ local rows = {}
 for _, child in ipairs(WoWMock.frames) do
     if child.__parent == win.list and child.__kind == "Button" then rows[#rows + 1] = child end
 end
-expectEqual(#rows, 14, "14 rows built")
+expectEqual(#rows, 12, "12 rows built")
 for _, row in ipairs(rows) do expect(not row:IsShown(), "no rows without data") end
 local special = false
 for _, name in ipairs(UISpecialFrames) do if name == "EventHelperSyncGuildBankFrame" then special = true end end
@@ -75,7 +75,7 @@ expectEqual(r2.name:GetText(), "|cff0070deNaphfß|r", "shaman colour")
 expectEqual(r2.count:GetText(), "|cffffd100nur 1!|r", "the potions run out")
 expectEqual(r3.name:GetText(), "|cff40c7ebRaider01|r", "mage colour")
 expectEqual(r3.count:GetText(), "50 da", "plenty")
-expectEqual(rows[14].entry.recipient, "Raider12", "14 rows visible")
+expectEqual(rows[12].entry.recipient, "Raider10", "12 rows visible")
 expect(win.thumb:IsShown(), "scroll position shown for 16 rows")
 expect(not r1.check.mark:IsShown(), "not ticked")
 expectEqual(r1.item.__alpha, 1, "full alpha")
@@ -96,19 +96,23 @@ expect(WoWMock.TooltipText(GameTooltip):find("Nur noch 1 in der Bank, 2 vorgemer
 WoWMock.Run(r2.check, "OnEnter")
 expect(WoWMock.TooltipText(GameTooltip):find("Naphfß - Thunderstrike", 1, true), "tooltip on the checkbox")
 
--- scrolling: Zibbo's two rows at the end, the name only once
+-- scrolling: three rows per notch, at most 4 (16 - 12); Zibbo's two rows at
+-- the end, the name only once
 WoWMock.Run(win.list, "OnMouseWheel", -1)
-expectEqual(rows[1].entry.recipient, "Raider01", "scrolled by 2 (16 - 14)")
+expectEqual(rows[1].entry.recipient, "Raider02", "scrolled by 3")
+WoWMock.Run(win.list, "OnMouseWheel", -1)
+expectEqual(rows[1].entry.recipient, "Raider03", "scrolled by 4 (16 - 12), not further")
 expect(rows[1].name:GetText() ~= "", "top row keeps the name")
-expectEqual(rows[13].entry.id, P .. "1", "Zibbo's ruby")
-expectEqual(plain(rows[13].name:GetText()), "Zibbo", "name on the first row of the group")
-expectEqual(rows[14].name:GetText(), "", "no name on the second row of the group")
-expectEqual(rows[13].tab:GetText(), "Tab 1/2", "two tabs")
-expectEqual(rows[13].item:GetText(), "|cff0070de2x Bold Living Ruby|r", "rare blue")
-expectEqual(rows[14].count:GetText(), "|cffffd100nur 0!|r", "not in the bank")
-expectEqual(rows[14].tab:GetText(), "-", "no tab")
-WoWMock.Run(rows[13], "OnEnter")
+expectEqual(rows[11].entry.id, P .. "1", "Zibbo's ruby")
+expectEqual(plain(rows[11].name:GetText()), "Zibbo", "name on the first row of the group")
+expectEqual(rows[12].name:GetText(), "", "no name on the second row of the group")
+expectEqual(rows[11].tab:GetText(), "Tab 1/2", "two tabs")
+expectEqual(rows[11].item:GetText(), "|cff0070de2x Bold Living Ruby|r", "rare blue")
+expectEqual(rows[12].count:GetText(), "|cffffd100nur 0!|r", "not in the bank")
+expectEqual(rows[12].tab:GetText(), "-", "no tab")
+WoWMock.Run(rows[11], "OnEnter")
 expect(WoWMock.TooltipText(GameTooltip):find('Zweck | Gruul - "Mag" ...', 1, true), "purpose made Latin-1 by the tool")
+WoWMock.Run(win.list, "OnMouseWheel", 1)
 WoWMock.Run(win.list, "OnMouseWheel", 1)
 expectEqual(rows[1].entry.id, P .. "3", "back at the top")
 

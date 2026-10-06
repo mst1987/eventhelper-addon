@@ -343,7 +343,38 @@ Eine Zeile pro Posten, nach Empfänger gruppiert: Häkchen, Name in Klassenfarbe
 
 Abhaken legt den Posten unter `EventHelperSyncDB.guildBankDone` ab (`{ id, via = "manual", by = "Name-Realm", at }`), die Zeile wird gedimmt und durchgestrichen, „Offen" blendet sie aus. Haken wieder weg nimmt es zurück, solange es noch nicht gemeldet ist. `/ehs upload` speichert auch, wenn nur abgehakt wurde. Der Tooltip einer Zeile zeigt Zweck, wer angefragt und wer bestätigt hat, den Bestand je Tab und „Abhaken, wenn rausgegeben." bzw. den Hinweis auf die Fehlmenge.
 
-Für die Ausgabe per Post (#18) gibt es dieselbe Logik als API in `GuildBankHandouts.lua`: `EHS:GetHandouts()` (offene Posten dieses Charakters, nach Empfänger gruppiert), `EHS:MarkHandedOut(ids, via, by)`, `EHS:UnmarkHandedOut(ids)`, `EHS:IsHandedOut(id)`, `EHS:HandoutCounts()`, und `EHS:OnGuildBankEvent(fn)` in `GuildBank.lua` meldet „open", „close" und „scan".
+Dieselbe Logik gibt es als API in `GuildBankHandouts.lua`: `EHS:GetHandouts()` (offene Posten dieses Charakters, nach Empfänger gruppiert), `EHS:MarkHandedOut(ids, via, by)`, `EHS:UnmarkHandedOut(ids)`, `EHS:IsHandedOut(id)`, `EHS:HandoutCounts()`, und `EHS:OnGuildBankEvent(fn)` in `GuildBank.lua` meldet „open", „close" und „scan".
+
+### Ausgabe per Post (am Briefkasten)
+
+Am Briefkasten wechselt das Fenster in den **Post-Modus** (und öffnet sich von selbst, wenn etwas offen ist — dieselbe Einstellung wie bei der Bank; es schliesst sich dann auch mit dem Briefkasten):
+
+```
+ ┌ Gildenbank-Ausgabe ──────────────────────────────────────────────────────────── [x] ┐
+ │ Stand: 06.10. 19:10, vor 5 Min.                                                     │
+ │ 4 Spieler offen - Gesendetes wird automatisch abgehakt            Briefkasten offen │
+ │ ─────────────────────────────────────────────────────────────────────────────────── │
+ │▌Thrall    [#] 2x Bold Living Ruby          in der Post               [Vorbereitet]  │
+ │▌          [#] 3x Super Mana Potion                                                  │
+ │ Jaina     [#] 5x Flask of Supreme Power    in den Taschen            [   Post    ]  │
+ │ Uther     [#] 2x Smooth Dawnstone          fehlt 1 in den Taschen                   │
+ │ Anna      [?] 1x Super Healing Potion      kein Charakter                           │
+ └─────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Eine Zeile **je Spieler** mit bis zu drei Posten (sonst zwei und „+N weitere"), daneben, ob alles **in den Taschen** ist oder in Gelb **„fehlt N in den Taschen"** (Posten desselben Gegenstands teilen sich den Taschenbestand der Reihe nach). Ohne hinterlegten Charakter („kein Charakter") und bei der anderen Fraktion („andere Fraktion") gibt es keinen Knopf, ebenso wenn etwas fehlt. Der Tooltip zeigt die Posten mit Zweck und das **Porto** (30 Kupfer je Anhang, zahlt der Absender).
+
+**„Post"** (nur ausserhalb des Kampfes):
+
+1. wechselt auf „Nachricht senden" und füllt **Empfänger** (`Name`, auf einem anderen Realm `Name-Realm`), **Betreff** „Gildenbank: N Posten" und **Text** (ein Posten je Zeile mit Zweck, nur Latin-1),
+2. hängt genau die vorgemerkten Mengen an, Schritt für Schritt mit kurzen Pausen: ein passender Stapel wird ganz genommen, von einem grösseren wird erst die Menge in einen freien Taschenplatz abgeteilt (`SplitContainerItem`) und dann angehängt (`ClickSendMailItemButton`); jeder Schritt wartet, bis der Anhang wirklich da ist,
+3. höchstens **12 Anhänge** pro Brief — passt nicht alles hinein, bleibt der Rest offen und die Zeile bietet nach dem Senden wieder „Post" an.
+
+Danach steht in der Zeile in Gold **„in der Post"** / **„Vorbereitet"**. Das Addon ruft **nie** selbst `SendMail` auf — **Senden klickt der Spieler**. Ein Hook auf `SendMail` (`hooksecurefunc`, ohne Taint) merkt sich Empfänger und Anhänge des abgehenden Briefs; bei `MAIL_SEND_SUCCESS` werden genau die vorbereiteten Posten abgehakt, deren Gegenstände wirklich drin waren (`via = "mail"`), und der Chat meldet „Post an Thrall gesendet: 2 Posten abgehakt.". Bei `MAIL_FAILED` oder wenn der Empfänger vorher geändert wurde, wird nichts abgehakt.
+
+**Wenn der Client das Anhängen sperrt** (offen bei WoW Forever): Wirft ein Aufruf einen Fehler, bleibt der Cursor leer oder meldet der Client `ADDON_ACTION_BLOCKED`/`ADDON_ACTION_FORBIDDEN` für dieses Addon, hört es auf. Empfänger, Betreff und Text bleiben ausgefüllt, der Chat nennt die Plätze („Tasche 1 Platz 4: 2x Bold Living Ruby (von 5, Shift-Klick teilt den Stapel)") und in den offenen Taschen sind sie gold umrandet — hineinziehen, Senden, abgehakt wird trotzdem. Das merkt sich das Addon für die Sitzung und geht beim nächsten Brief gleich so vor.
+
+Nicht enthalten: der Knopf „Aus der Bank nehmen" an der Gildenbank (optional in #18) — die Gegenstände holt man wie bisher selbst in die Taschen.
 
 ---
 
@@ -583,7 +614,8 @@ Zurück geht `POST { "done": [{ "id", "via": "manual" | "mail", "by": "Name-Real
 | `CouncilUI.lua` | Loot-Council-Fenster, Item-Tooltip, `/ehc` |
 | `GuildBankData.lua` | Platzhalter; das Sync-Tool überschreibt ihn mit der Gildenbank-Ausgabeliste |
 | `GuildBankHandouts.lua` | Ausgabe-Logik ohne Fenster: Daten prüfen, Banken dieses Charakters, Bestand und Fehlmenge, Abhaken (`guildBankDone`), API für die Post-Ausgabe |
-| `GuildBankUI.lua` | Fenster „Gildenbank-Ausgabe", `/ehs bank`, `/ehb`, öffnet sich mit der Gildenbank |
+| `GuildBankMail.lua` | Ausgabe per Post: Briefkasten erkennen, Taschen zählen, Brief ausfüllen und Anhänge planen/anhängen, Fallback bei gesperrtem Anhängen, Abhaken bei `MAIL_SEND_SUCCESS` |
+| `GuildBankUI.lua` | Fenster „Gildenbank-Ausgabe", `/ehs bank`, `/ehb`, öffnet sich mit der Gildenbank und am Briefkasten (Post-Modus) |
 
 Und im Sync-Tool:
 

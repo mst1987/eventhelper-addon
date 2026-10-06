@@ -328,6 +328,227 @@ else
     end
 end
 
+-- Bags, cursor and mail ---------------------------------------------------------------------
+-- Immediate (no locks, no delays; ../mock/wow.lua has the slow client).
+-- Anniversary: the old bag globals and SendMailBodyEditBox; Forever:
+-- C_Container only and the scrolling MailEditBox. WoWMock.mailBlock = true
+-- makes the item calls raise, as a client that forbids them.
+
+for _, event in ipairs({ "MAIL_SHOW", "MAIL_CLOSED", "MAIL_SEND_SUCCESS", "MAIL_FAILED", "MAIL_SEND_INFO_UPDATE",
+    "BAG_UPDATE_DELAYED", "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN" }) do
+    KNOWN_EVENTS[event] = true
+end
+Enum.PlayerInteractionType = Enum.PlayerInteractionType or {}
+Enum.PlayerInteractionType.MailInfo = 17
+ATTACHMENTS_MAX_SEND = 12
+NUM_BAG_SLOTS = 4
+
+function Widget:SetID(id) self.__id = id end
+function Widget:GetID() return self.__id or 0 end
+function Widget:GetInputText() return self.__text end
+
+WoWMock.bags = {}
+WoWMock.cursor = nil
+WoWMock.attachments = {}
+WoWMock.sendCalls = {}
+WoWMock.addonSendCalls = 0
+
+local function bagSlot(bag, slot)
+    local b = WoWMock.bags[bag]
+    return b and b.slots[slot] or nil
+end
+
+local function mailItemLink(id)
+    return ("|cffffffff|Hitem:%d|h[Item %d]|h|r"):format(id, id)
+end
+
+local function guard(fname)
+    if WoWMock.mailBlock then error("Interface action failed because of an AddOn: " .. fname) end
+end
+
+local function numSlots(bag) return WoWMock.bags[bag] and WoWMock.bags[bag].size or 0 end
+local function numFree(bag)
+    local b = WoWMock.bags[bag]
+    if not b then return 0, 0 end
+    local free = 0
+    for slot = 1, b.size do if not b.slots[slot] then free = free + 1 end end
+    return free, 0
+end
+local function pickup(bag, slot)
+    guard("PickupContainerItem")
+    local item, cursor = bagSlot(bag, slot), WoWMock.cursor
+    if not cursor then
+        if item then WoWMock.cursor = { id = item.id, count = item.count, bag = bag, slot = slot } end
+    elseif not item then
+        WoWMock.bags[bag].slots[slot] = { id = cursor.id, count = cursor.count }
+        if cursor.split then
+            bagSlot(cursor.bag, cursor.slot).count = bagSlot(cursor.bag, cursor.slot).count - cursor.count
+        else
+            WoWMock.bags[cursor.bag].slots[cursor.slot] = nil
+        end
+        WoWMock.cursor = nil
+    end
+end
+local function split(bag, slot, count)
+    guard("SplitContainerItem")
+    local item = bagSlot(bag, slot)
+    if item and not WoWMock.cursor and count < item.count then
+        WoWMock.cursor = { id = item.id, count = count, bag = bag, slot = slot, split = true }
+    end
+end
+
+if FOREVER then
+    C_Container = {
+        GetContainerNumSlots = numSlots, GetContainerNumFreeSlots = numFree,
+        PickupContainerItem = pickup, SplitContainerItem = split,
+        GetContainerItemInfo = function(bag, slot)
+            local item = bagSlot(bag, slot)
+            if not item then return nil end
+            return { stackCount = item.count, isLocked = false, itemID = item.id, hyperlink = mailItemLink(item.id), isBound = false }
+        end,
+    }
+else
+    GetContainerNumSlots, GetContainerNumFreeSlots = numSlots, numFree
+    PickupContainerItem, SplitContainerItem = pickup, split
+    function GetContainerItemInfo(bag, slot)
+        local item = bagSlot(bag, slot)
+        if not item then return nil end
+        return 134400, item.count, false, 1, false, false, mailItemLink(item.id), false, false, item.id
+    end
+end
+
+--- { [bag] = { [slot] = { id, count } } }, bags 0-4 with 16 slots each.
+function WoWMock.SetBags(content)
+    WoWMock.bags = {}
+    for bag = 0, 4 do
+        WoWMock.bags[bag] = { size = 16, slots = {} }
+        for slot, item in pairs(content[bag] or {}) do
+            WoWMock.bags[bag].slots[slot] = { id = item[1], count = item[2] }
+        end
+    end
+end
+
+function CursorHasItem() return WoWMock.cursor ~= nil end
+function ClearCursor() WoWMock.cursor = nil end
+
+function ClickSendMailItemButton(index, clear)
+    guard("ClickSendMailItemButton")
+    if clear then
+        WoWMock.attachments[index] = nil
+        return
+    end
+    local cursor = WoWMock.cursor
+    if not cursor then return end
+    WoWMock.cursor = nil
+    WoWMock.attachments[index] = { id = cursor.id, count = cursor.count, bag = cursor.bag, slot = cursor.slot }
+end
+function GetSendMailItem(index)
+    local a = WoWMock.attachments[index]
+    if not a then return nil end
+    return "Item " .. a.id, a.id, 134400, a.count, 1, true
+end
+function GetSendMailItemLink(index)
+    local a = WoWMock.attachments[index]
+    return a and mailItemLink(a.id) or nil
+end
+
+-- the send frame
+MailFrameTab2 = newWidget("Button", "MailFrameTab2")
+WoWMock.mailTab = 1
+function MailFrameTab_OnClick(_, tab) WoWMock.mailTab = tab end
+newWidget("EditBox", "SendMailNameEditBox")
+newWidget("EditBox", "SendMailSubjectEditBox")
+if FOREVER then newWidget("EditBox", "MailEditBox") else newWidget("EditBox", "SendMailBodyEditBox") end
+
+function SendMail(recipient, subject, body)
+    WoWMock.sendCalls[#WoWMock.sendCalls + 1] = { recipient = recipient, subject = subject, body = body }
+    if not WoWMock.playerClicking then WoWMock.addonSendCalls = WoWMock.addonSendCalls + 1 end
+end
+
+function hooksecurefunc(a, b, c)
+    local tbl, name, fn = _G, a, b
+    if type(a) == "table" then tbl, name, fn = a, b, c end
+    local original = tbl[name]
+    assert(type(original) == "function", "hooksecurefunc: no function " .. tostring(name))
+    tbl[name] = function(...)
+        local results = { original(...) }
+        fn(...)
+        return unpack(results)
+    end
+end
+
+--- The player clicks "Senden", then the server confirms.
+function WoWMock.SendAndConfirm()
+    WoWMock.playerClicking = true
+    local body = FOREVER and MailEditBox:GetInputText() or SendMailBodyEditBox:GetText()
+    SendMail(SendMailNameEditBox:GetText(), SendMailSubjectEditBox:GetText(), body)
+    WoWMock.playerClicking = false
+    for index, a in pairs(WoWMock.attachments) do
+        local item = bagSlot(a.bag, a.slot)
+        if item then WoWMock.bags[a.bag].slots[a.slot] = nil end
+        WoWMock.attachments[index] = nil
+    end
+    WoWMock.Fire("MAIL_SEND_SUCCESS")
+end
+
+function WoWMock.OpenMailbox()
+    if FOREVER then
+        WoWMock.Fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", Enum.PlayerInteractionType.MailInfo)
+    else
+        WoWMock.Fire("MAIL_SHOW")
+    end
+end
+function WoWMock.CloseMailbox()
+    if FOREVER then
+        WoWMock.Fire("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", Enum.PlayerInteractionType.MailInfo)
+    else
+        WoWMock.Fire("MAIL_CLOSED")
+    end
+end
+
+-- The bag frames: Anniversary has one frame per bag with named item buttons,
+-- Forever the combined bag with EnumerateValidItems.
+WoWMock.itemButtons = {}
+if FOREVER then
+    ContainerFrameCombinedBags = newWidget("Frame", "ContainerFrameCombinedBags")
+    ContainerFrameCombinedBags.__shown = false
+    for bag = 0, 4 do
+        for slot = 1, 16 do
+            local button = newWidget("Button", nil, ContainerFrameCombinedBags)
+            button:SetID(slot)
+            function button:GetBagID() return bag end
+            WoWMock.itemButtons[bag .. ":" .. slot] = button
+        end
+    end
+    function ContainerFrameCombinedBags:EnumerateValidItems()
+        local list = {}
+        for _, button in pairs(WoWMock.itemButtons) do list[#list + 1] = button end
+        local i = 0
+        return function()
+            i = i + 1
+            if list[i] then return i, list[i] end
+        end
+    end
+    function WoWMock.ShowBags(shown) ContainerFrameCombinedBags.__shown = shown end
+else
+    local frames = {}
+    for bag = 0, 4 do
+        local f = newWidget("Frame", "ContainerFrame" .. (bag + 1))
+        f:SetID(bag)
+        f.__shown = false
+        frames[#frames + 1] = f
+        for slot = 1, 16 do
+            -- the buttons run backwards, as in the game: Item1 is the last slot
+            local button = newWidget("Button", "ContainerFrame" .. (bag + 1) .. "Item" .. (17 - slot), f)
+            button:SetID(slot)
+            WoWMock.itemButtons[bag .. ":" .. slot] = button
+        end
+    end
+    function WoWMock.ShowBags(shown)
+        for _, f in ipairs(frames) do f.__shown = shown end
+    end
+end
+
 -- Assertions ----------------------------------------------------------------------------------
 
 __ASSERTIONS = 0

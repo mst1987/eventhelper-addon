@@ -14,6 +14,13 @@ Ticking stores the handout in EventHelperSyncDB.guildBankDone (see
 GuildBankHandouts.lua); the next sync reports it. Ticked rows are dimmed and
 struck through, "Offen" hides them.
 
+At the mailbox the window switches to the mail mode (#18, GuildBankMail.lua):
+one row per recipient with up to three item lines, whether the items are in
+the bags ("in den Taschen" / "fehlt 2 in den Taschen" in yellow) and the
+button "Post", which fills the send frame and attaches the items. A prepared
+mail shows "in der Post" and "Vorbereitet" in gold; what is sent is ticked
+off by itself.
+
 Built like the loot-council window (CouncilUI.lua) and with its building
 blocks: flat frame, no Blizzard templates, the same on TBC Anniversary and
 WoW Forever.
@@ -22,20 +29,49 @@ WoW Forever.
 local EHS = EventHelperSync
 local Handouts = EHS.Handouts
 local Council = EHS.Council
+local Mail = EHS.Mail
 local W = EHS.Widgets
 
 local frame
 local rows = {}
+local mailRows = {}
 local offset = 0
 local list = {}
--- Whether the window was opened by the guild bank (then it closes with it).
+-- Whether the window was opened by the guild bank or the mailbox (then it
+-- closes with it).
 local autoOpened = false
+-- The mode of the last refresh, to start a switched list at the top.
+local lastMode = nil
 
 local WIDTH = 540
 local ROW_HEIGHT = 22
 local VISIBLE_ROWS = 14
+local MAIL_ROW_HEIGHT = 44
+local VISIBLE_MAIL_ROWS = 7
+local MAIL_LINES = 3
 local LIST_TOP = -70
 local ROW_WIDTH = WIDTH - 24
+
+local GOLD = { 1, 0.82, 0 }
+local GREY = { 0.5, 0.5, 0.5 }
+
+-- Mail rows: state text and colour.
+local MAIL_STATE = {
+    bags = { "in den Taschen", GREY },
+    prepared = { "in der Post", GOLD },
+    manual = { "selbst anhängen", GOLD },
+    busy = { "wird gepackt ...", GOLD },
+    nochar = { "kein Charakter", GREY },
+    faction = { "andere Fraktion", { 1, 0.35, 0.35 } },
+}
+
+local function mailMode()
+    return EHS.IsMailboxOpen and EHS:IsMailboxOpen() and true or false
+end
+
+local function visibleRows()
+    return mailMode() and VISIBLE_MAIL_ROWS or VISIBLE_ROWS
+end
 
 -- Columns: x position and width inside a row.
 local COL = {
@@ -216,6 +252,165 @@ local function buildRow(parent, index)
     return row
 end
 
+-- ---------------------------------------------------------------------------
+-- Mail rows (at the mailbox)
+-- ---------------------------------------------------------------------------
+
+local function mailStateText(group)
+    if group.state == "missing" then
+        return ("fehlt %d in den Taschen"):format(group.missing), GOLD
+    end
+    local key = group.state
+    if key == "prepared" then
+        local prepared = EHS:PreparedMail()
+        if prepared and prepared.mode == "manual" then key = "manual" end
+    end
+    local def = MAIL_STATE[key] or MAIL_STATE.bags
+    return def[1], def[2]
+end
+
+local function showMailTooltip(owner)
+    local group = owner.group
+    if not group then return end
+    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+    local first = group.entries[1]
+    local who = first and Handouts.NameLabel(first) or group.recipient
+    if group.hasCharacter and group.recipientRealm ~= "" then who = who .. " - " .. group.recipientRealm end
+    GameTooltip:AddLine(who)
+    for _, entry in ipairs(group.entries) do
+        GameTooltip:AddDoubleLine(Handouts.ItemLabel(entry), entry.purpose, 1, 1, 1, 0.8, 0.8, 0.8)
+        if (entry.bagMissing or 0) > 0 then
+            GameTooltip:AddLine(("  fehlt %d in den Taschen"):format(entry.bagMissing), 1, 0.82, 0)
+        end
+    end
+    GameTooltip:AddLine(" ")
+    local state = group.state
+    if state == "nochar" then
+        GameTooltip:AddLine("Kein Charakter hinterlegt - im EventHelper eintragen lassen.", 0.6, 0.6, 0.6, true)
+    elseif state == "faction" then
+        GameTooltip:AddLine(("Andere Fraktion (%s): Post geht nicht."):format(tostring(group.otherFaction)), 1, 0.35, 0.35, true)
+    elseif state == "missing" then
+        GameTooltip:AddLine("Fehlt in den Taschen: erst aus der Gildenbank holen.", 1, 0.82, 0, true)
+    else
+        local ok, plan = pcall(Mail.PlanGroup, group)
+        if ok and plan and #plan.steps > 0 then
+            GameTooltip:AddDoubleLine("Porto", ("%d Kupfer (%d Anhänge à %d)"):format(#plan.steps * Mail.POSTAGE,
+                #plan.steps, Mail.POSTAGE), 1, 0.82, 0, 1, 1, 1)
+            if #plan.rest > 0 then
+                GameTooltip:AddLine(("Mehr als %d Anhänge: %d Posten kommen in einen zweiten Brief.")
+                    :format(Mail.MaxAttachments(), #plan.rest), 1, 1, 1, true)
+            end
+        end
+        if state == "prepared" or state == "busy" then
+            GameTooltip:AddLine("Liegt in der Post - jetzt Senden klicken. Gesendetes wird abgehakt.", 1, 0.82, 0, true)
+        else
+            GameTooltip:AddLine("Post: füllt den Brief aus und hängt alles an. Senden klickst du selbst.", 1, 1, 1, true)
+        end
+    end
+    GameTooltip:Show()
+end
+
+local function buildMailRow(parent, index)
+    local row = CreateFrame("Button", nil, parent)
+    row:SetSize(ROW_WIDTH, MAIL_ROW_HEIGHT)
+    row:SetPoint("TOPLEFT", 0, -(index - 1) * MAIL_ROW_HEIGHT)
+
+    if index % 2 == 0 then
+        local stripe = W.solid(row, "BACKGROUND", 1, 1, 1, 0.03)
+        stripe:SetAllPoints()
+    end
+    -- a prepared mail: gold tint and a gold bar on the left
+    row.prepBg = W.solid(row, "BACKGROUND", 1, 0.82, 0, 0.08)
+    row.prepBg:SetAllPoints()
+    row.prepBar = W.solid(row, "ARTWORK", 1, 0.82, 0, 1)
+    row.prepBar:SetPoint("TOPLEFT")
+    row.prepBar:SetPoint("BOTTOMLEFT")
+    row.prepBar:SetWidth(2)
+    local hl = W.solid(row, "HIGHLIGHT", 1, 1, 1, 0.07)
+    hl:SetAllPoints()
+
+    row.name = W.text(row)
+    row.name:SetPoint("LEFT", 8, 0)
+    row.name:SetWidth(80)
+    if row.name.SetWordWrap then row.name:SetWordWrap(false) end
+
+    row.lines = {}
+    for k = 1, MAIL_LINES do
+        local line = {}
+        line.icon = row:CreateTexture(nil, "ARTWORK")
+        line.icon:SetSize(14, 14)
+        line.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        line.text = W.text(row)
+        line.text:SetWidth(214)
+        if line.text.SetWordWrap then line.text:SetWordWrap(false) end
+        row.lines[k] = line
+    end
+
+    row.state = W.text(row)
+    row.state:SetPoint("LEFT", 330, 0)
+    row.state:SetWidth(108)
+
+    row.button = W.textButton(row, "Post", 70)
+    row.button:SetPoint("RIGHT", -6, 0)
+    row.button:SetScript("OnClick", function(self)
+        local group = self:GetParent().group
+        if group then EHS:PrepareMail(group) end
+    end)
+    row.button:SetScript("OnEnter", function(self) showMailTooltip(self:GetParent()) end)
+    row.button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    row:SetScript("OnEnter", showMailTooltip)
+    row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return row
+end
+
+--- Item lines of a mail row: up to three handouts, else two and "+N weitere".
+local function setMailLines(row, entries)
+    local shown = #entries <= MAIL_LINES and #entries or (MAIL_LINES - 1)
+    local count = #entries > MAIL_LINES and MAIL_LINES or #entries
+    for k = 1, MAIL_LINES do
+        local line = row.lines[k]
+        local y = ((count - 1) / 2 - (k - 1)) * 13
+        line.icon:ClearAllPoints()
+        line.icon:SetPoint("LEFT", row, "LEFT", 92, y)
+        line.text:ClearAllPoints()
+        line.text:SetPoint("LEFT", row, "LEFT", 110, y)
+        if k <= shown then
+            local entry = entries[k]
+            line.icon:SetTexture(Handouts.IconTexture(entry))
+            line.icon:Show()
+            line.text:SetText(Handouts.ItemLabel(entry))
+            line.text:Show()
+        elseif k == count then
+            line.icon:Hide()
+            line.text:SetText(Council.Color(("+%d weitere"):format(#entries - shown), 0.6, 0.6, 0.6))
+            line.text:Show()
+        else
+            line.icon:Hide()
+            line.text:SetText("")
+            line.text:Hide()
+        end
+    end
+end
+
+local function setMailButton(button, state)
+    if state ~= "bags" and state ~= "prepared" and state ~= "busy" then
+        button:Hide()
+        return
+    end
+    local prepared = state ~= "bags"
+    button.label:SetText(prepared and "Vorbereitet" or "Post")
+    if prepared then
+        button.bg:SetColorTexture(1, 0.82, 0, 0.18)
+        button.label:SetTextColor(1, 0.82, 0)
+    else
+        button.bg:SetColorTexture(1, 1, 1, 0.06)
+        button.label:SetTextColor(1, 1, 1)
+    end
+    button:SetEnabled(state ~= "busy")
+    button:Show()
+end
+
 local function savePosition(self)
     self:StopMovingOrSizing()
     local point, _, relativePoint, x, y = self:GetPoint()
@@ -298,18 +493,29 @@ local function build()
     line:SetPoint("TOPRIGHT", -8, LIST_TOP + 4)
     line:SetHeight(1)
 
+    local function onWheel(_, delta)
+        local maxOffset = math.max(0, #list - visibleRows())
+        offset = math.max(0, math.min(maxOffset, offset - delta * (mailMode() and 1 or 3)))
+        EHS:RefreshGuildBankUI()
+    end
+
     frame.list = CreateFrame("Frame", nil, frame)
     frame.list:SetPoint("TOPLEFT", 8, LIST_TOP)
     frame.list:SetSize(WIDTH - 16, VISIBLE_ROWS * ROW_HEIGHT)
     frame.list:EnableMouseWheel(true)
-    frame.list:SetScript("OnMouseWheel", function(_, delta)
-        local maxOffset = math.max(0, #list - VISIBLE_ROWS)
-        offset = math.max(0, math.min(maxOffset, offset - delta * 3))
-        EHS:RefreshGuildBankUI()
-    end)
+    frame.list:SetScript("OnMouseWheel", onWheel)
     for i = 1, VISIBLE_ROWS do rows[i] = buildRow(frame.list, i) end
 
-    frame.thumb = W.solid(frame.list, "OVERLAY", 0.85, 0.7, 0.35, 0.6)
+    -- the same place at the mailbox: one row per recipient
+    frame.mailList = CreateFrame("Frame", nil, frame)
+    frame.mailList:SetPoint("TOPLEFT", 8, LIST_TOP)
+    frame.mailList:SetSize(WIDTH - 16, VISIBLE_MAIL_ROWS * MAIL_ROW_HEIGHT)
+    frame.mailList:EnableMouseWheel(true)
+    frame.mailList:SetScript("OnMouseWheel", onWheel)
+    for i = 1, VISIBLE_MAIL_ROWS do mailRows[i] = buildMailRow(frame.mailList, i) end
+    frame.mailList:Hide()
+
+    frame.thumb = W.solid(frame, "OVERLAY", 0.85, 0.7, 0.35, 0.6)
     frame.thumb:SetWidth(3)
 
     frame.empty = W.text(frame, "GameFontDisable", "CENTER")
@@ -335,8 +541,78 @@ local function setStrike(row, on)
     row.strike:Show()
 end
 
+--- The scroll position mark for `count` rows of which `visible` fit.
+local function setThumb(count, visible, rowHeight, anchor)
+    if count <= visible then
+        frame.thumb:Hide()
+        return
+    end
+    local maxOffset = math.max(1, count - visible)
+    local height = visible * rowHeight
+    local thumb = math.max(16, height * visible / count)
+    frame.thumb:SetHeight(thumb)
+    frame.thumb:ClearAllPoints()
+    frame.thumb:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", 0, -(height - thumb) * offset / maxOffset)
+    frame.thumb:Show()
+end
+
+--- The mailbox mode: one row per recipient.
+local function refreshMail(self)
+    local _, scope, data, status, banks = self:GetHandoutEntries()
+    local groups = data and self:GetMailRows() or {}
+    list = groups
+    if not data then
+        frame.header:SetText(Handouts.EMPTY_TEXT[status] or Handouts.EMPTY_TEXT.none)
+        frame.summary:SetText("")
+        frame.empty:SetText("")
+    else
+        frame.header:SetText(Handouts.Header(data, now(), scope, banks))
+        frame.summary:SetText(("%d Spieler offen - Gesendetes wird automatisch abgehakt"):format(#groups))
+        frame.empty:SetText(#groups == 0 and "Nichts per Post auszugeben." or "")
+    end
+
+    local maxOffset = math.max(0, #list - VISIBLE_MAIL_ROWS)
+    if offset > maxOffset then offset = maxOffset end
+    for i = 1, VISIBLE_MAIL_ROWS do
+        local row = mailRows[i]
+        local group = list[i + offset]
+        row.group = group
+        if not group then
+            row:Hide()
+        else
+            local first = group.entries[1]
+            row.name:SetText(first and Handouts.NameLabel(first) or group.recipient)
+            setMailLines(row, group.entries)
+            local text, color = mailStateText(group)
+            row.state:SetText(text)
+            row.state:SetTextColor(color[1], color[2], color[3])
+            local prepared = group.state == "prepared" or group.state == "busy"
+            row.prepBg:SetShown(prepared)
+            row.prepBar:SetShown(prepared)
+            setMailButton(row.button, group.state)
+            row:Show()
+        end
+    end
+    setThumb(#list, VISIBLE_MAIL_ROWS, MAIL_ROW_HEIGHT, frame.mailList)
+end
+
 function EHS:RefreshGuildBankUI()
     if not frame or not frame:IsShown() then return end
+    local mode = mailMode() and "mail" or "bank"
+    if mode ~= lastMode then
+        offset = 0
+        lastMode = mode
+    end
+    frame.list:SetShown(mode == "bank")
+    frame.mailList:SetShown(mode == "mail")
+    for _, button in ipairs(frame.viewButtons) do button:SetShown(mode == "bank") end
+    if mode == "mail" then
+        frame.bankOpen:SetText("Briefkasten offen")
+        frame.bankOpen:Show()
+        return refreshMail(self)
+    end
+    frame.bankOpen:SetText("Gildenbank offen")
+
     local current = view()
     for _, button in ipairs(frame.viewButtons) do
         if button.view == current then
@@ -408,16 +684,7 @@ function EHS:RefreshGuildBankUI()
         end
     end
 
-    if #list > VISIBLE_ROWS then
-        local height = VISIBLE_ROWS * ROW_HEIGHT
-        local thumb = math.max(16, height * VISIBLE_ROWS / #list)
-        frame.thumb:SetHeight(thumb)
-        frame.thumb:ClearAllPoints()
-        frame.thumb:SetPoint("TOPRIGHT", frame.list, "TOPRIGHT", 0, -(height - thumb) * offset / maxOffset)
-        frame.thumb:Show()
-    else
-        frame.thumb:Hide()
-    end
+    setThumb(#list, VISIBLE_ROWS, ROW_HEIGHT, frame.list)
 end
 
 function EHS:ToggleGuildBankUI()
@@ -425,6 +692,8 @@ function EHS:ToggleGuildBankUI()
     if frame:IsShown() then
         frame:Hide()
     else
+        -- opened by hand: stays when the guild bank or mailbox closes
+        autoOpened = false
         frame:Show()
         self:RefreshGuildBankUI()
     end
@@ -437,10 +706,12 @@ function EHS:ShowGuildBankUI()
 end
 
 -- ---------------------------------------------------------------------------
--- With the guild bank
+-- With the guild bank and the mailbox
 -- ---------------------------------------------------------------------------
 
-EHS:OnGuildBankEvent(function(what)
+--- Open by itself when something is waiting (setting autoOpenHandouts), and
+-- close again with the guild bank / mailbox that opened it.
+local function onPlaceEvent(what)
     if what == "open" then
         local settings = EHS.db and EHS.db.settings or {}
         if settings.autoOpenHandouts ~= false and not (frame and frame:IsShown()) then
@@ -453,10 +724,14 @@ EHS:OnGuildBankEvent(function(what)
         end
     elseif what == "close" and autoOpened and frame and frame:IsShown() then
         frame:Hide()
+        autoOpened = false
         return
     end
     EHS:RefreshGuildBankUI()
-end)
+end
+
+EHS:OnGuildBankEvent(onPlaceEvent)
+EHS:OnMailboxEvent(onPlaceEvent)
 
 SLASH_EVENTHELPERBANK1 = "/ehb"
 SlashCmdList.EVENTHELPERBANK = function() EHS:ToggleGuildBankUI() end

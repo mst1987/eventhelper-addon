@@ -8,7 +8,7 @@ const os = require("os");
 const path = require("path");
 const {
     toLua, luaString, toLatin1, buildCouncilFile, validateCouncil, fetchCouncil, syncCouncil, writeAtomic,
-    CouncilError, COUNCIL_FILE,
+    loadCouncil, wrapV1, cleanCategoryName, countRaiders, CouncilError, COUNCIL_FILE,
 } = require("../lib/council");
 const { findAddonDirs } = require("../lib/wowPaths");
 const { parseSavedVariables } = require("../lib/luaParser");
@@ -46,18 +46,68 @@ function payload(over = {}) {
     };
 }
 
+/** Version 2, wie sie der Server mit ?v=2 liefert: zwei Kategorien, ein
+ * Raider in beiden, ein Name mit Emoji. */
+function payloadV2(over = {}) {
+    const gemli = payload().raiders[0];
+    return {
+        format: "eventhelper-council",
+        version: 2,
+        generatedAt: 1791234567,
+        weights: { drought: 50, share: 40, need: 10 },
+        categories: [
+            {
+                id: 1234567890,
+                name: "🐉 SSC/TK Mittwoch 🔥",
+                lootSystem: "lootcouncil",
+                filter: { role: "caster", tiers: ["t5"], contents: [], bisTier: "t5", bisTierDerived: false, version: "tbc" },
+                instances: [{ id: "ssc", name: "Höhle des Schlangenschreins", short: "SSC", zoneNames: [] }],
+                avgLootCount: 3.4,
+                raiders: [{ key: "gemli", ...gemli }],
+            },
+            {
+                id: "987",
+                name: "Kara Sonntag",
+                lootSystem: "lootcouncil",
+                filter: { role: "", tiers: [], contents: [], bisTier: "t4", bisTierDerived: true, version: "" },
+                instances: [],
+                avgLootCount: 1,
+                raiders: [
+                    { key: "gemli", ...gemli },
+                    { key: "naph", character: "Naphfß", role: "healer", need: 10, items: [] },
+                ],
+            },
+        ],
+        ...over,
+    };
+}
+
 /** Den erzeugten Lua-Text wieder einlesen — mit demselben Parser, der die
  * SavedVariables liest (Daten, kein Code). */
 function readBack(text) {
     return parseSavedVariables(text).EventHelperSync_Council;
 }
 
-function mockFetch(status, body) {
-    global.fetch = jest.fn(async () => ({
+function response(status, body) {
+    return {
         ok: status >= 200 && status < 300,
         status,
         text: async () => (typeof body === "string" ? body : JSON.stringify(body)),
-    }));
+    };
+}
+
+function mockFetch(status, body) {
+    global.fetch = jest.fn(async () => response(status, body));
+}
+
+/** Nacheinander verschiedene Antworten (die letzte gilt für alle weiteren). */
+function mockFetchSeq(...answers) {
+    let i = 0;
+    global.fetch = jest.fn(async () => {
+        const [status, body] = answers[Math.min(i, answers.length - 1)];
+        i += 1;
+        return response(status, body);
+    });
 }
 
 describe("toLatin1", () => {
@@ -171,14 +221,23 @@ describe("Lua-Serialisierung", () => {
 });
 
 describe("validateCouncil", () => {
-    it("nimmt Version 1 an", () => {
+    it("nimmt Version 1 und Version 2 an", () => {
         const p = payload();
         expect(validateCouncil(p)).toBe(p);
+        const p2 = payloadV2();
+        expect(validateCouncil(p2)).toBe(p2);
+        expect(validateCouncil(payloadV2({ categories: [] })).categories).toEqual([]);
     });
 
     it("lehnt eine höhere Version mit klarer Meldung ab", () => {
-        expect(() => validateCouncil(payload({ version: 2 })))
-            .toThrow(/Version 2, dieses Sync-Tool kennt nur Version 1.*aktualisieren/);
+        expect(() => validateCouncil(payloadV2({ version: 3 })))
+            .toThrow(/Version 3, dieses Sync-Tool kennt nur Version 2.*aktualisieren/);
+    });
+
+    it("lehnt Version 2 ohne Kategorien oder mit einer Kategorie ohne Raider ab", () => {
+        expect(() => validateCouncil(payloadV2({ categories: null }))).toThrow(/Kategorien-Liste/);
+        expect(() => validateCouncil(payloadV2({ categories: [{ id: "1", name: "x" }] }))).toThrow(/Raider-Liste/);
+        expect(() => validateCouncil(payloadV2({ categories: [null] }))).toThrow(/Raider-Liste/);
     });
 
     it("lehnt ein anderes Format ab", () => {
@@ -217,6 +276,12 @@ describe("fetchCouncil", () => {
         expect(global.fetch.mock.calls[0][0]).toBe("https://example.test:3005/api/ingest/council");
     });
 
+    it("fragt Version 2 ohne Kategorie und Rolle", async () => {
+        mockFetch(200, { data: payloadV2() });
+        await fetchCouncil(CONFIG, { v2: true, category: "123", role: "caster" });
+        expect(global.fetch.mock.calls[0][0]).toBe("https://example.test:3005/api/ingest/council?v=2");
+    });
+
     it("reicht die Fehlermeldung des Servers weiter", async () => {
         mockFetch(401, { error: { code: "bad_token", message: "API-Token unbekannt oder zurückgezogen." } });
         await expect(fetchCouncil(CONFIG)).rejects.toThrow("API-Token unbekannt oder zurückgezogen.");
@@ -230,6 +295,103 @@ describe("fetchCouncil", () => {
     it("meldet eine Antwort, die kein JSON ist", async () => {
         mockFetch(502, "<html>Bad Gateway</html>");
         await expect(fetchCouncil(CONFIG)).rejects.toThrow(/Unerwartete Antwort \(HTTP 502\)/);
+    });
+});
+
+describe("cleanCategoryName", () => {
+    it("nimmt Emoji und Trenner vorne und hinten heraus", () => {
+        expect(cleanCategoryName("🐉 SSC/TK Mittwoch 🔥")).toBe("SSC/TK Mittwoch");
+        expect(cleanCategoryName("🔥 | Kara – Sonntag")).toBe("Kara - Sonntag");
+        expect(cleanCategoryName("👍🏽 Gruul‍  &  Mag ❤️")).toBe("Gruul & Mag");
+        expect(cleanCategoryName("Raid ✨ Nacht")).toBe("Raid Nacht");
+    });
+
+    it("lässt Latin-1 stehen und ersetzt anderes nicht durch ?", () => {
+        expect(cleanCategoryName("Höhle Ω Straße")).toBe("Höhle Straße");
+        expect(cleanCategoryName("Wer kommt?")).toBe("Wer kommt?");
+    });
+
+    it("fällt ohne Namen auf die id zurück", () => {
+        expect(cleanCategoryName("🐉🔥", "42")).toBe("Kategorie 42");
+        expect(cleanCategoryName(null, 7)).toBe("Kategorie 7");
+    });
+});
+
+describe("loadCouncil", () => {
+    afterEach(() => {
+        delete global.fetch;
+    });
+
+    it("Version 2: alle Kategorien, Namen spielfest, ids als Text", async () => {
+        mockFetch(200, { data: payloadV2() });
+        const data = await loadCouncil({ ...CONFIG, councilCategory: "123", councilRole: "healer" });
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+        expect(global.fetch.mock.calls[0][0]).toMatch(/council\?v=2$/);
+        expect(data.version).toBe(2);
+        expect(data.categories.map((c) => [c.id, c.name])).toEqual([
+            ["1234567890", "SSC/TK Mittwoch"], ["987", "Kara Sonntag"],
+        ]);
+        expect(data.categories[0].filter.role).toBe("caster");
+        expect(data.categories[0].instances[0].short).toBe("SSC");
+        expect(data.fromVersion).toBeUndefined();
+        expect(countRaiders(data)).toBe(2);
+    });
+
+    it("Version 2 ohne Loot-Council-Kategorie: leere Liste", async () => {
+        mockFetch(200, { data: payloadV2({ categories: [] }) });
+        const data = await loadCouncil(CONFIG);
+        expect(data.categories).toEqual([]);
+        expect(countRaiders(data)).toBe(0);
+    });
+
+    it("älterer Server (Version 1 auf ?v=2): fragt mit Kategorie und Rolle nach und verpackt", async () => {
+        mockFetchSeq([200, { data: payload({ filter: { category: "1" } }) }], [200, { data: payload() }]);
+        const data = await loadCouncil({ ...CONFIG, councilCategory: "123", councilRole: "caster" });
+        expect(global.fetch).toHaveBeenCalledTimes(2);
+        expect(global.fetch.mock.calls[1][0]).toMatch(/council\?category=123&role=caster$/);
+        expect(data).toMatchObject({ format: "eventhelper-council", version: 2, fromVersion: 1, generatedAt: 1791234567 });
+        expect(data.categories).toHaveLength(1);
+        expect(data.categories[0]).toMatchObject({
+            id: "123", name: "SSC/TK Mittwoch", lootSystem: "lootcouncil", instances: [], avgLootCount: 3.4,
+            filter: { role: "", bisTier: "t6", bisTierDerived: true, tiers: [] },
+        });
+        expect(data.categories[0].raiders[0].character).toBe("Gemli");
+    });
+
+    it("älterer Server ohne gespeicherte Kategorie: die erste Antwort reicht", async () => {
+        mockFetch(200, { data: payload({ filter: {} }) });
+        const data = await loadCouncil(CONFIG);
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+        expect(data.categories[0]).toMatchObject({ id: "", name: "Alle Raids" });
+    });
+
+    it("404 auf ?v=2: die alte Anfrage", async () => {
+        mockFetchSeq([404, { error: { message: "Not found" } }], [200, { data: payload() }]);
+        const data = await loadCouncil({ ...CONFIG, councilCategory: "123" });
+        expect(global.fetch.mock.calls[1][0]).toMatch(/council\?category=123$/);
+        expect(data.categories[0].id).toBe("123");
+    });
+
+    it("404 auf beides: der Server kennt keine Council-Daten", async () => {
+        mockFetch(404, { error: { message: "Not found" } });
+        await expect(loadCouncil(CONFIG)).rejects.toThrow(/kennt noch keine Council-Daten/);
+    });
+
+    it("lehnt Version 3 ab, ohne die alte Anfrage zu versuchen", async () => {
+        mockFetch(200, { data: payloadV2({ version: 3 }) });
+        await expect(loadCouncil(CONFIG)).rejects.toThrow(/Version 3/);
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("andere Fehler auf ?v=2 gehen durch", async () => {
+        mockFetch(401, { error: { code: "bad_token", message: "API-Token unbekannt oder zurückgezogen." } });
+        await expect(loadCouncil(CONFIG)).rejects.toThrow("API-Token unbekannt");
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("wrapV1 nimmt fehlende Felder hin", () => {
+        const data = wrapV1({ format: "eventhelper-council", version: 1, raiders: [] });
+        expect(data.categories[0]).toMatchObject({ id: "", name: "Alle Raids", raiders: [] });
     });
 });
 
@@ -283,16 +445,24 @@ describe("Addon-Ordner finden und beschreiben", () => {
     });
 
     it("schreibt CouncilData.lua in jeden gefundenen Ordner und legt keinen an", async () => {
-        mockFetch(200, { data: payload() });
+        mockFetch(200, { data: payloadV2() });
         const result = await syncCouncil(CONFIG, { roots: [wow], now: new Date("2026-10-05T19:30:00Z") });
 
-        expect(result.raiders).toBe(1);
+        expect(result.categories).toBe(2);
+        expect(result.raiders).toBe(2);
         expect(result.errors).toEqual([]);
         expect(result.files).toHaveLength(2);
         for (const flavor of ["_anniversary_", "_classic_beta_"]) {
             const file = path.join(wow, flavor, "Interface", "AddOns", "EventHelperSync", COUNCIL_FILE);
             const text = fs.readFileSync(file, "utf8");
-            expect(readBack(text).raiders[0].character).toBe("Gemli");
+            const back = readBack(text);
+            expect(back.version).toBe(2);
+            expect(back.categories.map((c) => c.name)).toEqual(["SSC/TK Mittwoch", "Kara Sonntag"]);
+            expect(back.categories[0].id).toBe("1234567890");
+            expect(back.categories[0].filter.tiers).toEqual(["t5"]);
+            expect(back.categories[0].instances[0].name).toBe("Höhle des Schlangenschreins");
+            expect(back.categories[1].raiders[0].character).toBe("Gemli");
+            expect([...text].every((ch) => ch.codePointAt(0) <= 0xff)).toBe(true);
         }
         // Keine Addon-Ordner erfunden, keine Reste der atomaren Schreibweise.
         expect(fs.existsSync(path.join(wow, "_classic_era_", "Interface", "AddOns", "EventHelperSync"))).toBe(false);
@@ -310,16 +480,33 @@ describe("Addon-Ordner finden und beschreiben", () => {
     });
 
     it("schreibt nichts, wenn der Server eine neuere Version liefert", async () => {
-        mockFetch(200, { data: payload({ version: 2 }) });
-        await expect(syncCouncil(CONFIG, { roots: [wow] })).rejects.toThrow(/Version 2/);
+        mockFetch(200, { data: payloadV2({ version: 3 }) });
+        await expect(syncCouncil(CONFIG, { roots: [wow] })).rejects.toThrow(/Version 3/);
         const dir = path.join(wow, "_anniversary_", "Interface", "AddOns", "EventHelperSync");
         expect(fs.readdirSync(dir)).toEqual([]);
     });
 
-    it("schickt Kategorie und Rolle aus der Konfiguration mit", async () => {
+    it("schreibt auch ohne Loot-Council-Kategorie eine gültige Datei", async () => {
+        mockFetch(200, { data: payloadV2({ categories: [] }) });
+        const result = await syncCouncil(CONFIG, { roots: [wow] });
+        expect(result).toMatchObject({ categories: 0, raiders: 0 });
+        const file = path.join(wow, "_anniversary_", "Interface", "AddOns", "EventHelperSync", COUNCIL_FILE);
+        const back = readBack(fs.readFileSync(file, "utf8"));
+        expect(back.version).toBe(2);
+        // Eine leere Lua-Tabelle liest der Parser als leeres Objekt oder Array.
+        expect(Object.keys(back.categories)).toHaveLength(0);
+    });
+
+    it("älterer Server: Kategorie und Rolle aus der Konfiguration, geschrieben als Version 2", async () => {
         mockFetch(200, { data: payload() });
-        await syncCouncil({ ...CONFIG, councilCategory: "123", councilRole: "caster" }, { roots: [wow] });
-        expect(global.fetch.mock.calls[0][0]).toMatch(/council\?category=123&role=caster$/);
+        const result = await syncCouncil({ ...CONFIG, councilCategory: "123", councilRole: "caster" }, { roots: [wow] });
+        expect(global.fetch.mock.calls[0][0]).toMatch(/council\?v=2$/);
+        expect(global.fetch.mock.calls[1][0]).toMatch(/council\?category=123&role=caster$/);
+        expect(result).toMatchObject({ categories: 1, raiders: 1 });
+        const file = path.join(wow, "_anniversary_", "Interface", "AddOns", "EventHelperSync", COUNCIL_FILE);
+        const back = readBack(fs.readFileSync(file, "utf8"));
+        expect(back).toMatchObject({ version: 2, fromVersion: 1 });
+        expect(back.categories[0].raiders[0].character).toBe("Gemli");
     });
 
     it("writeAtomic räumt die Zwischendatei auf, wenn das Ziel nicht beschreibbar ist", () => {

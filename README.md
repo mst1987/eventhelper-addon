@@ -131,6 +131,7 @@ Ein normaler Wurf mit der Antwort „PvP/Bank" bleibt dabei drin — der ging ja
 | `/ehs button` | Upload-Knopf ein-/ausblenden |
 | `/ehs export` | Export als JSON in einer Kopierbox (Weg ohne Sync-Tool) |
 | `/ehs council` oder `/ehc` | das [Loot-Council-Fenster](#loot-council-im-spiel) öffnen |
+| `/ehc <Name>` | Loot-Council: zur Kategorie mit diesem Namen wechseln |
 | `/ehs bank` oder `/ehb` | die [Gildenbank-Ausgabe](#gildenbank-ausgabe-im-spiel) öffnen |
 | `/ehs days <n>` | wie viele Tage zurück exportiert werden (Standard: 21) |
 | `/ehs debug` | Debug-Ausgaben umschalten |
@@ -275,16 +276,16 @@ Geschrieben wird in **jeden** installierten Addon-Ordner, den die Suche findet �
 
 Ein Fehler beim Holen (Server nicht erreichbar, Server noch ohne diese Route, Ordner schreibgeschützt) hält den Upload nie an. Er steht im Verlauf und in der Statuszeile der Oberfläche.
 
-Unter ⚙ lassen sich **Raid-Kategorie** (die Liste kommt vom Server, nach dem ersten Abruf) und **Rolle** (Caster und Heiler / nur Caster / nur Heiler) wählen; beides geht als Filter an den Server.
+**Welche Kategorien, welche Filter?** Das stellt die Webseite ein, nicht das Sync-Tool (ab 1.11.0): geholt wird jede Raid-Kategorie, deren Lootsystem unter *Einstellungen → Kategorien* **Loot-Council** ist — jede genau so, wie die Loot-Council-Seite sie zeigt (Rolle, Tiers/Raids, BiS-Liste; ausgeplante Raider fehlen). Die Statuszeile sagt „Council: N Kategorien, M Raider". Gibt es keine solche Kategorie, sagen das Statuszeile und Fenster. Ein älterer Server (nur Version 1) bekommt weiter die alte Anfrage mit Kategorie/Rolle aus einer älteren Konfiguration; das Ergebnis wird als eine Kategorie geschrieben.
 
 ### Das Fenster
 
 `/ehs council`, `/ehc`, Shift-Linksklick oder Mittelklick auf den Minimap-Knopf, oder der Knopf „Loot-Council" im Hauptfenster:
 
 ```
- ┌ Loot-Council ─────────────────────────────────────────── [Alle][Caster][Heiler] [x] ┐
+ ┌ Loot-Council [SSC/TK Mittwoch (auto)] ────────────────── [Alle][Caster][Heiler] [x] ┐
  │ Stand: 05.10. 21:30, vor 2 Std.                                                      │
- │ SSC/TK Mittwoch · BiS T6 · 24 Raider                                             [?] │
+ │ SSC/TK Mittwoch · nur Caster · T5 · BiS T5 · 24 Raider                           [?] │
  │ ──────────────────────────────────────────────────────────────────────────────────── │
  │ Neuling             ████████████▓▓▓▓▓▓▓▓▒▒  Bedarf 95   0 Items  BiS -        noch nie │
  │ Gemli Shadow        ██████████▓▓▓▓▓▒        Bedarf 82   2 Items  BiS 9/16 vor 12 Tagen │
@@ -296,9 +297,11 @@ Unter ⚙ lassen sich **Raid-Kategorie** (die Liste kommt vom Server, nach dem e
 
 Eine kompakte Zeile pro Raider, nach Bedarf sortiert: Name in Klassenfarbe mit Spezialisierung, ein **Balken aus drei Teilen** — jeder Teil ist *Gewicht × Wert*, zusammen ergeben sie den Bedarf —, die Bedarfszahl, wie viele zählende Items er schon hat, sein BiS-Stand und wann er zuletzt etwas bekam. Mehr steht nicht in der Zeile; der **Tooltip** einer Zeile zeigt die drei Teile mit Erklärung, die erhaltenen Items (neueste zuerst, mit Datum, Item-Link, Boss und Grund) und wie viele BiS-Teile noch offen sind. Das `?` erklärt die Farben. Escape schliesst das Fenster, die Position wird gespeichert.
 
+**Kategorie wählen:** der Knopf neben dem Titel (auf WoW Forever ein Menü, sonst schaltet Links-/Rechtsklick weiter) oder `/ehc <Name>` (Anfang des Namens genügt, `/ehc kara`). Die Wahl wird gemerkt. Betritt man eine **Raid-Instanz**, zu der genau eine Kategorie passt (Instanzname/Zone gegen die Instanzen der Raidvorlage der Kategorie), gilt diese von selbst — der Knopf zeigt dann „(auto)"; passen keine oder mehrere, bleibt die eigene Wahl. Ohne Wahl gilt die erste Kategorie. Alle/Caster/Heiler filtern innerhalb der Kategorie; zeigt die Webseite für eine Kategorie nur Caster, bleibt „Heiler" leer und sagt warum. `/ehs status` listet die Kategorien.
+
 ### Im Item-Tooltip
 
-Auf jedem Item-Tooltip — Loot-Fenster, RCLootcouncils Abstimmungsfenster, Taschen, Item-Links im Chat — steht, wem das Item als **BiS fehlt**, nach Bedarf sortiert, höchstens fünf:
+Auf jedem Item-Tooltip — Loot-Fenster, RCLootcouncils Abstimmungsfenster, Taschen, Item-Links im Chat — steht, wem das Item als **BiS fehlt**, nach Bedarf sortiert, höchstens fünf — aus der gewählten (oder zur Instanz passenden) Kategorie; ist keine gewählt, aus allen, jeder Raider einmal:
 
 ```
 Loot-Council:
@@ -543,7 +546,29 @@ Das Sync-Tool lädt den Scan per `POST /api/ingest/guildbank` (dasselbe Token) h
 
 ### Das Council-Format
 
-Für die Gegenrichtung sprechen Server, Sync-Tool und Addon `eventhelper-council` Version 1. Serverseitig liefert es `GET /api/ingest/council?category=&role=` im Repo `d:/programming/eventhelper` (Hülle `{ data }`, Fehler `{ error: { code, message } }`, Token wie beim Upload). Wird es geändert, muss die Version auf **beiden** Seiten mitwachsen — das Sync-Tool lehnt eine höhere Version ab, statt sie halb zu schreiben, und das Addon zeigt dann einen Hinweis statt halber Daten.
+Für die Gegenrichtung sprechen Server, Sync-Tool und Addon `eventhelper-council` **Version 2**. Serverseitig liefert es `GET /api/ingest/council?v=2` (ohne `category`) im Repo `d:/programming/eventhelper` (`docs/loot-import.md`, Hülle `{ data }`, Fehler `{ error: { code, message } }`, Token wie beim Upload). Wird es geändert, muss die Version auf **beiden** Seiten mitwachsen — das Sync-Tool lehnt eine höhere Version ab, statt sie halb zu schreiben, und das Addon zeigt dann einen Hinweis statt halber Daten.
+
+Version 2 ist eine Liste von Kategorien (nur die mit Lootsystem Loot-Council, sonst `[]`), jede mit den Filtern der Webseite und einer Raider-Liste in der Form von Version 1 (plus `key`):
+
+```jsonc
+{
+  "format": "eventhelper-council",
+  "version": 2,
+  "generatedAt": 1791234567,
+  "weights": { "drought": 50, "share": 40, "need": 10 },
+  "categories": [{
+    "id": "1234567890",                 // im Addon gemerkt: EHS.db.settings.councilCategory
+    "name": "SSC/TK Mittwoch",          // das Sync-Tool nimmt Emoji heraus
+    "lootSystem": "lootcouncil",
+    "filter": { "role": "caster", "tiers": ["t5"], "contents": [], "bisTier": "t5", "bisTierDerived": false, "version": "tbc" },
+    "instances": [{ "id": "ssc", "name": "Höhle des Schlangenschreins", "short": "SSC", "zoneNames": [] }],   // für die Auto-Wahl
+    "avgLootCount": 3.4,
+    "raiders": [{ "key": "gemli", "character": "Gemli", … }]   // wie unten
+  }]
+}
+```
+
+Antwortet ein älterer Server auf `?v=2` mit Version 1 (oder 404), stellt das Sync-Tool die alte Anfrage `?category=&role=` (aus der Konfiguration) und schreibt das Ergebnis als eine Kategorie in der Form von Version 2 (`fromVersion = 1`). Das Addon versteht beides, auch eine Version-1-Datei eines älteren Sync-Tools. Version 1:
 
 ```jsonc
 {
@@ -574,10 +599,11 @@ Für die Gegenrichtung sprechen Server, Sync-Tool und Addon `eventhelper-council
 Das Sync-Tool schreibt daraus `CouncilData.lua` — dieselbe Struktur als Lua-Tabelle, Arrays als Sequenzen:
 
 ```lua
--- Generated by EventHelper Sync 1.9.0 at 2026-10-05T19:30:00.000Z. Do not edit; it is overwritten.
+-- Generated by EventHelper Sync 1.11.0 at 2026-10-05T19:30:00.000Z. Do not edit; it is overwritten.
 EventHelperSync_Council = {
   format = "eventhelper-council",
-  version = 1,
+  version = 2,
+  categories = { ... },
   ...
 }
 ```

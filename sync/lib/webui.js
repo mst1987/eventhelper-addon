@@ -73,13 +73,8 @@ function safeConfig(cfg) {
         tokenHint: cfg.token ? String(cfg.token).slice(-4) : "",
         savedVariablesPath: cfg.savedVariablesPath || "",
         pollSeconds: cfg.pollSeconds || 15,
-        councilCategory: cfg.councilCategory || "",
-        councilRole: cfg.councilRole || "",
     };
 }
-
-// Rollen, nach denen der Server die Council-Daten filtern kann ("" = beide).
-const COUNCIL_ROLES = ["", "caster", "healer"];
 
 /**
  * @param {object} runner  aus createRunner()
@@ -169,15 +164,9 @@ function createWebUI(runner, { onQuit } = {}) {
                     savedVariablesPath,
                     pollSeconds: Math.min(600, Math.max(5, Number(body.pollSeconds) || 15)),
                 };
-                // Nur übernehmen, was mitgeschickt wurde — ein Aufruf ohne diese
-                // Felder soll die Auswahl nicht leeren.
-                if (body.councilCategory !== undefined) {
-                    next.councilCategory = String(body.councilCategory || "").trim();
-                }
-                if (body.councilRole !== undefined) {
-                    const role = String(body.councilRole || "").trim();
-                    next.councilRole = COUNCIL_ROLES.includes(role) ? role : "";
-                }
+                // Council-Kategorie und -Rolle stellt seit Version 2 die
+                // Webseite ein; was davon noch in der Konfiguration steht
+                // (Rückfall für ältere Server), bleibt über `...current` stehen.
                 // Ein leeres Feld heisst "unverändert lassen" — sonst wäre das
                 // Token nach jedem Speichern der anderen Werte weg.
                 const token = String(body.token || "").trim();

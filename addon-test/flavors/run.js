@@ -115,6 +115,71 @@ function fixturePayload() {
     };
 }
 
+/** Version 2 as the server sends it for ?v=2: three loot council categories.
+ * SSC/TK = the 18 raiders above (all roles), "Kara Sonntag" casters only,
+ * "Kara Donnerstag" all roles - both Kara categories name Karazhan (an
+ * ambiguous instance). Gemli is in two categories with a different need.
+ * Emoji in names are left in on purpose: the serializer turns them into "?",
+ * which the addon must clean up itself (an older tool does not strip them). */
+function fixturePayloadV2() {
+    const v1 = fixturePayload();
+    const now = 1791240000;
+    const raider = (over) => ({
+        classFile: "MAGE", specLabel: "", role: "caster", need: 50,
+        parts: { drought: 50, share: 50, need: 50 }, lootCount: 0, lootTotal: 0, otherCount: 0,
+        lastAwardAt: 0, daysSinceLoot: -1,
+        bis: { tier: "t4", source: "wowsims", owned: 1, total: 5, missing: [] },
+        items: [],
+        ...over,
+    });
+    return {
+        format: "eventhelper-council",
+        version: 2,
+        generatedAt: v1.generatedAt,
+        weights: v1.weights,
+        categories: [
+            {
+                id: 1234567890,
+                name: "🐉 SSC/TK Mittwoch",
+                lootSystem: "lootcouncil",
+                filter: { role: "", tiers: ["t5", "t6"], contents: [], bisTier: "t6", bisTierDerived: true, version: "tbc" },
+                instances: [
+                    { id: "ssc", name: "Höhle des Schlangenschreins", short: "SSC", zoneNames: ["höhle des schlangenschreins"] },
+                    { id: "tk", name: "Festung der Stürme", short: "TK", zoneNames: [] },
+                ],
+                avgLootCount: v1.avgLootCount,
+                raiders: v1.raiders.map((r) => ({ key: r.character.toLowerCase(), ...r })),
+            },
+            {
+                id: "987",
+                name: "Kara – Sonntag 🔥",
+                lootSystem: "lootcouncil",
+                filter: { role: "caster", tiers: ["t4"], contents: [], bisTier: "t4", bisTierDerived: false, version: "" },
+                instances: [{ id: "kara", name: "Karazhan", short: "Kara", zoneNames: ["karazhan"] }],
+                avgLootCount: 1.5,
+                raiders: [
+                    raider({ key: "gemli", character: "Gemli", classFile: "PRIEST", specLabel: "Shadow", need: 99,
+                        bis: { tier: "t4", source: "wowsims", owned: 1, total: 5, missing: [28000, 30000] } }),
+                    raider({ key: "karl", character: "Karl", specLabel: "Arcane", need: 40, lootCount: 1,
+                        lastAwardAt: now - 86400, bis: { tier: "t4", source: "wowsims", owned: 3, total: 5, missing: [28000] } }),
+                ],
+            },
+            {
+                id: "555",
+                name: "Kara Donnerstag",
+                lootSystem: "lootcouncil",
+                filter: { role: "", tiers: ["t4"], contents: [], bisTier: "t4", bisTierDerived: true, version: "" },
+                instances: [{ id: "kara", name: "Karazhan (Forever)", short: "Kara", zoneNames: [] }],
+                avgLootCount: 1,
+                raiders: [
+                    raider({ key: "heila", character: "Heila", classFile: "DRUID", specLabel: "Resto", role: "healer",
+                        need: 70, bis: { tier: "t4", source: "wowsims", owned: 2, total: 5, missing: [28000] } }),
+                ],
+            },
+        ],
+    };
+}
+
 /** Guild bank handouts as the server sends them: the same list for a TBC and
  * a Forever bank of the guild Pulse on Thunderstrike (ids "t..." / "f..."),
  * 16 rows (more than the window shows), a raider without a character, two
@@ -170,13 +235,14 @@ function handoutsPayload() {
     };
 }
 
-function newState(flavor, fixture, handoutsFixture) {
+function newState(flavor, fixtures) {
     const L = lauxlib.luaL_newstate();
     lualib.luaL_openlibs(L);
     setGlobalString(L, "__FLAVOR", flavor);
     setGlobalString(L, "__TOC_VERSION", tocVersion());
-    setGlobalString(L, "__COUNCIL_FIXTURE", fixture);
-    setGlobalString(L, "__HANDOUTS_FIXTURE", handoutsFixture);
+    setGlobalString(L, "__COUNCIL_FIXTURE", fixtures.council);
+    setGlobalString(L, "__COUNCIL_FIXTURE_V1", fixtures.councilV1);
+    setGlobalString(L, "__HANDOUTS_FIXTURE", fixtures.handouts);
     runChunk(L, fs.readFileSync(path.join(__dirname, "mock", "wow.lua"), "utf8"), "mock/wow.lua");
     lua.lua_newtable(L);
     lua.lua_setglobal(L, to_luastring("__EHS_NS"));
@@ -206,8 +272,13 @@ function checkLatin1() {
 
 function main() {
     const only = process.argv[2];
-    const fixture = buildCouncilFile(fixturePayload(), { syncVersion: "test", now: new Date(0) });
-    const handoutsFixture = buildHandoutsFile(handoutsPayload(), { syncVersion: "test", now: new Date(0) });
+    const fixtures = {
+        // What this sync tool writes (version 2) ...
+        council: buildCouncilFile(fixturePayloadV2(), { syncVersion: "test", now: new Date(0) }),
+        // ... and what one up to 1.10.0 wrote (version 1, one category).
+        councilV1: buildCouncilFile(fixturePayload(), { syncVersion: "test", now: new Date(0) }),
+        handouts: buildHandoutsFile(handoutsPayload(), { syncVersion: "test", now: new Date(0) }),
+    };
     const specDir = path.join(__dirname, "spec");
     const specs = fs.readdirSync(specDir).filter((f) => f.endsWith(".lua") && (!only || f.includes(only))).sort();
     let failed = only ? 0 : checkLatin1();
@@ -216,7 +287,7 @@ function main() {
         for (const flavor of FLAVORS) {
             runs += 1;
             try {
-                const L = newState(flavor, fixture, handoutsFixture);
+                const L = newState(flavor, fixtures);
                 runChunk(L, fs.readFileSync(path.join(specDir, spec), "utf8"), `spec/${spec}`);
                 lua.lua_getglobal(L, to_luastring("__ASSERTIONS"));
                 const count = lua.lua_tointeger(L, -1);

@@ -38,8 +38,10 @@ const DEFAULTS = {
     // { [sessionId]: { at, status, added, skipped } }. Nur zur Anzeige — der
     // Server dedupliziert selbst, das hier ersetzt keine Prüfung.
     uploadLog: {},
-    // Loot-Council im Spiel (lib/council.js): für welche Raid-Kategorie und
-    // welche Rolle die Daten geholt werden. "" = alle bzw. Caster und Heiler.
+    // Loot-Council im Spiel (lib/council.js): Kategorien und Filter kommen seit
+    // Version 2 von der Webseite. Diese beiden gelten nur noch für ältere
+    // Server, die nur Version 1 kennen (Raid-Kategorie und Rolle, "" = alle
+    // bzw. Caster und Heiler); in der Oberfläche gibt es sie nicht mehr.
     councilCategory: "",
     councilRole: "",
     // The scannedAt of the last guild bank scan the server accepted, per guild

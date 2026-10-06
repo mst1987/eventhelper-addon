@@ -54,7 +54,7 @@ expect(special, "Escape closes the council window")
 load(__COUNCIL_FIXTURE)()
 EHS:RefreshCouncil()
 expect(council.header:GetText():match("^Stand: .+, vor 2 Std%.$"), "header with age: " .. council.header:GetText())
-expectEqual(council.filter:GetText(), "SSC/TK Mittwoch · BiS T6 · 18 Raider", "filter line")
+expectEqual(council.filter:GetText(), "SSC/TK Mittwoch · T5/T6 · BiS T6 · 18 Raider", "filter line")
 
 local rows = {}
 for _, child in ipairs(WoWMock.frames) do
@@ -167,6 +167,6 @@ local help = table.concat(WoWMock.prints, "\n")
 expect(help:find("/ehs council", 1, true), "help lists /ehs council")
 
 -- A newer data version is refused with a hint, not half read.
-EventHelperSync_Council = { format = "eventhelper-council", version = 2, raiders = {} }
+EventHelperSync_Council = { format = "eventhelper-council", version = 3, categories = {} }
 EHS:ShowCouncil()
 expect(council.header:GetText():find("neuer als dieses Addon", 1, true), "newer version hint")

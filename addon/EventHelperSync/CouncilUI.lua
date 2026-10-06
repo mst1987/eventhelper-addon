@@ -10,6 +10,10 @@ wer wie dringend etwas braucht, und wer was schon hat.
     Weitere steht im Tooltip der Zeile.
   * Der Item-Tooltip: auf jedem Item-Tooltip (Loot-Fenster, RCLootcouncil,
     Taschen, Links) stehen die Raider, denen genau dieses Item als BiS fehlt.
+  * Die Kategorie: jede Raid-Kategorie, die auf der Webseite als Loot-Council
+    laeuft, kommt mit. Gewaehlt wird sie oben im Fenster (Knopf, /ehc <Name>)
+    und gemerkt in EHS.db.settings.councilCategory; in einer Raid-Instanz,
+    zu der genau eine Kategorie passt, gilt die von selbst ("(auto)").
 
 Sieht nur, wer das Addon hat - es wird nichts an den Raid geschickt.
 
@@ -28,6 +32,7 @@ local offset = 0
 local list = {}
 
 local WIDTH = 540
+local CATEGORY_WIDTH = 210
 local ROW_HEIGHT = 22
 local VISIBLE_ROWS = 14
 local LIST_TOP = -70
@@ -64,6 +69,33 @@ end
 
 local function selectedRole()
     return EHS.db and EHS.db.settings and EHS.db.settings.councilRole or ""
+end
+
+-- Die zur Raid-Instanz passende Kategorie (nur fuer diese Sitzung) und der
+-- Ort, fuer den sie bestimmt wurde: derselbe Ort waehlt nicht noch einmal,
+-- eine Wahl von Hand bleibt dort also stehen.
+local autoId, autoPlace
+
+local function manualId()
+    return EHS.db and EHS.db.settings and EHS.db.settings.councilCategory or nil
+end
+
+--- Die Kategorie, die gerade gilt.
+-- @return category|nil, how ("auto" | "manual" | "default"), data
+function EHS:CouncilActive()
+    local data = Council.Load()
+    if not data then return nil, nil, nil end
+    local category, how = Council.ActiveCategory(data, manualId(), autoId)
+    return category, how, data
+end
+
+--- Eine Kategorie von Hand waehlen (Knopf, Menue, /ehc <Name>).
+function EHS:SetCouncilCategory(id)
+    if not self.db or not self.db.settings then return end
+    self.db.settings.councilCategory = id and tostring(id) or nil
+    autoId = nil
+    offset = 0
+    self:RefreshCouncil()
 end
 
 -- ---------------------------------------------------------------------------
@@ -159,6 +191,58 @@ local function showRowTooltip(row)
     GameTooltip:AddLine(" ")
     GameTooltip:AddDoubleLine("BiS-Teile offen", tostring(Council.MissingCount(raider)), 1, 0.82, 0, 1, 1, 1)
     GameTooltip:Show()
+end
+
+-- ---------------------------------------------------------------------------
+-- Kategorie-Wahl
+-- ---------------------------------------------------------------------------
+
+local function showCategoryTooltip(self)
+    local active, how, data = EHS:CouncilActive()
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+    GameTooltip:AddLine("Kategorie")
+    for _, category in ipairs(Council.Categories(data)) do
+        local mark = category == active and (how == "auto" and "  (aktiv, auto)" or "  (aktiv)") or ""
+        if category == active then
+            GameTooltip:AddLine(category.name .. mark, 1, 0.82, 0)
+        else
+            GameTooltip:AddLine(category.name, 1, 1, 1)
+        end
+    end
+    GameTooltip:AddLine(" ")
+    if MenuUtil and MenuUtil.CreateContextMenu then
+        GameTooltip:AddLine("Klick: Kategorie wählen", 0.6, 0.6, 0.6, true)
+    else
+        GameTooltip:AddLine("Linksklick: nächste, Rechtsklick: vorige Kategorie", 0.6, 0.6, 0.6, true)
+    end
+    GameTooltip:AddLine("In einer Raid-Instanz gilt von selbst die passende Kategorie (auto). Auch: /ehc <Name>",
+        0.6, 0.6, 0.6, true)
+    GameTooltip:Show()
+end
+
+--- Klick auf den Kategorie-Knopf: Menue, sonst weiterschalten.
+function EHS:PickCouncilCategory(owner, button)
+    local active, _, data = self:CouncilActive()
+    local categories = Council.Categories(data)
+    if #categories == 0 then return end
+    if MenuUtil and MenuUtil.CreateContextMenu then
+        local ok = pcall(MenuUtil.CreateContextMenu, owner, function(_, root)
+            root:CreateTitle("Kategorie")
+            for _, category in ipairs(categories) do
+                root:CreateRadio(category.name,
+                    function() return select(1, EHS:CouncilActive()) == category end,
+                    function() EHS:SetCouncilCategory(category.id) end)
+            end
+        end)
+        if ok then return end
+    end
+    local current = 1
+    for i, category in ipairs(categories) do
+        if category == active then current = i end
+    end
+    local step = button == "RightButton" and -1 or 1
+    local nextIndex = (current - 1 + step) % #categories + 1
+    self:SetCouncilCategory(categories[nextIndex].id)
 end
 
 -- ---------------------------------------------------------------------------
@@ -267,6 +351,18 @@ local function build()
     frame.close:SetPoint("TOPRIGHT", -6, -6)
     frame.close:SetScript("OnClick", function() frame:Hide() end)
 
+    -- Kategorie-Wahl: ein flacher Knopf mit dem Namen. Klick oeffnet das
+    -- Kontextmenue (MenuUtil), wo es das gibt; sonst schaltet Links-/Rechtsklick
+    -- zur naechsten/vorigen Kategorie weiter.
+    frame.category = textButton(frame, "", CATEGORY_WIDTH)
+    frame.category:SetPoint("LEFT", frame.title, "RIGHT", 10, 0)
+    frame.category.label:SetWidth(CATEGORY_WIDTH - 8)
+    if frame.category.label.SetWordWrap then frame.category.label:SetWordWrap(false) end
+    frame.category:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    frame.category:SetScript("OnClick", function(self, button) EHS:PickCouncilCategory(self, button) end)
+    frame.category:SetScript("OnEnter", showCategoryTooltip)
+    frame.category:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
     -- Rollen-Umschalter: Alle / Caster / Heiler.
     frame.roleButtons = {}
     local anchor = frame.close
@@ -305,7 +401,8 @@ local function build()
         end
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine("Der Balken zeigt die drei Teile, gewichtet. Über eine Zeile fahren zeigt Details und erhaltene Items.", 1, 1, 1, true)
-        GameTooltip:AddLine("Auf Item-Tooltips steht, wem das Item als BiS fehlt.", 1, 1, 1, true)
+        GameTooltip:AddLine("Auf Item-Tooltips steht, wem das Item als BiS fehlt (in der gewählten Kategorie).", 1, 1, 1, true)
+        GameTooltip:AddLine("Welche Kategorien und Filter, stellt die Webseite ein (Loot-Council-Seite).", 1, 1, 1, true)
         GameTooltip:AddLine("Neue Daten: EventHelper Sync holt sie, im Spiel dann /reload.", 0.6, 0.6, 0.6, true)
         GameTooltip:Show()
     end)
@@ -362,16 +459,34 @@ function EHS:RefreshCouncil()
         end
     end
 
+    local category, how
+    if data then category, how = Council.ActiveCategory(data, manualId(), autoId) end
+
     if not data then
         list = {}
         frame.header:SetText(EMPTY_TEXT[status] or EMPTY_TEXT.none)
         frame.filter:SetText("")
         frame.empty:SetText("")
-    else
-        list = Council.Raiders(data, role)
+        frame.category:Hide()
+    elseif not category then
+        list = {}
         frame.header:SetText(Council.Header(data, now()))
-        frame.filter:SetText(("%s · %d Raider"):format(Council.FilterLine(data), #list))
-        frame.empty:SetText(#list == 0 and "Keine Raider für diesen Filter." or "")
+        frame.filter:SetText("")
+        frame.empty:SetText(Council.NO_CATEGORY_TEXT)
+        frame.category:Hide()
+    else
+        list = Council.Raiders(category, role)
+        frame.header:SetText(Council.Header(data, now()))
+        frame.filter:SetText(("%s · %d Raider"):format(Council.FilterLine(category), #list))
+        if #list == 0 then
+            frame.empty:SetText(Council.RoleBlockedText(category, role) or "Keine Raider für diesen Filter.")
+        else
+            frame.empty:SetText("")
+        end
+        local label = category.name
+        if how == "auto" then label = label .. " " .. Council.Color("(auto)", 0.6, 0.6, 0.6) end
+        frame.category.label:SetText(label)
+        frame.category:Show()
     end
 
     local maxOffset = math.max(0, #list - VISIBLE_ROWS)
@@ -457,9 +572,12 @@ local function addCouncilLines(tooltip, itemId)
     if issecretvalue and issecretvalue(itemId) then return end
     itemId = tonumber(itemId)
     if not itemId then return end
-    local data = Council.Load()
+    local category, how, data = EHS:CouncilActive()
     if not data then return end
-    local lines = Council.TooltipLines(data, itemId, 5)
+    -- Die gewaehlte (oder zur Instanz passende) Kategorie; ist keine gewaehlt,
+    -- alle zusammen, jeder Raider einmal.
+    local source = (category and how ~= "default") and category or data
+    local lines = Council.TooltipLines(source, itemId, 5)
     if not lines or alreadyAdded(tooltip) then return end
     tooltip:AddLine(Council.TOOLTIP_HEADER, 1, 0.82, 0)
     for _, line in ipairs(lines) do tooltip:AddLine(line, 1, 1, 1) end
@@ -498,8 +616,105 @@ function EHS:StartCouncilTooltips()
 end
 
 -- ---------------------------------------------------------------------------
--- Befehl
+-- Kategorie zur Raid-Instanz
 -- ---------------------------------------------------------------------------
 
+--- Wo der Spieler gerade ist - nur in einer Raid-Instanz, sonst nil.
+local function currentRaidPlace()
+    if not GetInstanceInfo then return nil end
+    local ok, name, instanceType, _, _, _, _, _, instanceId = pcall(GetInstanceInfo)
+    if not ok or instanceType ~= "raid" then return nil end
+    if issecretvalue and (issecretvalue(name) or issecretvalue(instanceId)) then return nil end
+    local names = {}
+    if type(name) == "string" and name ~= "" then names[#names + 1] = name end
+    if GetRealZoneText then
+        local okZone, zone = pcall(GetRealZoneText)
+        if okZone and type(zone) == "string" and zone ~= "" and not (issecretvalue and issecretvalue(zone)) then
+            names[#names + 1] = zone
+        end
+    end
+    if #names == 0 and not instanceId then return nil end
+    return { names = names, instanceId = instanceId }
+end
+
+--- Beim Betreten einer Raid-Instanz: passt genau eine Kategorie, gilt sie
+--- (auto); passt keine oder mehrere, bleibt die Wahl von Hand. Ausserhalb von
+--- Raids aendert sich nichts (ein Geisterlauf soll nicht umschalten).
+function EHS:CouncilAutoSelect()
+    local place = currentRaidPlace()
+    if not place then return end
+    local key = table.concat(place.names, "|") .. "|" .. tostring(place.instanceId or "")
+    if key == autoPlace then return end
+    autoPlace = key
+    local data = Council.Load()
+    local matches = data and Council.MatchCategories(data, place) or {}
+    autoId = #matches == 1 and matches[1].id or nil
+    if autoId then self:Debug("Loot-Council: Kategorie passend zur Instanz:", matches[1].name) end
+    self:RefreshCouncil()
+end
+
+local autoStarted = false
+
+--- Tooltip und automatische Kategorie-Wahl starten (PLAYER_LOGIN).
+function EHS:StartCouncil()
+    local ok, err = pcall(self.StartCouncilTooltips, self)
+    if not ok then self:Debug("Council-Tooltip:", tostring(err)) end
+    if autoStarted then return end
+    autoStarted = true
+    local events = CreateFrame("Frame")
+    self:RegisterEvents(events, "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA")
+    events:SetScript("OnEvent", function()
+        local okAuto, errAuto = pcall(EHS.CouncilAutoSelect, EHS)
+        if not okAuto then EHS:Debug("Council-Auswahl:", tostring(errAuto)) end
+    end)
+    pcall(self.CouncilAutoSelect, self)
+end
+
+-- ---------------------------------------------------------------------------
+-- Status und Befehl
+-- ---------------------------------------------------------------------------
+
+--- Die Zeilen fuer /ehs status.
+function EHS:CouncilStatusLines()
+    local data, status = Council.Load()
+    if not data then
+        if status == "none" then return {} end
+        return { "Loot-Council: " .. (EMPTY_TEXT[status] or EMPTY_TEXT.none) }
+    end
+    local categories = Council.Categories(data)
+    if #categories == 0 then return { "Loot-Council: " .. Council.NO_CATEGORY_TEXT } end
+    local active, how = self:CouncilActive()
+    local lines = {
+        ("Loot-Council: %d %s, %s."):format(#categories, #categories == 1 and "Kategorie" or "Kategorien",
+            Council.Header(data, now())),
+    }
+    for _, category in ipairs(categories) do
+        local mark = ""
+        if category == active then mark = how == "auto" and " (aktiv, auto)" or " (aktiv)" end
+        lines[#lines + 1] = (" · %s%s - %d Raider"):format(category.name, mark, #category.raiders)
+    end
+    if #categories > 1 then lines[#lines + 1] = "Kategorie wechseln: /ehc <Name>" end
+    return lines
+end
+
 SLASH_EVENTHELPERCOUNCIL1 = "/ehc"
-SlashCmdList.EVENTHELPERCOUNCIL = function() EHS:ToggleCouncil() end
+SlashCmdList.EVENTHELPERCOUNCIL = function(msg)
+    local text = strtrim(msg or "")
+    if text == "" then
+        EHS:ToggleCouncil()
+        return
+    end
+    -- /ehc <Name>: zur Kategorie wechseln, deren Name so anfaengt (oder es enthaelt).
+    local data = Council.Load()
+    local category = data and Council.CategoryByText(data, text)
+    if not category then
+        local names = {}
+        for _, c in ipairs(Council.Categories(data)) do names[#names + 1] = c.name end
+        EHS:Print(("Keine Kategorie passt zu \"%s\". Vorhanden: %s."):format(text,
+            #names > 0 and table.concat(names, ", ") or "keine"))
+        return
+    end
+    EHS:SetCouncilCategory(category.id)
+    EHS:ShowCouncil()
+    EHS:Print("Loot-Council: Kategorie " .. category.name .. ".")
+end

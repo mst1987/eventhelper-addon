@@ -187,10 +187,10 @@ frame:SetScript("OnEvent", function(_, event, arg1)
         EHS:StartZoneTracking()
         EHS:StartButton()
         EHS:StartMinimap()
-        -- Der Council-Tooltip ist eine Zugabe: scheitert er auf einem Client,
-        -- soll der Rest trotzdem laufen.
-        local ok, err = pcall(EHS.StartCouncilTooltips, EHS)
-        if not ok then EHS:Debug("Council-Tooltip:", tostring(err)) end
+        -- Council-Tooltip und Kategorie zur Instanz sind eine Zugabe: scheitern
+        -- sie auf einem Client, soll der Rest trotzdem laufen.
+        local ok, err = pcall(EHS.StartCouncil, EHS)
+        if not ok then EHS:Debug("Council:", tostring(err)) end
         return
     end
 
@@ -250,6 +250,12 @@ local function reportStatus()
         local line = ("Gildenbank-Ausgabe: %d Posten offen"):format(open)
         if done > 0 then line = line .. (", %d abgehakt (noch nicht gemeldet)"):format(done) end
         EHS:Print(line .. ". Liste: /ehs bank")
+    end
+
+    -- The council categories, also just an extra.
+    local okCouncil, councilLines = pcall(EHS.CouncilStatusLines, EHS)
+    if okCouncil and type(councilLines) == "table" then
+        for _, line in ipairs(councilLines) do EHS:Print(line) end
     end
 
     if EHS.db.lastError then
@@ -325,6 +331,7 @@ SlashCmdList.EVENTHELPERSYNC = function(msg)
         EHS:Print("  /ehs button     - Upload-Knopf ein-/ausblenden")
         EHS:Print("  /ehs export     - Export als JSON zum Kopieren anzeigen")
         EHS:Print("  /ehs council    - Loot-Council: Bedarf und erhaltener Loot je Raider (auch /ehc)")
+        EHS:Print("  /ehc <Name>     - Loot-Council: zur Kategorie mit diesem Namen wechseln")
         EHS:Print("  /ehs bank       - Gildenbank-Ausgabe: was an wen raus muss, zum Abhaken (auch /ehb)")
         EHS:Print("  /ehs days <n>   - wie viele Tage zurück exportiert werden")
         EHS:Print("  /ehs debug      - Debug-Ausgaben umschalten")

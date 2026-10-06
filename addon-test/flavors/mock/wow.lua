@@ -266,7 +266,16 @@ function GetGuildInfo(unit) if unit == "player" then return WoWMock.guild end en
 function UnitName() return "Gemli" end
 function GetRealmName() return "Thunderstrike" end
 function UnitFactionGroup() return "Alliance" end
-function GetInstanceInfo() return "", "none" end
+-- Where the player is: WoWMock.instance = { name, type, id, zone } (nil = outside).
+function GetInstanceInfo()
+    local i = WoWMock.instance
+    if not i then return "", "none" end
+    return i.name or "", i.type or "raid", 0, "", 25, 0, false, i.id
+end
+function GetRealZoneText()
+    local i = WoWMock.instance
+    return i and (i.zone or i.name) or "Shattrath"
+end
 function GetCursorPosition() return WoWMock.cursorX or 0, WoWMock.cursorY or 0 end
 function ReloadUI() WoWMock.reloaded = true end
 

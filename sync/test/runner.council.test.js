@@ -23,11 +23,13 @@ const CFG = {
 
 const RESULT = {
     payload: {
-        format: "eventhelper-council", version: 1, generatedAt: 1791234567,
-        filter: { categoryName: "SSC/TK Mittwoch", role: "", bisTier: "t6" },
-        categories: [{ id: 123, name: "SSC/TK Mittwoch" }],
-        raiders: [],
+        format: "eventhelper-council", version: 2, generatedAt: 1791234567,
+        categories: [
+            { id: "123", name: "SSC/TK Mittwoch", filter: { role: "caster" }, raiders: [{}, {}, {}] },
+            { id: "456", name: "Kara Sonntag", filter: { role: "" }, raiders: [{}] },
+        ],
     },
+    categories: 2,
     raiders: 24,
     dirs: [{ flavor: "_anniversary_", dir: "A" }, { flavor: "_classic_beta_", dir: "B" }],
     files: ["A/CouncilData.lua", "B/CouncilData.lua"],
@@ -63,14 +65,32 @@ describe("refreshCouncil", () => {
             fetching: false,
             raiders: 24,
             generatedAt: 1791234567,
-            categoryName: "SSC/TK Mittwoch",
-            bisTier: "t6",
-            categories: [{ id: "123", name: "SSC/TK Mittwoch" }],
+            categories: [
+                { id: "123", name: "SSC/TK Mittwoch", raiders: 3 },
+                { id: "456", name: "Kara Sonntag", raiders: 1 },
+            ],
+            fallback: false,
             files: RESULT.files,
             lastError: null,
         });
         expect(runner.state.council.lastFetch).toBeGreaterThan(0);
-        expect(runner.state.log.some((e) => /24 Raider in 2 Addon-Ordner/.test(e.text))).toBe(true);
+        expect(runner.state.log.some((e) => /2 Kategorien, 24 Raider in 2 Addon-Ordner/.test(e.text))).toBe(true);
+    });
+
+    it("merkt sich den Rückfall auf Version 1 und warnt ohne Kategorie", async () => {
+        council.syncCouncil.mockResolvedValue({
+            ...RESULT, categories: 1, raiders: 3,
+            payload: { ...RESULT.payload, fromVersion: 1, categories: [RESULT.payload.categories[0]] },
+        });
+        const runner = createRunner();
+        await runner.refreshCouncil({ force: true });
+        expect(runner.state.council.fallback).toBe(true);
+        expect(runner.state.log.some((e) => /1 Kategorie, 3 Raider/.test(e.text))).toBe(true);
+
+        council.syncCouncil.mockResolvedValue({ ...RESULT, categories: 0, raiders: 0, payload: { ...RESULT.payload, categories: [] } });
+        await runner.refreshCouncil({ force: true });
+        expect(runner.state.council.categories).toEqual([]);
+        expect(runner.state.log.some((e) => e.level === "warn" && /Keine Kategorie mit Loot-Council/.test(e.text))).toBe(true);
     });
 
     it("wirft nie, sondern merkt sich den Fehler", async () => {

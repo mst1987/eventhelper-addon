@@ -44,6 +44,11 @@ const HANDOUTS_MIN_GAP_MS = 60 * 1000;
 // try (a changed file retries at once).
 const HANDOUTS_REPORT_RETRY_MS = 5 * 60 * 1000;
 
+/** "1 Kategorie" / "3 Kategorien". */
+function councilCategoriesLabel(count) {
+    return count === 1 ? "1 Kategorie" : `${count} Kategorien`;
+}
+
 function createRunner(options = {}) {
     const state = {
         version: SYNC_VERSION,
@@ -70,11 +75,12 @@ function createRunner(options = {}) {
             fetching: false,
             lastFetch: 0,
             generatedAt: 0,
+            /** Verschiedene Raider über alle Kategorien. */
             raiders: 0,
-            categoryName: "",
-            role: "",
-            bisTier: "",
+            /** [{ id, name, raiders }] — die Loot-Council-Kategorien der Webseite. */
             categories: [],
+            /** true: ein älterer Server hat nur Version 1 (eine Kategorie) geliefert. */
+            fallback: false,
             files: [],
             lastError: null,
         },
@@ -432,27 +438,34 @@ function createRunner(options = {}) {
                     return null;
                 }
                 const result = await council.syncCouncil(cfg);
-                const filter = result.payload.filter || {};
+                const categories = Array.isArray(result.payload.categories) ? result.payload.categories : [];
                 Object.assign(c, {
                     lastFetch: Date.now(),
                     generatedAt: Number(result.payload.generatedAt) || 0,
                     raiders: result.raiders,
-                    categoryName: filter.categoryName || "",
-                    role: filter.role || "",
-                    bisTier: filter.bisTier || "",
-                    categories: Array.isArray(result.payload.categories)
-                        ? result.payload.categories.filter((k) => k && k.id !== undefined)
-                            .map((k) => ({ id: String(k.id), name: String(k.name || k.id) }))
-                        : [],
+                    // Die Loot-Council-Kategorien, wie sie ins Spiel gehen.
+                    categories: categories.map((k) => ({
+                        id: String(k.id ?? ""),
+                        name: String(k.name || k.id || ""),
+                        raiders: Array.isArray(k.raiders) ? k.raiders.length : 0,
+                    })),
+                    // Ein älterer Server (Version 1): eine Kategorie aus der
+                    // Konfiguration statt aller von der Webseite.
+                    fallback: result.payload.fromVersion === 1,
                     files: result.files,
                     lastError: result.errors.length ? { at: Date.now(), message: result.errors.join("; ") } : null,
                 });
+                const what = `${councilCategoriesLabel(categories.length)}, ${result.raiders} Raider`;
                 if (!result.dirs.length) {
-                    log("warn", `Council-Daten geholt (${result.raiders} Raider), aber kein installierter `
+                    log("warn", `Council-Daten geholt (${what}), aber kein installierter `
                         + "Addon-Ordner EventHelperSync gefunden — nichts geschrieben.");
                 } else if (result.files.length) {
-                    log("ok", `Council-Daten: ${result.raiders} Raider in ${result.files.length} Addon-Ordner `
+                    log("ok", `Council-Daten: ${what} in ${result.files.length} Addon-Ordner `
                         + "geschrieben — im Spiel nach /reload sichtbar.");
+                }
+                if (!categories.length) {
+                    log("warn", "Keine Kategorie mit Loot-Council: auf der Webseite unter Einstellungen > "
+                        + "Kategorien das Lootsystem auf Loot-Council stellen.");
                 }
                 for (const err of result.errors) log("error", `Council-Daten nicht geschrieben: ${err}`);
                 return result;
@@ -679,8 +692,9 @@ function createRunner(options = {}) {
         councilTimer = setInterval(() => refreshCouncil(), COUNCIL_INTERVAL_MS);
         handoutsTimer = setInterval(() => refreshHandouts(), HANDOUTS_INTERVAL_MS);
         log("info", "Einstellungen neu geladen.");
-        // Andere Kategorie/Rolle oder ein neues Ziel: gleich neu holen, nicht
-        // erst in einer Viertelstunde.
+        // Ein neues Ziel (oder, nur für ältere Server, eine andere
+        // Kategorie/Rolle in der Konfiguration): gleich neu holen, nicht erst
+        // in einer Viertelstunde.
         const councilChanged = ["baseUrl", "token", "councilCategory", "councilRole"]
             .some((k) => (before[k] || "") !== (cfg[k] || ""));
         refreshCouncil({ force: councilChanged });
@@ -760,5 +774,5 @@ function describe(r) {
 
 module.exports = {
     createRunner, describe, whyNothing, LOG_LIMIT, COUNCIL_INTERVAL_MS, COUNCIL_MIN_GAP_MS, GUILD_BANK_RETRY_MS,
-    HANDOUTS_INTERVAL_MS, HANDOUTS_MIN_GAP_MS, HANDOUTS_REPORT_RETRY_MS,
+    HANDOUTS_INTERVAL_MS, HANDOUTS_MIN_GAP_MS, HANDOUTS_REPORT_RETRY_MS, councilCategoriesLabel,
 };

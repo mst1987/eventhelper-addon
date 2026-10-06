@@ -439,17 +439,18 @@ describe("webui", () => {
     describe("Council-Daten", () => {
         const COUNCIL = {
             fetching: false, lastFetch: 1700000000000, generatedAt: 1791234567, raiders: 24,
-            categoryName: "SSC/TK Mittwoch", role: "", bisTier: "t6",
-            categories: [{ id: "123", name: "SSC/TK Mittwoch" }], files: ["A", "B"], lastError: null,
+            categories: [{ id: "123", name: "SSC/TK Mittwoch", raiders: 24 }], fallback: false,
+            files: ["A", "B"], lastError: null,
         };
 
-        it("liefert den Council-Stand mit /api/state", async () => {
+        it("liefert den Council-Stand mit /api/state, ohne Kategorie/Rolle in der Konfiguration", async () => {
             const runner = fakeRunner();
             runner.state.council = COUNCIL;
             await startUI(runner);
             const body = await (await get("/api/state")).json();
             expect(body.council).toEqual(COUNCIL);
-            expect(body.config).toMatchObject({ councilCategory: "", councilRole: "" });
+            expect(body.config.councilCategory).toBeUndefined();
+            expect(body.config.councilRole).toBeUndefined();
         });
 
         it("holt auf Klick sofort und meldet das Ergebnis", async () => {
@@ -471,33 +472,26 @@ describe("webui", () => {
             expect((await res.json()).error).toBe("Server weg");
         });
 
-        it("speichert Kategorie und Rolle, und nur gültige Rollen", async () => {
-            await startUI(fakeRunner());
-            await post("/api/settings", {
-                baseUrl: "https://example.test:3005", councilCategory: " 123 ", councilRole: "healer",
-            });
-            expect(config.save).toHaveBeenLastCalledWith(
-                expect.objectContaining({ councilCategory: "123", councilRole: "healer" }),
-            );
-            await post("/api/settings", { baseUrl: "https://example.test:3005", councilRole: "tank" });
-            expect(config.save).toHaveBeenLastCalledWith(expect.objectContaining({ councilRole: "" }));
-        });
-
-        it("lässt die Council-Auswahl stehen, wenn sie nicht mitgeschickt wird", async () => {
+        it("lässt eine alte Council-Auswahl (Rückfall für ältere Server) stehen und nimmt keine neue an", async () => {
             config.load.mockReturnValue({ ...CONFIG, councilCategory: "123", councilRole: "caster" });
             await startUI(fakeRunner());
-            await post("/api/settings", { baseUrl: "https://example.test:3005" });
+            await post("/api/settings", {
+                baseUrl: "https://example.test:3005", councilCategory: "999", councilRole: "healer",
+            });
             expect(config.save).toHaveBeenLastCalledWith(
                 expect.objectContaining({ councilCategory: "123", councilRole: "caster" }),
             );
         });
 
-        it("hat den Knopf hinter dem Zahnrad und die Statuszeile in der Seite", async () => {
+        it("hat den Knopf hinter dem Zahnrad und die Statuszeile, aber keine Kategorie-Auswahl mehr", async () => {
             await startUI(fakeRunner());
             const html = await (await get("/")).text();
             expect(html).toContain("Council-Daten holen");
             expect(html).toContain('id="council-status"');
             expect(html).toContain("nach /reload im Spiel sichtbar");
+            expect(html).toContain(" Kategorien");
+            expect(html).not.toContain('name="councilCategory"');
+            expect(html).not.toContain('name="councilRole"');
         });
     });
 

@@ -248,20 +248,11 @@ module.exports.PAGE = String.raw`<!doctype html>
         <input type="number" name="pollSeconds" min="5" max="600">
         <span class="hint">WoW schreibt die Datei nur beim Ausloggen, bei /reload und über den Upload-Knopf im Spiel — öfter als alle paar Sekunden nachzusehen bringt nichts.</span>
       </label>
-      <label>
-        <span class="lbl">Loot-Council im Spiel: Raid-Kategorie</span>
-        <select name="councilCategory" id="council-category"></select>
-        <span class="hint">Für welche Raids Bedarf und Loot-Historie ins Spiel geholt werden. Die Auswahl kommt vom Server.</span>
-      </label>
-      <label>
-        <span class="lbl">Loot-Council im Spiel: Rolle</span>
-        <select name="councilRole" id="council-role">
-          <option value="">Caster und Heiler</option>
-          <option value="caster">nur Caster</option>
-          <option value="healer">nur Heiler</option>
-        </select>
-        <span class="hint">Geholt wird alle 15 Minuten und nach jedem Upload; im Spiel sichtbar nach /reload (<code>/ehc</code>).</span>
-      </label>
+      <div class="hint" id="council-hint" style="margin-bottom: 12px">
+        Loot-Council im Spiel: geholt werden alle Raid-Kategorien, deren Lootsystem auf der Webseite
+        Loot-Council ist, mit den Filtern der Loot-Council-Seite (Rolle, Tiers, BiS-Liste).
+        Geholt wird alle 15 Minuten und nach jedem Upload; im Spiel sichtbar nach /reload (<code>/ehc</code>).
+      </div>
       <div class="row2">
         <button type="submit" class="btn primary">Speichern</button>
         <button type="button" class="btn" id="btn-upload-all">Alles hochladen</button>
@@ -566,6 +557,7 @@ function renderCouncil(c) {
     return;
   }
   line.hidden = false;
+  line.title = "";
   line.classList.toggle("err", !!c.lastError);
   if (c.lastError && (!c.lastFetch || c.lastError.at >= c.lastFetch)) {
     line.textContent = "Council: " + c.lastError.message;
@@ -575,9 +567,23 @@ function renderCouncil(c) {
     line.textContent = "Council: wird geholt …";
     return;
   }
+  const cats = c.categories || [];
+  if (!cats.length) {
+    line.classList.add("err");
+    line.textContent = "Council: keine Kategorie mit Loot-Council — auf der Webseite unter "
+      + "Einstellungen > Kategorien das Lootsystem auf Loot-Council stellen.";
+    return;
+  }
   const stamp = councilStamp(c.generatedAt ? c.generatedAt * 1000 : c.lastFetch);
-  line.textContent = "Council: " + c.raiders + " Raider, Stand " + stamp + " — "
+  line.textContent = "Council: " + councilSummary(c) + ", Stand " + stamp + " — "
     + ((c.files || []).length ? "nach /reload im Spiel sichtbar" : "kein Addon-Ordner gefunden");
+  line.title = cats.map((k) => k.name + ": " + k.raiders + " Raider").join("\n")
+    + (c.fallback ? "\n(älterer Server: nur die Kategorie aus der Konfiguration)" : "");
+}
+// "3 Kategorien, 24 Raider"
+function councilSummary(c) {
+  const n = (c.categories || []).length;
+  return (n === 1 ? "1 Kategorie" : n + " Kategorien") + ", " + c.raiders + " Raider";
 }
 
 // One line for the guild bank handouts (GuildBankData.lua, /ehs bank in
@@ -786,30 +792,6 @@ function render() {
       sel.appendChild(o);
     }
     sel.value = d.config.savedVariablesPath || "";
-
-    // Kategorien kennt erst der letzte Abruf; eine gespeicherte, die dort
-    // (noch) nicht vorkommt, bleibt trotzdem wählbar.
-    const cat = $("council-category");
-    cat.innerHTML = "";
-    const allCats = document.createElement("option");
-    allCats.value = "";
-    allCats.textContent = "Alle Raids";
-    cat.appendChild(allCats);
-    const cats = (d.council && d.council.categories) || [];
-    for (const c of cats) {
-      const o = document.createElement("option");
-      o.value = c.id;
-      o.textContent = c.name;
-      cat.appendChild(o);
-    }
-    if (d.config.councilCategory && !cats.some((c) => c.id === d.config.councilCategory)) {
-      const o = document.createElement("option");
-      o.value = d.config.councilCategory;
-      o.textContent = "Kategorie " + d.config.councilCategory;
-      cat.appendChild(o);
-    }
-    cat.value = d.config.councilCategory || "";
-    $("council-role").value = d.config.councilRole || "";
     $("sv-hint").textContent = d.candidates.length
       ? "„Automatisch suchen\" überlebt eine Neuinstallation von WoW."
       : "Keine WoW-Installation gefunden — bitte den Pfad unten selbst angeben.";
@@ -897,8 +879,6 @@ $("settings").addEventListener("submit", async (ev) => {
         savedVariablesPath: f.savedVariablesPath.value,
         manualPath: f.manualPath.value.trim(),
         pollSeconds: Number(f.pollSeconds.value),
-        councilCategory: f.councilCategory.value,
-        councilRole: f.councilRole.value,
       }),
     });
     f.token.value = "";
@@ -930,7 +910,7 @@ $("btn-council").addEventListener("click", async () => {
     const r = await api("/api/council", { method: "POST" });
     const files = (r.council.files || []).length;
     flash(files
-      ? r.council.raiders + " Raider in " + files + " Addon-Ordner geschrieben — im Spiel /reload."
+      ? councilSummary(r.council) + " in " + files + " Addon-Ordner geschrieben — im Spiel /reload."
       : "Council-Daten geholt, aber kein Addon-Ordner gefunden.", files ? "ok" : "err");
   } catch (e) {
     flash(e.message, "err");

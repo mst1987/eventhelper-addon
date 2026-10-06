@@ -209,9 +209,18 @@ async function cmdCouncil() {
         fail(`Council-Daten nicht geholt: ${e.message}`);
         process.exit(1);
     }
-    const filter = result.payload.filter || {};
-    log(`${result.raiders} Raider${filter.categoryName ? ` (${filter.categoryName})` : ""}, `
-        + `BiS-Liste ${filter.bisTier || "-"}.`);
+    const categories = result.payload.categories || [];
+    log(`${categories.length === 1 ? "1 Kategorie" : `${categories.length} Kategorien`}, ${result.raiders} Raider`
+        + `${result.payload.fromVersion === 1 ? " (älterer Server: Version 1, Kategorie aus der Konfiguration)" : ""}.`);
+    for (const category of categories) {
+        const filter = category.filter || {};
+        log(`  ${category.name}: ${(category.raiders || []).length} Raider`
+            + `${filter.role ? `, Rolle ${filter.role}` : ""}, BiS-Liste ${filter.bisTier || "-"}`);
+    }
+    if (!categories.length) {
+        log("Keine Kategorie mit Loot-Council: auf der Webseite unter Einstellungen > Kategorien "
+            + "das Lootsystem auf Loot-Council stellen.");
+    }
     if (!result.dirs.length) {
         fail("Kein installierter Addon-Ordner EventHelperSync gefunden — nichts geschrieben.");
         process.exit(1);

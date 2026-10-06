@@ -15,10 +15,14 @@
  * sind sie im Spiel da. Die Datei liegt im Repo als leerer Platzhalter und wird
  * hier überschrieben.
  *
- * Das Format `eventhelper-council` Version 1 ist mit dem Server (Repo
- * d:/programming/eventhelper, Route GET /api/ingest/council) abgestimmt. Ändert
- * es sich, muss die Version auf beiden Seiten mitwachsen; eine höhere Version
- * lehnt dieses Tool ab, statt sie halb zu schreiben.
+ * Das Format `eventhelper-council` ist mit dem Server (Repo
+ * d:/programming/eventhelper, Route GET /api/ingest/council, docs/loot-import.md)
+ * abgestimmt. Version 2 (`?v=2`) liefert jede Raid-Kategorie, deren Lootsystem
+ * Loot-Council ist, mit den Filtern der Webseite (`categories: [...]`).
+ * Version 1 (eine Kategorie, Filter vom Sync-Tool) sprechen ältere Server noch;
+ * sie wird hier in die Form von Version 2 gebracht, damit das Addon nur eine
+ * Form kennen muss. Ändert sich das Format, wächst die Version auf beiden
+ * Seiten mit; eine höhere lehnt dieses Tool ab, statt sie halb zu schreiben.
  */
 const fs = require("fs");
 const path = require("path");
@@ -26,7 +30,7 @@ const wowPaths = require("./wowPaths");
 const { getJson, UploadError, SYNC_VERSION } = require("./uploader");
 
 const COUNCIL_FORMAT = "eventhelper-council";
-const COUNCIL_VERSION = 1;
+const COUNCIL_VERSION = 2;
 const COUNCIL_FILE = "CouncilData.lua";
 // Die globale Variable, die das Addon liest (Council.lua).
 const COUNCIL_GLOBAL = "EventHelperSync_Council";
@@ -160,7 +164,9 @@ function buildCouncilFile(payload, { syncVersion = SYNC_VERSION, now = new Date(
 // ---------------------------------------------------------------------------
 
 /**
- * Prüfen, ob der Server das liefert, was das Addon versteht.
+ * Prüfen, ob der Server das liefert, was das Addon versteht: Version 1 (eine
+ * Raider-Liste) oder Version 2 (eine Liste von Kategorien mit je einer
+ * Raider-Liste).
  * @returns {object} der Payload selbst
  */
 function validateCouncil(payload) {
@@ -180,17 +186,102 @@ function validateCouncil(payload) {
             + "Bitte EventHelper Sync aktualisieren.",
         );
     }
-    if (!Array.isArray(payload.raiders)) {
-        throw new CouncilError("Die Council-Daten enthalten keine Raider-Liste.");
+    if (version === 1) {
+        if (!Array.isArray(payload.raiders)) {
+            throw new CouncilError("Die Council-Daten enthalten keine Raider-Liste.");
+        }
+        return payload;
+    }
+    if (!Array.isArray(payload.categories)) {
+        throw new CouncilError("Die Council-Daten enthalten keine Kategorien-Liste.");
+    }
+    for (const category of payload.categories) {
+        if (!category || typeof category !== "object" || !Array.isArray(category.raiders)) {
+            throw new CouncilError("Eine Kategorie der Council-Daten hat keine Raider-Liste.");
+        }
     }
     return payload;
 }
 
-/** Den Payload vom Server holen (noch ungeprüft). */
-async function fetchCouncil(config, { category = "", role = "" } = {}) {
+// Bildzeichen (Emoji samt Hautton, Variantenwähler, Verbinder) — in Namen von
+// Kategorien beliebt, im Spiel aber nur Kästchen bzw. "?".
+const PICTOGRAPHS = /\p{Extended_Pictographic}|\p{Emoji_Modifier}|\p{Regional_Indicator}|\u{FE0E}|\u{FE0F}|\u{200D}|\u{20E3}/gu;
+
+/**
+ * Der Name einer Kategorie, so wie das Spiel ihn zeigen kann: ohne Emoji und
+ * Zeichen ausserhalb Latin-1 (statt eines "?"), ohne Trenner am Anfang und
+ * Ende ("🔥 | SSC" -> "SSC"), Leerraum zusammengezogen. Bleibt nichts übrig:
+ * "Kategorie <id>".
+ */
+function cleanCategoryName(name, id = "") {
+    let text = String(name ?? "").normalize("NFC").replace(PICTOGRAPHS, "");
+    // Was toLatin1() zu "?" machen würde, fällt hier ganz weg.
+    text = [...text].filter((ch) => ASCII_REPLACEMENTS[ch] !== undefined || ch.codePointAt(0) <= 0xff).join("");
+    text = toLatin1(text)
+        .replace(/\s+/g, " ")
+        .replace(/^[\s\-|·:/,;*~_.]+/, "")
+        .replace(/[\s\-|·:/,;*~_]+$/, "")
+        .trim();
+    return text || `Kategorie ${id}`.trim();
+}
+
+/**
+ * Eine Antwort von Version 1 (ältere Server) in die Form von Version 2: eine
+ * einzige Kategorie mit dem Filter, den das Sync-Tool mitgeschickt hat.
+ */
+function wrapV1(payload) {
+    const filter = payload.filter && typeof payload.filter === "object" ? payload.filter : {};
+    const id = filter.category !== undefined && filter.category !== null ? String(filter.category) : "";
+    return {
+        format: COUNCIL_FORMAT,
+        version: COUNCIL_VERSION,
+        generatedAt: payload.generatedAt,
+        weights: payload.weights,
+        fromVersion: 1,
+        categories: [{
+            id,
+            name: filter.categoryName || "Alle Raids",
+            lootSystem: "lootcouncil",
+            filter: {
+                role: filter.role || "",
+                tiers: [],
+                contents: [],
+                bisTier: filter.bisTier || "",
+                bisTierDerived: !!filter.bisTierDerived,
+                version: "",
+            },
+            instances: [],
+            avgLootCount: payload.avgLootCount,
+            raiders: payload.raiders,
+        }],
+    };
+}
+
+/** Version 2 für die Datei aufbereiten: Namen spielfest, id als String. */
+function normalizeV2(payload) {
+    return {
+        ...payload,
+        categories: payload.categories.map((category) => {
+            const id = category.id !== undefined && category.id !== null ? String(category.id) : "";
+            return { ...category, id, name: cleanCategoryName(category.name, id) };
+        }),
+    };
+}
+
+/**
+ * Den Payload vom Server holen (noch ungeprüft).
+ * @param {{ v2?: boolean, category?: string, role?: string }} [options]
+ *   v2: alle Loot-Council-Kategorien (Version 2), sonst die alte Anfrage
+ *   (Version 1) mit Kategorie und Rolle.
+ */
+async function fetchCouncil(config, { v2 = false, category = "", role = "" } = {}) {
     const params = new URLSearchParams();
-    if (category) params.set("category", String(category));
-    if (role) params.set("role", String(role));
+    if (v2) {
+        params.set("v", "2");
+    } else {
+        if (category) params.set("category", String(category));
+        if (role) params.set("role", String(role));
+    }
     const query = params.toString();
     try {
         return await getJson(config, `/api/ingest/council${query ? `?${query}` : ""}`);
@@ -198,10 +289,49 @@ async function fetchCouncil(config, { category = "", role = "" } = {}) {
         // Ein EventHelper ohne diese Route antwortet 404 — das ist kein
         // Verbindungsproblem, sondern ein zu alter Server.
         if (e instanceof UploadError && e.status === 404) {
-            throw new CouncilError("Der Server kennt noch keine Council-Daten (HTTP 404) — ist der EventHelper aktuell?");
+            const err = new CouncilError("Der Server kennt noch keine Council-Daten (HTTP 404) — ist der EventHelper aktuell?");
+            err.status = 404;
+            throw err;
         }
         throw e;
     }
+}
+
+/**
+ * Die Council-Daten in der Form von Version 2 holen. Erst `?v=2`; ein älterer
+ * Server antwortet darauf mit Version 1 (oder 404) — dann die alte Anfrage
+ * mit Kategorie und Rolle aus der Konfiguration, verpackt als eine Kategorie.
+ * @returns {Promise<object>} geprüft, Version 2
+ */
+async function loadCouncil(config) {
+    let first = null;
+    try {
+        first = validateCouncil(await fetchCouncil(config, { v2: true }));
+    } catch (e) {
+        if (!(e instanceof CouncilError && e.status === 404)) throw e;
+    }
+    if (first && first.version >= 2) return normalizeV2(first);
+
+    const category = config.councilCategory || "";
+    const role = config.councilRole || "";
+    // Ohne gespeicherte Kategorie/Rolle ist die erste Antwort schon die richtige.
+    const v1 = first && !category && !role
+        ? first
+        : validateCouncil(await fetchCouncil(config, { category, role }));
+    if (v1.version >= 2) return normalizeV2(v1);
+    return normalizeV2(wrapV1(v1));
+}
+
+/** Wie viele verschiedene Raider in allen Kategorien zusammen stehen. */
+function countRaiders(payload) {
+    const seen = new Set();
+    for (const category of payload.categories || []) {
+        for (const raider of category.raiders || []) {
+            if (!raider || typeof raider !== "object") continue;
+            seen.add(String(raider.key || raider.character || "").toLowerCase());
+        }
+    }
+    return seen.size;
 }
 
 /** Erst in eine Nachbardatei schreiben, dann umbenennen: WoW (oder ein
@@ -225,16 +355,16 @@ function writeAtomic(file, text) {
  * Holen, prüfen und in jeden installierten Addon-Ordner schreiben.
  * @param {object} config  wie aus lib/config.js
  * @param {{ now?: Date, roots?: string[] }} [options]  roots nur für Tests
- * @returns {Promise<{ payload: object, raiders: number, dirs: object[], files: string[], errors: string[] }>}
+ * @returns {Promise<{ payload: object, categories: number, raiders: number, dirs: object[], files: string[],
+ *   errors: string[] }>}  payload immer in der Form von Version 2; raiders = verschiedene Raider
  */
 async function syncCouncil(config, { now = new Date(), roots } = {}) {
-    const payload = validateCouncil(await fetchCouncil(config, {
-        category: config.councilCategory || "",
-        role: config.councilRole || "",
-    }));
+    const payload = await loadCouncil(config);
     const text = buildCouncilFile(payload, { now });
     const { dirs, files, errors } = writeToAddonDirs(config, COUNCIL_FILE, text, { roots });
-    return { payload, raiders: payload.raiders.length, dirs, files, errors };
+    return {
+        payload, categories: payload.categories.length, raiders: countRaiders(payload), dirs, files, errors,
+    };
 }
 
 /**
@@ -269,6 +399,6 @@ function writeToAddonDirs(config, fileName, text, { roots } = {}) {
 }
 
 module.exports = {
-    syncCouncil, fetchCouncil, validateCouncil, buildCouncilFile, toLua, luaString, toLatin1, writeAtomic,
-    writeToAddonDirs, CouncilError, COUNCIL_FORMAT, COUNCIL_VERSION, COUNCIL_FILE, COUNCIL_GLOBAL,
+    syncCouncil, fetchCouncil, loadCouncil, validateCouncil, wrapV1, cleanCategoryName, countRaiders,
+    buildCouncilFile, toLua, luaString, toLatin1, writeAtomic, writeToAddonDirs, CouncilError, COUNCIL_FORMAT, COUNCIL_VERSION, COUNCIL_FILE, COUNCIL_GLOBAL,
 };

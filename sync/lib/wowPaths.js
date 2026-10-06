@@ -308,7 +308,78 @@ function findAddonDirs(extraRoots = [], { savedVariablesPath = "", roots } = {})
     return found;
 }
 
+// Readable names for the flavor folders, for the UI. WoW Forever runs in the
+// _classic_beta_ folder. Unknown folders keep their own name.
+const FLAVOR_LABELS = {
+    _anniversary_: "TBC Anniversary",
+    _classic_beta_: "Forever",
+    _classic_era_: "Classic Era",
+    _classic_: "Classic",
+    _retail_: "Retail",
+    _classic_era_ptr_: "Classic Era PTR",
+    _classic_ptr_: "Classic PTR",
+    _ptr_: "PTR",
+    _beta_: "Beta",
+    _xptr_: "XPTR",
+};
+
+/** "_anniversary_" -> "TBC Anniversary"; unknown names stay as they are. */
+function flavorLabel(flavor) {
+    const name = String(flavor || "");
+    return FLAVOR_LABELS[name.toLowerCase()] || name;
+}
+
+/**
+ * The addon version from `<dir>/EventHelperSync.toc` (`## Version: 1.2.3`),
+ * or "" if the file or the line is missing.
+ */
+function readAddonVersion(dir) {
+    try {
+        const text = fs.readFileSync(path.join(dir, `${ADDON_FOLDER}.toc`), "utf8");
+        const m = /^##\s*Version\s*:\s*(\S+)/im.exec(text);
+        return m ? m[1] : "";
+    } catch {
+        return "";
+    }
+}
+
+/**
+ * Compare two dotted versions numerically ("1.10.0" > "1.9.2").
+ * @returns {number} <0, 0 or >0
+ */
+function compareVersions(a, b) {
+    const pa = String(a || "").split(".").map((n) => parseInt(n, 10) || 0);
+    const pb = String(b || "").split(".").map((n) => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+        const d = (pa[i] || 0) - (pb[i] || 0);
+        if (d) return d;
+    }
+    return 0;
+}
+
+/**
+ * The installed addon folders (findAddonDirs) with a readable flavor name and
+ * the addon version, for the settings view.
+ * @param {string[]} extraRoots
+ * @param {{ savedVariablesPath?: string, roots?: string[], toolVersion?: string }} [options]
+ *   toolVersion: marks folders with an older addon as `outdated`
+ * @returns {{ flavor: string, label: string, dir: string, version: string, outdated: boolean }[]}
+ */
+function describeAddonDirs(extraRoots = [], { savedVariablesPath = "", roots, toolVersion = "" } = {}) {
+    return findAddonDirs(extraRoots, { savedVariablesPath, roots }).map(({ flavor, dir }) => {
+        const version = readAddonVersion(dir);
+        return {
+            flavor,
+            label: flavorLabel(flavor),
+            dir,
+            version,
+            outdated: !!(version && toolVersion && compareVersions(version, toolVersion) < 0),
+        };
+    });
+}
+
 module.exports = {
     discover, findInRoot, searchedRoots, candidateRoots, resolveUserPath, findBelow, findAddonDirs,
+    flavorLabel, readAddonVersion, compareVersions, describeAddonDirs,
     SAVED_VARIABLES_FILE, FLAVORS, GAME_FOLDERS, ADDON_FOLDER,
 };

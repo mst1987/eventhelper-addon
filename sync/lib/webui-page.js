@@ -2,269 +2,390 @@
 
 // Die Oberfläche als eine Zeichenkette — kein Build-Schritt, keine Dateien
 // daneben, und beim Packen der .exe landet sie automatisch mit im Bündel.
-// Kein Framework: eine Raid-Liste und ein Einstellungen-Panel dahinter.
+// Kein Framework: vier Ansichten (Einrichtung, Übersicht, Einstellungen,
+// Verlauf) in einer Seite, umgeschaltet ohne Neuladen.
 //
-// Layout und Farben sind das abgenommene Mockup (dunkles Steinpanel, goldene
-// Fassung, rote Buttons für "bereit", grün/gelb für importiert/kein-Loot,
-// https://claude.ai/artifact/DXAy1y1wS2i9jX7hQ6d7kF) — kein Browser-Chrome
-// mehr sichtbar, weil appWindow.js die Seite als eigenes Fenster öffnet.
+// Look: the EventHelper website (dark panels, violet accent, monospace
+// kickers), from the approved mockups of the redesign (issue #26). No
+// external fonts or scripts: the window must work offline. The WoW icons of
+// the tiles come from webui-icons.js as data URIs.
+//
+// The page script avoids template literals on purpose: the whole page is one
+// String.raw template, and a dollar-brace in it would be interpolated here.
+
+const ICONS = require("./webui-icons");
+
+// Shared SVG snippets (24-unit viewBox, stroke icons).
+const SVG_SHIELD = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/></svg>';
+const SVG_CLOCK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
+const SVG_GEAR = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>';
+const SVG_X = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+const SVG_BACK = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>';
+const SVG_RELOAD = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>';
+
+const CREST = '<span class="crest" aria-hidden="true">' + SVG_SHIELD + "</span>";
+const BRAND = '<span class="brand"><b>EventHelper Sync</b><small class="js-ver">&nbsp;</small></span>';
+const PILL = '<span class="pill off js-pill" role="status"><span class="pdot"></span><span class="ptext">…</span></span>';
+const BTN_LOG = '<button type="button" class="ibtn" data-act="nav" data-arg="log" aria-label="Verlauf" title="Verlauf">' + SVG_CLOCK + "</button>";
+const BTN_SETTINGS = '<button type="button" class="ibtn" data-act="nav" data-arg="settings" aria-label="Einstellungen" title="Einstellungen">' + SVG_GEAR + "</button>";
+const BTN_QUIT = '<button type="button" class="ibtn" data-act="quit" aria-label="Sync beenden" title="Sync beenden">' + SVG_X + "</button>";
+const BTN_BACK = '<button type="button" class="back" data-act="nav" data-arg="main">' + SVG_BACK + "Übersicht</button>";
+
+// Fenster-/Taskleisten-Icon: Edge/Chrome übernehmen im --app=-Modus das
+// Favicon der Seite. Dasselbe Motiv wie assets/icon.svg, das Icon der .exe —
+// beide gemeinsam ändern (danach npm run build:icon).
+const FAVICON = "data:image/svg+xml,"
+    + "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E"
+    + "%3Cdefs%3E%3ClinearGradient id='g' x1='.25' y1='.07' x2='.75' y2='.93'%3E"
+    + "%3Cstop offset='0' stop-color='%238a7cff'/%3E%3Cstop offset='1' stop-color='%2335d6c4'/%3E"
+    + "%3C/linearGradient%3E%3C/defs%3E"
+    + "%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E"
+    + "%3Cpath transform='translate(2.8 2.8) scale(1.1)' d='M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z' "
+    + "fill='none' stroke='%23130f26' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E"
+    + "%3C/svg%3E";
 
 module.exports.PAGE = String.raw`<!doctype html>
 <html lang="de">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EventHelper Loot-Sync</title>
-<!-- Taskleisten-/Fenster-Icon: Edge/Chrome übernehmen im --app=-Modus das
-     Favicon der Seite als Icon von Taskleiste und Fenster. Als Daten-URI
-     eingebettet statt als Datei, damit auch dieses Stück ohne Build-Schritt
-     im gepackten Bündel landet (siehe Kopfkommentar). Dasselbe Motiv wie
-     assets/icon.svg, das Icon der .exe — beide gemeinsam ändern. -->
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231c150c'/%3E%3Crect x='1.5' y='1.5' width='29' height='29' rx='5' fill='none' stroke='%23d8b567' stroke-width='2'/%3E%3Cpath d='M16 6 L8 13 L16 13 Z' fill='%23c4473c'/%3E%3Cpath d='M16 6 L24 13 L16 13 Z' fill='%23a8322c'/%3E%3Cpath d='M8 13 L16 26 L16 13 Z' fill='%2386221f'/%3E%3Cpath d='M24 13 L16 26 L16 13 Z' fill='%236c1a18'/%3E%3Cpath d='M16 6 L24 13 L16 26 L8 13 Z' fill='none' stroke='%23d8b567' stroke-width='1.4' stroke-linejoin='round'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Spectral:wght@400;500;600&display=swap">
+<title>EventHelper Sync</title>
+<link rel="icon" type="image/svg+xml" href="${FAVICON}">
 <style>
   :root {
-    --gold: #d8b567; --gold-dim: #8a6a2c; --cream: #f2dfa8; --parchment: #cabfa8;
-    --ready-bg1: #9a2a2a; --ready-bg2: #6b1414; --ready-bg3: #4a0d0d;
-    --done-bg1: #2e3a26; --done-bg2: #1c2417; --done-line: #5a7a3e;
-    --empty-bg1: #3a3320; --empty-bg2: #241f13; --empty-line: #8a7a2e;
-    --pending-bg1: #26344a; --pending-bg2: #161f2e; --pending-line: #5a82b8;
-    --err: #ff8a7a; --warn: #e0c25a;
+    --bg: #16181d; --panel: #1f232b; --panel2: #272c36; --line: #2c313b; --line2: #23272f;
+    --text: #e6e6e6; --muted: #9aa0aa; --faint: #6f7682;
+    --accent: #8a7cff; --accent-ink: #130f26; --accent-soft: rgba(138,124,255,.14); --accent-text: #a99dff;
+    --good: #7fd17f; --medium: #e0a23a; --high: #e0524f; --pending: #60a5fa; --cyan: #4cc3f7;
+    --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+    color-scheme: dark;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
   body {
-    margin: 0; font-family: "Spectral", Georgia, serif; color: var(--parchment);
-    background:
-      radial-gradient(38% 30% at 12% 8%, rgba(255,205,120,.18), transparent 70%),
-      radial-gradient(55% 42% at 6% 96%, rgba(95,125,55,.22), transparent 70%),
-      radial-gradient(60% 50% at 100% 55%, rgba(130,70,45,.18), transparent 70%),
-      linear-gradient(150deg, #4a3f2e 0%, #241d15 55%, #171209 100%);
+    margin: 0; background: var(--bg); color: var(--text); overflow: hidden;
+    font: 14px/1.45 "Segoe UI", -apple-system, Helvetica, Arial, sans-serif;
   }
-  .outline { text-shadow: 0 1px 0 #000, 0 -1px 0 #000, 1px 0 0 #000, -1px 0 0 #000, 0 2px 3px rgba(0,0,0,.5); }
+  button, input, select { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  button:disabled { cursor: default; opacity: .55; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  code { font: 12px var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+  [hidden] { display: none !important; }
 
-  .frame {
-    position: relative; min-height: 100vh; box-sizing: border-box;
-    padding: 30px 20px 16px; display: flex; flex-direction: column; gap: 12px;
-    box-shadow: inset 0 0 0 2px var(--gold), inset 0 0 0 5px var(--gold-dim), inset 0 0 0 6px #241a0d;
-  }
+  .view { height: 100vh; display: flex; flex-direction: column; }
+  .grow { flex: 1; min-height: 0; }
+  .scroll { overflow: auto; }
+  /* fitWindow(): natural height of the view, without inner scrolling */
+  .view.measure { height: auto; }
+  .view.measure .grow { flex: none; }
+  .view.measure .scroll { overflow: visible; }
 
-  .ribbon {
-    position: absolute; top: -2px; left: 50%; transform: translateX(-50%);
-    background: linear-gradient(180deg, #5a1414 0%, #3c0d0d 100%);
-    border: 2px solid var(--gold); border-top: none; border-radius: 0 0 6px 6px;
-    padding: 6px 24px 5px;
-    font-family: "Cinzel", Georgia, serif; font-size: 13px; letter-spacing: .06em; color: var(--cream);
-  }
-  .titlebtn {
-    position: absolute; top: 6px; width: 22px; height: 22px; border-radius: 4px;
-    background: linear-gradient(180deg, #4a3f2e 0%, #241d15 100%); border: 1px solid var(--gold-dim);
-    color: var(--parchment); font-size: 12px; line-height: 1; cursor: pointer;
-  }
-  .titlebtn:hover { filter: brightness(1.25); }
-  #btn-close { right: 10px; }
-  #btn-settings { right: 38px; }
+  /* Header */
+  .hdr { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--panel); border-bottom: 1px solid var(--line); flex: none; }
+  .crest { width: 30px; height: 30px; border-radius: 8px; flex: none; display: grid; place-items: center; background: linear-gradient(150deg, #8a7cff, #35d6c4); color: var(--accent-ink); }
+  .brand { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
+  .brand b { font-weight: 800; font-size: 15px; }
+  .brand small { font: 10.5px var(--mono); color: var(--muted); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hdr-title { font-size: 15px; font-weight: 800; }
+  .pill { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap; border: 1px solid var(--line); background: var(--panel2); color: var(--muted); }
+  .pill .pdot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .pill.ok { background: rgba(120,200,120,.14); border-color: rgba(127,209,127,.35); color: var(--good); }
+  .pill.err { background: rgba(224,82,79,.14); border-color: rgba(224,82,79,.4); color: #ff8f8a; }
+  .ibtn { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--muted); display: grid; place-items: center; flex: none; padding: 0; }
+  .ibtn:hover { color: var(--text); border-color: #3a404c; }
+  .back { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px 0 8px; border-radius: 8px; border: 1px solid rgba(56,189,248,.55); background: rgba(56,189,248,.14); color: var(--cyan); font-weight: 600; font-size: 13px; }
+  .back:hover { background: rgba(56,189,248,.22); }
+  .hdr-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 
-  .banner {
-    border: 1px solid var(--err); background: rgba(255,138,122,.12); color: #ffd9d0;
-    border-radius: 6px; padding: 9px 12px; font-size: 12.5px; line-height: 1.5;
-  }
-  .banner code { background: rgba(0,0,0,.3); padding: 1px 5px; border-radius: 4px; }
+  /* Buttons */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); font-size: 13px; font-weight: 700; }
+  .btn:hover:not(:disabled) { border-color: #3a404c; background: #2d3340; }
+  .btn.sm { min-height: 30px; padding: 0 12px; }
+  .btn.lg { min-height: 38px; padding: 0 18px; font-size: 14px; }
+  .btn.primary { border-color: transparent; background: var(--accent); color: var(--accent-ink); }
+  .btn.primary:hover:not(:disabled) { background: #9a8eff; }
+  .btn.blue { border-color: rgba(96,165,250,.45); background: rgba(96,165,250,.14); color: #8fbdfb; }
+  .btn.blue:hover:not(:disabled) { background: rgba(96,165,250,.22); }
+  .sq { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--muted); display: grid; place-items: center; flex: none; padding: 0; }
+  .sq:hover:not(:disabled) { color: var(--text); border-color: #3a404c; }
+  .linkbtn { border: 0; background: none; padding: 4px 0; color: var(--accent-text); font-size: 13px; font-weight: 600; }
+  .linkbtn:hover { color: #c9c2ff; }
 
-  .summary { text-align: center; font-size: 12.5px; color: var(--parchment); }
-  .summary b { color: var(--cream); }
+  .kicker { font: 600 10.5px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .hint { font-size: 12px; color: var(--muted); }
+  .err-text { color: #ff9b8f; }
+  .ok-text { color: var(--good); }
 
-  .lists { display: flex; flex-direction: column; gap: 16px; flex-grow: 1; }
-  .group-label {
-    font-family: "Cinzel", Georgia, serif; font-size: 11px; letter-spacing: .1em;
-    color: #b6a077; text-shadow: 0 1px 2px rgba(0,0,0,.6); margin: 0 0 8px;
-  }
-  .group { display: flex; flex-direction: column; gap: 8px; }
+  /* Übersicht */
+  .main-body { display: flex; flex-direction: column; gap: 14px; padding: 14px; overflow: auto; }
+  .problems { padding: 9px 12px; border-radius: 8px; background: rgba(224,82,79,.12); border: 1px solid rgba(224,82,79,.45); color: #ffc9c4; font-size: 12.5px; line-height: 1.5; display: flex; flex-direction: column; gap: 4px; word-break: break-word; }
+  .problems .linkbtn { align-self: flex-start; padding: 0; font-size: 12.5px; }
+  .strip { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; background: var(--accent-soft); border: 1px solid rgba(138,124,255,.35); color: var(--accent-text); }
+  .strip span { display: flex; flex-direction: column; line-height: 1.3; }
+  .strip b { font-size: 13.5px; color: var(--text); }
+  .strip small { font-size: 12.5px; color: #c9c2ff; }
+  .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .tile { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); text-align: left; min-width: 0; }
+  button.tile:hover { border-color: #3a404c; background: #232831; }
+  .tile-head { display: flex; align-items: center; gap: 10px; }
+  .tile-head img { width: 30px; height: 30px; border-radius: 6px; border: 1px solid var(--line); flex: none; }
+  .tile-head .kicker { flex: 1; min-width: 0; }
+  .tile-body { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; }
+  .tile-val { font-weight: 800; font-size: 15.5px; overflow-wrap: anywhere; }
+  .tile-sub { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+  .tile-sub.err-text { color: #ff9b8f; }
+  .tile .btn { align-self: flex-start; min-height: 32px; padding: 0 12px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--muted); box-shadow: 0 0 0 3px rgba(154,160,170,.18); }
+  .dot.good { background: var(--good); box-shadow: 0 0 0 3px rgba(127,209,127,.18); }
+  .dot.high { background: var(--high); box-shadow: 0 0 0 3px rgba(224,82,79,.2); }
+  .dot.medium { background: var(--medium); box-shadow: 0 0 0 3px rgba(224,162,58,.2); }
+  .dot.pending { background: var(--pending); box-shadow: 0 0 0 3px rgba(96,165,250,.2); }
 
-  .row {
-    border-radius: 4px; padding: 10px 14px; display: flex; align-items: center; gap: 12px;
-    box-sizing: border-box; width: 100%; text-align: left; font: inherit; color: inherit; cursor: default;
-  }
-  .row.ready {
-    background: linear-gradient(180deg, var(--ready-bg1) 0%, var(--ready-bg2) 55%, var(--ready-bg3) 100%);
-    border: 1px solid var(--gold);
-    box-shadow: inset 0 1px 0 rgba(255,190,150,.35), inset 0 -2px 4px rgba(0,0,0,.35), 0 2px 5px rgba(0,0,0,.35);
-    cursor: pointer;
-  }
-  .row.ready:hover { filter: brightness(1.08); }
-  .row.ready:active { filter: brightness(.9); }
-  .row.ready:disabled { cursor: default; opacity: .6; filter: none; }
-  .row.done { background: linear-gradient(180deg, var(--done-bg1) 0%, var(--done-bg2) 100%); border: 1px solid var(--done-line); }
-  .row.empty { background: linear-gradient(180deg, var(--empty-bg1) 0%, var(--empty-bg2) 100%); border: 1px solid var(--empty-line); }
-  .row.pending { background: linear-gradient(180deg, var(--pending-bg1) 0%, var(--pending-bg2) 100%); border: 1px solid var(--pending-line); }
+  .raids { display: flex; flex-direction: column; min-height: 170px; flex-shrink: 0; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); overflow: hidden; }
+  .raids-head { padding: 10px 12px 0; font-weight: 700; }
+  .tabs { display: flex; gap: 4px; padding: 8px 12px 0; border-bottom: 1px solid var(--line); flex: none; }
+  .tab { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 12px; background: transparent; border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0; margin-bottom: -1px; color: var(--muted); font-weight: 600; font-size: 13.5px; }
+  .tab:hover { color: var(--text); }
+  .tab[aria-selected="true"] { background: var(--panel2); border-color: var(--line); color: var(--text); }
+  .count { font: 700 11px var(--mono); padding: 0 7px; border-radius: 999px; background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+  .count.hot-high { background: var(--high); color: var(--bg); border-color: var(--high); }
+  .count.hot-pending { background: var(--pending); color: var(--bg); border-color: var(--pending); }
+  .rows { display: flex; flex-direction: column; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--line2); }
+  .chip { width: 28px; height: 28px; border-radius: 7px; flex: none; display: grid; place-items: center; }
+  .chip.ready { background: rgba(224,82,79,.16); color: var(--high); }
+  .chip.wait { background: rgba(96,165,250,.16); color: var(--pending); }
+  .chip.done { background: rgba(120,200,120,.16); color: var(--good); }
+  .chip.empty { background: rgba(224,162,58,.16); color: var(--medium); }
+  .chip.upcoming { background: var(--panel2); color: var(--muted); }
+  .row-text { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.3; }
+  .row-title { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row-sub { font-size: 12.5px; color: var(--muted); }
+  .row .btn { flex: none; }
+  .rows-empty { padding: 14px 12px; color: var(--muted); font-size: 13px; }
+  .more { margin: 8px 12px; align-self: flex-start; }
 
-  .row .icon { flex: 0 0 auto; width: 16px; height: 16px; }
-  .row .info { flex-grow: 1; min-width: 0; }
-  .row .name { font-size: 14px; font-weight: 600; }
-  .row.ready .name { color: var(--cream); }
-  .row.done .name { color: #bcd4a4; }
-  .row.empty .name { color: #d9c988; }
-  .row.pending .name { color: #c3d6f2; }
-  .row .sub { font-size: 11.5px; }
-  .row.ready .sub { color: #e3b8a8; }
-  .row.done .sub { color: #7fa066; }
-  .row.empty .sub { color: #a89550; }
-  .row.pending .sub { color: #8eaedb; }
+  .ftr { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--line); background: var(--panel); font-size: 12.5px; color: var(--muted); flex: none; }
+  .ftr.end { justify-content: flex-end; gap: 8px; padding: 12px 14px; }
 
-  .dismiss {
-    flex: 0 0 auto; width: 22px; height: 22px; border-radius: 4px; line-height: 1;
-    background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.25); color: var(--cream);
-    font-size: 12px; cursor: pointer;
-  }
-  .dismiss:hover { background: rgba(0,0,0,.45); }
+  /* Einstellungen / Einrichtung */
+  .form-body { display: flex; flex-direction: column; gap: 12px; padding: 14px; }
+  .card { display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field > .lbl { font-size: 13px; font-weight: 600; color: var(--muted); }
+  .input { width: 100%; min-height: 38px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  .input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(138,124,255,.16); }
+  select.input { appearance: none; padding-right: 34px; background-image: linear-gradient(45deg, transparent 50%, #9aa0aa 50%), linear-gradient(135deg, #9aa0aa 50%, transparent 50%); background-position: calc(100% - 17px) 17px, calc(100% - 12px) 17px; background-size: 5px 5px; background-repeat: no-repeat; }
+  .inline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .result { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; }
+  .dirs { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .dir { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line2); font-size: 13px; }
+  .dir:last-child { border-bottom: 0; }
+  .dir .where { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dir .ver { margin-left: auto; color: var(--muted); font: 12px var(--mono); white-space: nowrap; }
+  .dir .ver.old { color: var(--medium); }
+  .dir .sdot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--good); }
+  .dir .sdot.old { background: var(--medium); }
+  .dir .sdot.unknown { background: var(--muted); }
+  details { font-size: 13px; color: var(--muted); }
+  details summary { cursor: pointer; font-weight: 600; }
+  details .input { margin-top: 8px; }
+  details .hint { display: block; margin-top: 6px; }
+  .poll { display: flex; align-items: center; gap: 12px; }
+  .poll-text { flex: 1; display: flex; flex-direction: column; line-height: 1.3; }
+  .poll-text b { font-size: 13.5px; font-weight: 600; }
+  .poll .input { width: 74px; min-height: 34px; padding: 6px 10px; text-align: right; }
+  .static-lines { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
+  .actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .action { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); font-size: 12.5px; font-weight: 700; }
+  .action:hover:not(:disabled) { border-color: #3a404c; background: #2d3340; }
+  .action img { width: 24px; height: 24px; border-radius: 5px; }
 
-  .empty-hint { color: #8a8067; font-size: 12.5px; padding: 4px 2px; }
+  .setup-body { display: flex; flex-direction: column; gap: 14px; padding: 18px 16px; }
+  .setup-body h1 { margin: 0; font-size: 20px; font-weight: 800; }
+  .lead { color: var(--muted); font-size: 13.5px; }
+  .step { display: flex; gap: 12px; padding: 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); }
+  .step-no { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; background: var(--panel2); border: 1px solid var(--line); color: var(--muted); font-weight: 800; font-size: 13px; }
+  .step-no.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .step-no.done { background: rgba(120,200,120,.16); border-color: transparent; color: var(--good); }
+  .step-no.warn { background: rgba(224,162,58,.16); border-color: transparent; color: var(--medium); }
+  .step-main { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .step-main .linkbtn { align-self: flex-start; padding: 0; font-size: 12.5px; }
 
-  .guildbank { font-size: 11.5px; color: #a4916a; padding: 0 2px 6px; }
-  .guildbank .ok { color: #7fa066; }
-  .guildbank .err { color: var(--err); }
+  /* Verlauf */
+  .seg { margin-left: auto; display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel2); }
+  .seg button { min-height: 30px; padding: 0 11px; border: 0; background: none; color: var(--muted); font-size: 12.5px; font-weight: 700; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: rgba(138,124,255,.16); color: var(--accent-text); }
+  .log { padding: 6px 0; }
+  .line { display: grid; grid-template-columns: 64px 18px minmax(0, 1fr); gap: 8px; align-items: start; padding: 6px 14px; border-bottom: 1px solid #1d2027; }
+  .line time { font: 12px var(--mono); color: var(--faint); padding-top: 1px; }
+  .line .ldot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; background: var(--muted); }
+  .line .ltext { font-size: 13px; line-height: 1.45; word-break: break-word; color: #d5d8de; }
+  .line.ok .ldot { background: var(--good); }
+  .line.warn .ldot { background: var(--medium); }
+  .line.warn .ltext { color: #e8c27a; }
+  .line.error .ldot { background: var(--high); }
+  .line.error .ltext { color: #ff9b8f; }
+  .log-empty { padding: 14px; color: var(--muted); font-size: 13px; }
 
-  .pager {
-    display: flex; align-items: center; justify-content: center; gap: 12px;
-    padding: 2px 2px 0; font-size: 11.5px; color: #a4916a;
-  }
-  .pager button {
-    background: none; border: 1px solid var(--gold-dim); border-radius: 4px;
-    color: var(--parchment); font: inherit; font-size: 12px; width: 24px; height: 22px; cursor: pointer;
-  }
-  .pager button:hover:not(:disabled) { border-color: var(--gold); color: var(--cream); }
-  .pager button:disabled { opacity: .35; cursor: default; }
-
-  .upcoming-toggle {
-    background: none; border: none; text-align: left; padding: 2px; width: 100%;
-    font: inherit; font-size: 11.5px; color: #a4916a; cursor: pointer;
-  }
-  .upcoming-toggle:hover { color: var(--cream); }
-
-  .footer {
-    display: flex; justify-content: space-between; align-items: center;
-    font-size: 11px; color: #a4916a; border-top: 1px solid rgba(216,181,103,.2); padding-top: 10px;
-  }
-  .council-line { font-size: 11px; color: #a4916a; text-align: center; }
-  .council-line.err { color: var(--err); }
-  .linklike { background: none; border: none; font: inherit; font-size: 11px; color: #a4916a; cursor: pointer; padding: 0; }
-  .linklike:hover { color: var(--cream); }
-
-  .settings-panel {
-    background: rgba(10,8,6,.55); border: 1px solid var(--gold-dim); border-radius: 8px;
-    padding: 14px 16px; margin-top: 4px; font-family: "Spectral", Georgia, serif;
-  }
-  .settings-panel h2 {
-    font-family: "Cinzel", Georgia, serif; font-size: 12px; letter-spacing: .08em; color: var(--cream);
-    margin: 0 0 12px; text-transform: uppercase;
-  }
-  .settings-panel label { display: block; margin-bottom: 12px; }
-  .settings-panel .lbl { display: block; margin-bottom: 4px; font-weight: 600; color: var(--parchment); font-size: 13px; }
-  .settings-panel .hint { display: block; margin-top: 4px; color: #8a8067; font-size: 11.5px; }
-  .settings-panel input[type=text], .settings-panel input[type=password], .settings-panel input[type=number], .settings-panel select {
-    width: 100%; padding: 7px 9px; border-radius: 5px; border: 1px solid var(--gold-dim);
-    background: rgba(0,0,0,.3); color: var(--parchment); font: inherit; font-size: 13px;
-  }
-  .settings-panel input:focus, .settings-panel select:focus { outline: 1px solid var(--gold); outline-offset: -1px; }
-  .settings-panel code { background: rgba(0,0,0,.3); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
-  .settings-panel .row2 { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
-  .btn {
-    padding: 7px 14px; border-radius: 5px; border: 1px solid var(--gold-dim); font: inherit; font-size: 13px;
-    background: linear-gradient(180deg, #4a3f2e 0%, #241d15 100%); color: var(--parchment); cursor: pointer;
-  }
-  .btn:hover:not(:disabled) { filter: brightness(1.15); }
-  .btn:disabled { opacity: .5; cursor: default; }
-  .btn.primary { background: linear-gradient(180deg, var(--ready-bg1) 0%, var(--ready-bg3) 100%); border-color: var(--gold); color: var(--cream); }
-
-  #log {
-    background: rgba(0,0,0,.3); border-radius: 6px; padding: 8px 10px; margin-top: 12px;
-    max-height: 160px; overflow-y: auto; font: 11.5px/1.6 ui-monospace, Consolas, monospace;
-  }
-  #log div { white-space: pre-wrap; }
-  #log .t { color: #8a8067; }
-  #log .ok { color: #9fb888; }
-  #log .warn { color: var(--warn); }
-  #log .error { color: var(--err); }
-
-  #flash {
-    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 10;
-  }
-  .flash { padding: 8px 14px; border-radius: 6px; font-weight: 600; font-size: 12.5px; box-shadow: 0 4px 12px rgba(0,0,0,.4); }
-  .flash.ok { background: #1c2417; border: 1px solid var(--done-line); color: #bcd4a4; }
-  .flash.err { background: #3c1414; border: 1px solid var(--err); color: #ffd9d0; }
+  /* Toasts */
+  #flash { position: fixed; left: 50%; bottom: 62px; transform: translateX(-50%); z-index: 10; width: max-content; max-width: calc(100% - 32px); }
+  .toast { padding: 9px 14px; border-radius: 8px; font-weight: 600; font-size: 13px; background: var(--panel2); border: 1px solid var(--line); border-left: 3px solid var(--good); color: var(--text); box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+  .toast.err { border-left-color: var(--high); color: #ffc9c4; }
 </style>
 </head>
 <body>
-<div class="frame">
-  <div class="ribbon outline">EVENTHELPER&nbsp;SYNC</div>
-  <button type="button" class="titlebtn" id="btn-settings" aria-label="Einstellungen" title="Einstellungen">&#9881;</button>
-  <button type="button" class="titlebtn" id="btn-close" aria-label="Fenster schliessen" title="Schliessen">&#10005;</button>
 
-  <div id="banner" class="banner" hidden></div>
-
-  <div class="summary" id="summary">&nbsp;</div>
-
-  <div class="lists" id="lists"></div>
-
-  <div class="council-line" id="council-status" hidden></div>
-  <div class="council-line" id="handouts-status" hidden></div>
-  <div class="guildbank" id="guildbank" hidden></div>
-
-  <div class="footer">
-    <div id="f-status">–</div>
-    <button type="button" class="linklike" id="btn-refresh">&#8635; jetzt prüfen</button>
-  </div>
-
-  <div class="settings-panel" id="settings-panel" hidden>
-    <h2>Einstellungen</h2>
-    <form id="settings">
-      <label>
-        <span class="lbl">Adresse des EventHelper</span>
-        <input type="text" name="baseUrl" placeholder="https://pulse-gdkp.de:3005" autocomplete="off">
+<!-- Einrichtung: erster Start, Adresse oder Token fehlen -->
+<section class="view" id="v-setup" hidden>
+  <header class="hdr">${CREST}<span class="brand"><b>EventHelper Sync</b></span><span class="hdr-right">${PILL}${BTN_LOG}${BTN_QUIT}</span></header>
+  <div class="setup-body grow scroll">
+    <div>
+      <h1>Einmal einrichten</h1>
+      <div class="lead">Danach läuft alles von selbst: Loot hochladen, Council-Daten und Ausgabeliste ins Spiel bringen.</div>
+    </div>
+    <div class="step">
+      <span class="step-no" id="su-no1">1</span>
+      <label class="step-main">
+        <b>Adresse des EventHelper</b>
+        <input class="input" type="text" id="su-base" placeholder="https://pulse-gdkp.de:3005" autocomplete="off" spellcheck="false">
         <span class="hint">Mit https:// und Port, ohne /api.</span>
       </label>
-      <label>
-        <span class="lbl">API-Token</span>
-        <input type="password" name="token" placeholder="unverändert lassen" autocomplete="off">
-        <span class="hint" id="token-hint"></span>
+    </div>
+    <div class="step">
+      <span class="step-no" id="su-no2">2</span>
+      <label class="step-main">
+        <b>API-Token</b>
+        <input class="input" type="password" id="su-token" placeholder="ehl_…" autocomplete="off">
+        <span class="hint" id="su-token-hint">Auf der Webseite unter Einstellungen → Loot-Sync erstellen. Er wird dort genau einmal angezeigt.</span>
       </label>
-      <label>
-        <span class="lbl">Addon-Datei</span>
-        <select name="savedVariablesPath" id="sv-select"></select>
-        <span class="hint" id="sv-hint">„Automatisch suchen" überlebt eine Neuinstallation von WoW.</span>
-      </label>
-      <label>
-        <span class="lbl">… oder Pfad selbst angeben</span>
-        <input type="text" name="manualPath" id="manual-path" autocomplete="off"
-               placeholder="D:\Games\World of Warcraft">
-        <span class="hint">
-          Nötig, wenn WoW oben nicht gefunden wurde. Es genügt der WoW-Ordner — die Datei
-          wird darunter gesucht. Ebenso akzeptiert: der <code>_classic_era_</code>-Ordner,
-          der Account-Ordner oder direkt die <code>EventHelperSync.lua</code>.
-        </span>
-      </label>
-      <label>
-        <span class="lbl">Prüfintervall (Sekunden)</span>
-        <input type="number" name="pollSeconds" min="5" max="600">
-        <span class="hint">WoW schreibt die Datei nur beim Ausloggen, bei /reload und über den Upload-Knopf im Spiel — öfter als alle paar Sekunden nachzusehen bringt nichts.</span>
-      </label>
-      <div class="hint" id="council-hint" style="margin-bottom: 12px">
-        Loot-Council im Spiel: geholt werden alle Raid-Kategorien, deren Lootsystem auf der Webseite
-        Loot-Council ist, mit den Filtern der Loot-Council-Seite (Rolle, Tiers, BiS-Liste).
-        Geholt wird alle 15 Minuten und nach jedem Upload; im Spiel sichtbar nach /reload (<code>/ehc</code>).
+    </div>
+    <div class="step">
+      <span class="step-no" id="su-no3">3</span>
+      <div class="step-main">
+        <b id="su-wow-title">World of Warcraft</b>
+        <span class="hint" id="su-wow-text" style="font-size:13px"></span>
+        <button type="button" class="linkbtn" data-act="setup-path" id="su-other">Anderen Ordner wählen</button>
+        <input class="input" type="text" id="su-path" placeholder="D:\Games\World of Warcraft" autocomplete="off" spellcheck="false" hidden>
       </div>
-      <div class="row2">
-        <button type="submit" class="btn primary">Speichern</button>
-        <button type="button" class="btn" id="btn-upload-all">Alles hochladen</button>
-        <button type="button" class="btn" id="btn-test">Verbindung testen</button>
-        <button type="button" class="btn" id="btn-council">Council-Daten holen</button>
-        <button type="button" class="btn" id="btn-handouts">Ausgabeliste holen</button>
-      </div>
-    </form>
-    <div id="log"></div>
+    </div>
   </div>
-</div>
-<div id="flash"></div>
+  <footer class="ftr end">
+    <span id="su-status" style="margin-right:auto">Prüft die Verbindung vor dem Speichern</span>
+    <button type="button" class="btn lg primary" data-act="setup-connect" id="su-connect">Verbinden</button>
+  </footer>
+</section>
+
+<!-- Übersicht -->
+<section class="view" id="v-main" hidden>
+  <header class="hdr">${CREST}${BRAND}${PILL}${BTN_LOG}${BTN_SETTINGS}${BTN_QUIT}</header>
+  <div class="main-body grow">
+    <div class="problems" id="problems" role="alert" hidden></div>
+    <div class="strip" id="strip" hidden>${SVG_RELOAD.replace(/14/g, "18")}<span><b>Neue Daten fürs Spiel</b><small id="strip-text"></small></span></div>
+    <div class="tiles" id="tiles"></div>
+    <section class="raids grow" aria-label="Raid-Abende">
+      <div class="raids-head">Raid-Abende</div>
+      <div class="tabs" role="tablist" id="tabs"></div>
+      <div class="rows grow scroll" id="rows" role="tabpanel"></div>
+    </section>
+  </div>
+  <footer class="ftr">
+    <span id="f-status">&nbsp;</span>
+    <button type="button" class="btn sm" data-act="check" id="btn-check">${SVG_RELOAD}Jetzt prüfen</button>
+  </footer>
+</section>
+
+<!-- Einstellungen -->
+<section class="view" id="v-settings" hidden>
+  <header class="hdr">${BTN_BACK}<span class="hdr-title">Einstellungen</span><span class="hdr-right">${PILL}</span></header>
+  <form id="settings" class="grow scroll" autocomplete="off">
+    <div class="form-body">
+      <section class="card">
+        <span class="kicker">Verbindung</span>
+        <label class="field">
+          <span class="lbl">Adresse des EventHelper</span>
+          <input class="input" type="text" name="baseUrl" placeholder="https://pulse-gdkp.de:3005" spellcheck="false">
+          <span class="hint">Mit https:// und Port, ohne /api.</span>
+        </label>
+        <label class="field">
+          <span class="lbl">API-Token</span>
+          <input class="input" type="password" name="token" placeholder="unverändert lassen">
+          <span class="hint" id="token-hint"></span>
+        </label>
+        <div class="inline">
+          <button type="button" class="btn" data-act="test" id="btn-test">Verbindung testen</button>
+          <span class="result" id="test-result" role="status"></span>
+        </div>
+      </section>
+
+      <section class="card">
+        <span class="kicker">World of Warcraft</span>
+        <label class="field">
+          <span class="lbl">Addon-Datei</span>
+          <select class="input" name="savedVariablesPath" id="sv-select"></select>
+          <span class="hint" id="sv-hint"></span>
+        </label>
+        <div class="field">
+          <span class="lbl">Gefundene Addon-Ordner</span>
+          <div class="dirs" id="addon-dirs"></div>
+          <span class="hint">Dorthin schreibt das Tool Council-Daten und Ausgabeliste.</span>
+        </div>
+        <details id="manual-details">
+          <summary>Pfad selbst angeben</summary>
+          <input class="input" type="text" name="manualPath" id="manual-path" placeholder="D:\Games\World of Warcraft" spellcheck="false">
+          <span class="hint">Nötig, wenn WoW oben nicht gefunden wurde. Es genügt der WoW-Ordner, die Datei wird darunter gesucht. Ebenso: der <code>_classic_era_</code>-Ordner, der Account-Ordner oder direkt die <code>EventHelperSync.lua</code>.</span>
+        </details>
+      </section>
+
+      <section class="card">
+        <span class="kicker">Automatik</span>
+        <label class="poll">
+          <span class="poll-text"><b>Addon-Datei prüfen alle</b><span class="hint">WoW schreibt sie beim Ausloggen, bei /reload und über den Upload-Knopf im Spiel. Neuer Loot wird danach sofort hochgeladen.</span></span>
+          <input class="input" type="number" name="pollSeconds" min="5" max="600">
+          <span class="hint" style="font-size:13px">Sek.</span>
+        </label>
+        <div class="static-lines">
+          <span id="auto-council">Council-Daten: alle 15 Minuten und nach jedem Upload</span>
+          <span id="auto-handouts">Ausgabeliste: alle 5 Minuten und nach jedem Upload</span>
+          <span>Council-Kategorien und Filter stellt die Webseite ein; im Spiel sichtbar nach /reload (<code>/ehc</code>, <code>/ehs bank</code>).</span>
+        </div>
+      </section>
+
+      <section class="card">
+        <span class="kicker">Jetzt ausführen</span>
+        <div class="actions">
+          <button type="button" class="action" data-act="upload-all" id="act-upload"><img src="${ICONS.upload}" alt="">Loot hochladen</button>
+          <button type="button" class="action" data-act="council" id="act-council"><img src="${ICONS.council}" alt="">Council holen</button>
+          <button type="button" class="action" data-act="handouts" id="act-handouts"><img src="${ICONS.handouts}" alt="">Ausgabeliste holen</button>
+        </div>
+      </section>
+    </div>
+  </form>
+  <footer class="ftr end">
+    <button type="button" class="btn lg" data-act="cancel">Abbrechen</button>
+    <button type="submit" class="btn lg primary" form="settings" id="btn-save">Speichern</button>
+  </footer>
+</section>
+
+<!-- Verlauf -->
+<section class="view" id="v-log" hidden>
+  <header class="hdr">${BTN_BACK}<span class="hdr-title">Verlauf</span>
+    <div class="seg" role="group" aria-label="Filter">
+      <button type="button" data-act="filter" data-arg="all" aria-pressed="true">Alles</button>
+      <button type="button" data-act="filter" data-arg="ok" aria-pressed="false">Erfolge</button>
+      <button type="button" data-act="filter" data-arg="problems" aria-pressed="false">Probleme</button>
+    </div>
+  </header>
+  <div class="log grow scroll" id="log"></div>
+  <footer class="ftr">
+    <span id="log-count">&nbsp;</span>
+    <button type="button" class="btn sm" data-act="copy">Kopieren</button>
+  </footer>
+</section>
+
+<div id="flash" aria-live="polite"></div>
 
 <script>
 const KEY = new URLSearchParams(location.search).get("key") || "";
@@ -274,74 +395,133 @@ const api = (path, opts) => fetch(path + (path.includes("?") ? "&" : "?") + "key
     if (!r.ok) throw new Error(body.error || ("HTTP " + r.status));
     return body;
   });
+const post = (path, body) => api(path, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body || {}),
+});
 
 const $ = (id) => document.getElementById(id);
-const esc = (s) => String(s == null ? "" : s).replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+const esc = (s) => String(s == null ? "" : s).replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+const ICON = {
+  upload: "${ICONS.upload}",
+  council: "${ICONS.council}",
+  guildbank: "${ICONS.guildbank}",
+  handouts: "${ICONS.handouts}",
+};
+const SVG = {
+  ready: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
+  wait: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 3h12M6 21h12M7 3c0 5 10 5 10 9s-10 4-10 9M17 3c0 5-10 5-10 9s10 4 10 9"/></svg>',
+  done: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>',
+  empty: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg>',
+  upcoming: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>',
+  ext: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>',
+  x: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>',
+  warn: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 6v8M12 18v.5"/></svg>',
+};
+
+// Die zwei Datenquellen: der lokale Stand (/api/state, alle 3 s) und der
+// Raid-Status vom echten Server (/api/raids, alle 12 s — ein Aufruf gegen
+// einen fremden Server, den man nicht unnötig oft machen muss).
+let lastState = null;
+let lastRaids = null;
+let raidsError = null;
+
+// Ansicht: "main", "settings" oder "log". Ohne Adresse/Token wird aus
+// "main" und "settings" die Einrichtung.
+let view = "main";
+// Vom Nutzer gewählter Reiter (null: der passende von selbst), und welche
+// Reiter "Weitere anzeigen" aufgeklappt haben — beides übersteht den Poll.
+let pickedTab = null;
+const expanded = {};
+const ROW_LIMIT = 8;
+let logFilter = "all";
+// Formulare nur füllen, solange niemand darin tippt.
 let editing = false;
-// Einmal beim ersten Start von selbst aufgeklappt (siehe render()), danach
-// bestimmt das Zahnrad.
-let setupOpened = false;
+let setupEditing = false;
+let setupPathOpen = false;
+// Laufende Aktionen (Knöpfe gesperrt): "upload", "one:<id>", "council", ...
+const busy = new Set();
+
+// --- Hilfen -----------------------------------------------------------------
 
 function flash(text, kind) {
   const div = document.createElement("div");
-  div.className = "flash " + kind;
+  div.className = "toast" + (kind === "err" ? " err" : "");
+  div.setAttribute("role", kind === "err" ? "alert" : "status");
   div.textContent = text;
   $("flash").innerHTML = "";
   $("flash").appendChild(div);
   setTimeout(() => { if ($("flash").firstChild === div) $("flash").innerHTML = ""; }, 5000);
 }
 
-function fmtTime(ms) {
+// innerHTML nur tauschen, wenn sich etwas geändert hat: sonst verlöre ein
+// Knopf alle 3 s den Tastaturfokus.
+function setHtml(el, html) {
+  if (el._html === html) return;
+  el._html = html;
+  el.innerHTML = html;
+}
+
+const pad = (n) => String(n).padStart(2, "0");
+function hhmm(ms) {
+  const d = new Date(ms);
+  return pad(d.getHours()) + ":" + pad(d.getMinutes());
+}
+function hhmmss(ms) {
+  const d = new Date(ms);
+  return hhmm(ms) + ":" + pad(d.getSeconds());
+}
+// Heute nur die Uhrzeit, sonst mit Datum.
+function stamp(ms) {
   if (!ms) return "–";
-  return new Date(ms).toLocaleString("de-DE");
+  const d = new Date(ms);
+  if (d.toDateString() === new Date().toDateString()) return hhmm(ms);
+  return d.getDate() + "." + (d.getMonth() + 1) + ". " + hhmm(ms);
 }
 function ago(ms) {
   if (!ms) return "noch nie";
-  const s = Math.round((Date.now() - ms) / 1000);
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
   if (s < 60) return "vor " + s + " s";
   if (s < 3600) return "vor " + Math.round(s / 60) + " min";
-  return new Date(ms).toLocaleDateString("de-DE");
+  return "um " + stamp(ms);
 }
 function fmtDay(ms) {
   const d = new Date(ms);
-  const wd = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"][d.getDay()];
-  return wd + ", " + d.toLocaleDateString("de-DE");
+  return ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"][d.getDay()] + ", " + d.toLocaleDateString("de-DE");
 }
+const plural = (n, one, many) => n + " " + (n === 1 ? one : many);
 function sourceLabel(gargul, rclc) {
-  if (gargul && rclc) return gargul + " Gargul, " + rclc + " RCLC";
-  if (gargul) return gargul + " Items (Gargul)";
-  return rclc + " Items (RCLootcouncil)";
+  if (gargul && rclc) return "Gargul + RCLootCouncil";
+  return gargul ? "Gargul" : "RCLootCouncil";
 }
 
-// Die zwei Datenquellen der Liste: der lokale Stand (/api/state, alle 3s) und
-// der Raid-Status vom echten Server (/api/raids, seltener — das ist ein
-// Aufruf gegen einen fremden Server, den man nicht unnötig oft machen muss).
-let lastState = null;
-let lastRaids = null;
-let raidsError = null;
+const configured = () => !!(lastState && lastState.config.baseUrl && lastState.config.hasToken);
+const base = () => ((lastState && lastState.config.baseUrl) || "").replace(/\/+$/, "");
+const siteUrl = (path) => (base() ? base() + path : "");
+function eventUrl(eventId, path) {
+  if (!base() || !eventId) return "";
+  return base() + path + "?event=" + encodeURIComponent(eventId);
+}
+function hostOf(url) {
+  try { return new URL(url).host; } catch { return ""; }
+}
 
-// Übrige Raids: höchstens PAGE_SIZE vergangene auf einmal (pastPage zählt
-// die Seite), kommende bleiben eingeklappt (upcomingExpanded) — beides bleibt
-// über einen Refresh hinweg erhalten, damit ein Klick nicht drei Sekunden
-// später vom nächsten Poll wieder zugeklappt wird.
-const PAGE_SIZE = 10;
-let pastPage = 0;
-let upcomingExpanded = false;
+// --- Daten holen ------------------------------------------------------------
 
 async function refresh() {
   try {
     lastState = await api("/api/state");
     render();
   } catch (e) {
-    $("f-status").textContent = "Oberfläche nicht erreichbar: " + e.message;
+    const f = $("f-status");
+    if (f) f.textContent = "Oberfläche nicht erreichbar: " + e.message;
   }
 }
 
-const configured = () => !!(lastState && lastState.config.baseUrl && lastState.config.hasToken);
-
 async function refreshRaids() {
-  // Ohne Adresse und Token gibt es keinen Server zu fragen — sonst stünde
-  // "Failed to parse URL" im Banner neben dem Hinweis, der das schon sagt.
+  // Ohne Adresse und Token gibt es keinen Server zu fragen.
   if (lastState && !configured()) {
     lastRaids = null;
     raidsError = null;
@@ -358,290 +538,534 @@ async function refreshRaids() {
   render();
 }
 
-async function setExcluded(ids, excluded) {
+const reloadAll = () => { refresh(); refreshRaids(); };
+
+async function run(key, fn) {
+  if (busy.has(key)) return;
+  busy.add(key);
+  render();
   try {
-    await api("/api/sessions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionIds: ids, excluded }),
-    });
+    await fn();
   } catch (e) {
     flash(e.message, "err");
+  } finally {
+    busy.delete(key);
+    render();
   }
-  refresh();
-  refreshRaids();
 }
 
-async function uploadOne(sessionId, btn) {
-  if (btn) btn.disabled = true;
-  try {
-    const r = await api("/api/upload-one", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId }),
-    });
-    flash(r.results.length ? r.results.length + " Ergebnis(se) verarbeitet." : "Nichts zu tun.", "ok");
-  } catch (e) {
-    flash(e.message, "err");
-  }
-  refresh();
-  refreshRaids();
-}
+// --- Aktionen ---------------------------------------------------------------
 
-// Die Adresse des eingestellten Servers im echten Browser öffnen (nicht im
-// eigenen App-Fenster, siehe /api/open-external in webui.js).
 function openExternal(url) {
-  api("/api/open-external", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url }),
-  }).catch((e) => flash(e.message, "err"));
+  // Im echten Browser, nicht im eigenen App-Fenster (siehe webui.js).
+  post("/api/open-external", { url }).catch((e) => flash(e.message, "err"));
 }
 
-// Wohin eine Raid-Zeile verlinkt: mit Loot dahin, wo der Loot steht
-// (Historie), sonst zum Event selbst (Raid-Cockpit) — vor dem Import gibt es
-// dort ja noch nichts zu sehen.
-function eventUrl(eventId, path) {
-  const base = lastState && lastState.config && lastState.config.baseUrl;
-  if (!base || !eventId) return "";
-  return base.replace(/\/+$/, "") + path + "?event=" + encodeURIComponent(eventId);
+const actions = {
+  nav(arg) {
+    if (arg === "settings") { editing = false; $("test-result").innerHTML = ""; }
+    view = arg;
+    render();
+    const v = activeView();
+    const first = v && v.querySelector(".back, [data-act]");
+    if (first && arg !== "main") first.focus();
+  },
+  quit() {
+    // Beendet das ganze Sync-Tool (die .exe hat keine Konsole) und schliesst
+    // danach das Fenster — in dieser Reihenfolge, sonst käme die Anfrage nie an.
+    post("/api/quit").catch(() => {}).finally(() => window.close());
+  },
+  tab(arg) { pickedTab = arg; render(); },
+  more(arg) { expanded[arg] = true; render(); },
+  open(arg) { if (arg) openExternal(arg); },
+  "upload-all"() {
+    run("upload", async () => {
+      const r = await post("/api/upload");
+      flash(r.results.length ? plural(r.results.length, "Abend", "Abende") + " hochgeladen." : "Nichts hochzuladen.", "ok");
+      reloadAll();
+    });
+  },
+  "upload-one"(arg) {
+    run("one:" + arg, async () => {
+      const r = await post("/api/upload-one", { sessionId: arg });
+      flash(r.results.length ? "Hochgeladen, wartet in der Inbox." : "Nichts zu tun.", "ok");
+      reloadAll();
+    });
+  },
+  skip(arg) {
+    run("skip:" + arg, async () => {
+      await post("/api/sessions", { sessionIds: [arg], excluded: true });
+      flash("Wird nicht hochgeladen.", "ok");
+      reloadAll();
+    });
+  },
+  check() {
+    run("check", async () => {
+      await post("/api/check");
+      reloadAll();
+    });
+  },
+  council() {
+    run("council", async () => {
+      const r = await post("/api/council");
+      const files = (r.council.files || []).length;
+      flash(files
+        ? councilSummary(r.council) + " in " + files + " Addon-Ordner geschrieben – im Spiel /reload."
+        : "Council-Daten geholt, aber kein Addon-Ordner gefunden.", files ? "ok" : "err");
+      refresh();
+    });
+  },
+  handouts() {
+    run("handouts", async () => {
+      const r = await post("/api/handouts");
+      const files = (r.handouts.files || []).length;
+      flash(files
+        ? plural(r.handouts.handouts, "Posten", "Posten") + " in " + files + " Addon-Ordner geschrieben – im Spiel /reload."
+        : "Ausgabeliste geholt, aber kein Addon-Ordner gefunden.", files ? "ok" : "err");
+      refresh();
+    });
+  },
+  test() {
+    const f = $("settings");
+    const out = $("test-result");
+    run("test", async () => {
+      out.innerHTML = '<span class="hint">Prüfe …</span>';
+      try {
+        await post("/api/test", { baseUrl: f.baseUrl.value.trim(), token: f.token.value.trim() });
+        out.innerHTML = '<span class="result ok-text">' + SVG.check + "Server erreichbar, Token gültig</span>";
+      } catch (e) {
+        out.innerHTML = '<span class="result err-text">' + SVG.x + esc(e.message) + "</span>";
+      }
+      refresh();
+    });
+  },
+  cancel() {
+    editing = false;
+    const f = $("settings");
+    f.token.value = "";
+    f.manualPath.value = "";
+    actions.nav("main");
+  },
+  filter(arg) { logFilter = arg; render(); },
+  copy() {
+    const text = filteredLog().map((e) => hhmmss(e.at) + "  " + e.text).join("\n");
+    const done = () => flash("Verlauf in die Zwischenablage kopiert.", "ok");
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, () => copyFallback(text) && done());
+    } else if (copyFallback(text)) {
+      done();
+    }
+  },
+  "setup-path"() {
+    setupPathOpen = !setupPathOpen;
+    render();
+    if (setupPathOpen) $("su-path").focus();
+  },
+  "setup-connect"() { setupConnect(); },
+  "open-path"() {
+    view = "settings";
+    editing = false;
+    render();
+    $("manual-details").open = true;
+    $("manual-path").focus();
+  },
+};
+
+function copyFallback(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch { ok = false; }
+  ta.remove();
+  if (!ok) flash("Kopieren nicht möglich.", "err");
+  return ok;
 }
 
-function linkButton(url) {
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "dismiss";
-  btn.title = "Auf der Website öffnen";
-  btn.setAttribute("aria-label", "Auf der Website öffnen");
-  btn.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></svg>';
-  btn.addEventListener("click", (ev) => { ev.stopPropagation(); openExternal(url); });
-  return btn;
+document.addEventListener("click", (ev) => {
+  const el = ev.target.closest("[data-act]");
+  if (!el || el.disabled) return;
+  const fn = actions[el.dataset.act];
+  if (!fn) return;
+  ev.preventDefault();
+  fn(el.dataset.arg);
+});
+
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && (view === "settings" || view === "log") && activeView() && activeView().id !== "v-setup") {
+    if (view === "settings") actions.cancel(); else actions.nav("main");
+  }
+});
+
+$("settings").addEventListener("input", () => { editing = true; });
+$("settings").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const f = ev.target;
+  run("save", async () => {
+    await post("/api/settings", {
+      baseUrl: f.baseUrl.value.trim(),
+      token: f.token.value,
+      savedVariablesPath: f.savedVariablesPath.value,
+      manualPath: f.manualPath.value.trim(),
+      pollSeconds: Number(f.pollSeconds.value),
+    });
+    f.token.value = "";
+    f.manualPath.value = "";
+    editing = false;
+    flash("Gespeichert.", "ok");
+    view = "main";
+    reloadAll();
+  });
+});
+
+["su-base", "su-token", "su-path"].forEach((id) => $(id).addEventListener("input", () => {
+  setupEditing = true;
+  renderSetupSteps();
+}));
+["su-base", "su-token", "su-path"].forEach((id) => $(id).addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter") setupConnect();
+}));
+
+// Einrichtung: erst prüfen, dann speichern — ein falsches Token landet so
+// gar nicht erst in der Konfiguration.
+function setupConnect() {
+  const baseUrl = $("su-base").value.trim();
+  const token = $("su-token").value.trim();
+  const status = $("su-status");
+  if (!baseUrl) { status.innerHTML = '<span class="err-text">Bitte die Adresse angeben.</span>'; $("su-base").focus(); return; }
+  if (!token && !(lastState && lastState.config.hasToken)) {
+    status.innerHTML = '<span class="err-text">Bitte das API-Token angeben.</span>';
+    $("su-token").focus();
+    return;
+  }
+  run("connect", async () => {
+    status.textContent = "Prüfe die Verbindung …";
+    try {
+      await post("/api/test", { baseUrl, token });
+    } catch (e) {
+      status.innerHTML = '<span class="err-text">' + esc(e.message) + "</span>";
+      return;
+    }
+    try {
+      await post("/api/settings", {
+        baseUrl,
+        token,
+        savedVariablesPath: (lastState && lastState.config.savedVariablesPath) || "",
+        manualPath: setupPathOpen ? $("su-path").value.trim() : "",
+        pollSeconds: (lastState && lastState.config.pollSeconds) || 15,
+      });
+    } catch (e) {
+      status.innerHTML = '<span class="err-text">' + esc(e.message) + "</span>";
+      return;
+    }
+    setupEditing = false;
+    $("su-token").value = "";
+    status.textContent = "Prüft die Verbindung vor dem Speichern";
+    flash("Verbunden – läuft.", "ok");
+    view = "main";
+    await refresh();
+    refreshRaids();
+  });
 }
 
-function rowButton(className, contents, onClick) {
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "row " + className;
-  btn.innerHTML = contents;
-  if (onClick) btn.addEventListener("click", onClick);
-  return btn;
+// --- Darstellung ------------------------------------------------------------
+
+function activeView() {
+  return document.querySelector(".view:not([hidden])");
 }
 
-function rowDiv(className, contents) {
-  const div = document.createElement("div");
-  div.className = "row " + className;
-  div.innerHTML = contents;
-  return div;
+function viewId() {
+  if (!lastState) return null;
+  if (!configured() && view !== "log") return "v-setup";
+  return "v-" + view;
 }
 
-// Raids vom Server + lokale Sessions zu drei Gruppen zusammenführen:
-//   1. Bereit zum Hochladen  — der Server kennt den Raid und eine lokale
-//      Session passt dazu (Datumsabgleich serverseitig, siehe lib/uploader.js).
-//   2. Ohne bekannten Termin — eine lokale Session, die zu keinem Raid der
-//      letzten Wochen passt (z.B. Pug-Abend). Trotzdem hochladbar: landet im
-//      Menü als unzugeordnete Inbox-Session, wie eh schon immer.
-//   3. Warten auf Bestätigung — hochgeladen, liegt aber unbestätigt in der
-//      Addon-Inbox; im Verlauf des Events steht noch nichts. Braucht wie (1)
-//      noch einen Klick, nur auf der Website statt hier.
-//   4. Übrige Raids — grün (schon importiert) oder gelb (kein Loot gefunden).
+function render() {
+  if (!lastState) return;
+  const id = viewId();
+  for (const v of document.querySelectorAll(".view")) v.hidden = v.id !== id;
+  renderChrome();
+  if (id === "v-setup") renderSetup();
+  else if (id === "v-main") renderMain();
+  else if (id === "v-settings") renderSettings();
+  else if (id === "v-log") renderLog();
+  fitWindow();
+}
+
+// Kopfzeile: Version, Host und die Verbindungs-Pille auf jeder Ansicht.
+function renderChrome() {
+  const d = lastState;
+  const host = hostOf(d.config.baseUrl);
+  for (const el of document.querySelectorAll(".js-ver")) {
+    el.textContent = "V" + d.version + (host ? " · " + host : "");
+  }
+  let cls = "off";
+  let text = "Nicht eingerichtet";
+  let title = "Adresse und Token fehlen";
+  const c = d.connection;
+  if (configured()) {
+    if (c && c.ok === true) { cls = "ok"; text = "Verbunden"; title = "Server erreichbar, Token gültig"; }
+    else if (c && c.ok === false) { cls = "err"; text = "Keine Verbindung"; title = c.message || ""; }
+    else { text = "Verbinde …"; title = "Noch keine Antwort vom Server"; }
+  }
+  for (const el of document.querySelectorAll(".js-pill")) {
+    el.className = "pill js-pill " + cls;
+    el.title = title;
+    el.querySelector(".ptext").textContent = text;
+  }
+}
+
+// Raids vom Server + lokale Sessions in die vier Reiter sortieren:
+//   Bereit   — der Server kennt den Raid und eine lokale Session passt dazu,
+//              dazu lokale Sessions ohne passenden Termin (trotzdem hochladbar,
+//              landen als unzugeordnete Inbox-Session).
+//   Wartet   — hochgeladen, liegt unbestätigt in der Addon-Inbox.
+//   Erledigt — vergangene Raids: importiert oder kein Loot gefunden.
+//   Kommend  — Raids in der Zukunft.
 function buildGroups() {
   const sessions = (lastState && lastState.sessions) || [];
   const raids = lastRaids || [];
   const matchedIds = new Set(raids.filter((r) => r.matchedSessionId).map((r) => r.matchedSessionId));
-
   const ready = raids.filter((r) => r.status === "ready");
   const pending = raids.filter((r) => r.status === "pending");
   const rest = raids.filter((r) => r.status !== "ready" && r.status !== "pending");
   const unmatched = sessions.filter((s) => (
     !s.excluded && s.items > 0 && !s.lastUpload && !matchedIds.has(s.sessionId)
   ));
-
-  // Kommende Raids können noch kein Loot haben — die stehen sonst nur im Weg,
-  // wenn man sieht will, welche vergangenen Abende noch offen sind. Bleiben
-  // ausgeblendet, sind aber über den Umschalter unten jederzeit einblendbar.
   const now = Date.now();
   const pastRest = rest.filter((r) => r.startTime * 1000 <= now);
-  const upcomingRest = rest.filter((r) => r.startTime * 1000 > now)
-    .sort((a, b) => a.startTime - b.startTime);
-
+  const upcomingRest = rest.filter((r) => r.startTime * 1000 > now).sort((a, b) => a.startTime - b.startTime);
   return { ready, unmatched, pending, pastRest, upcomingRest };
 }
 
-// Ein bereiter Eintrag ist immer ein Klick-Button (l\u00e4dt genau diese Session
-// hoch) plus ein kleines Abwahl-Kreuz daneben \u2014 egal ob der Server ihn einem
-// Raid zuordnen konnte oder nicht. Ohne das Kreuz g\u00e4be es f\u00fcr eine bereits
-// zugeordnete Zeile keine M\u00f6glichkeit mehr, sie doch nicht zu senden (die alte
-// Tabelle konnte jede Session abw\u00e4hlen, das darf hier nicht verlorengehen).
-function readyRow(sessionId, innerHtml, linkUrl) {
-  const btn = rowButton("ready", innerHtml, () => uploadOne(sessionId, btn));
-  btn.style.flexGrow = "1";
-
-  const dismiss = document.createElement("button");
-  dismiss.type = "button";
-  dismiss.className = "dismiss";
-  dismiss.title = "Diesen Abend nicht hochladen";
-  dismiss.setAttribute("aria-label", "Diesen Abend nicht hochladen");
-  dismiss.textContent = "\u2715";
-  dismiss.addEventListener("click", (ev) => { ev.stopPropagation(); setExcluded([sessionId], true); });
-
-  const wrap = document.createElement("div");
-  wrap.style.display = "flex";
-  wrap.style.gap = "8px";
-  wrap.style.alignItems = "stretch";
-  wrap.appendChild(btn);
-  if (linkUrl) wrap.appendChild(linkButton(linkUrl));
-  wrap.appendChild(dismiss);
-  return wrap;
+function councilSummary(c) {
+  return plural((c.categories || []).length, "Kategorie", "Kategorien") + " · " + c.raiders + " Raider";
 }
 
-function renderReadyRow(r) {
-  return readyRow(r.matchedSessionId,
-    '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#f5e6c8" stroke-width="2.2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>'
-    + '<div class="info"><div class="name outline">' + esc(r.title) + '</div>'
-    + '<div class="sub">' + fmtDay(r.startTime * 1000) + " &middot; " + sourceLabel(r.gargul, r.rclc) + "</div></div>",
-    // Noch kein Loot importiert \u2014 verlinkt zum Event selbst, nicht zur Historie.
-    eventUrl(r.eventId, "/raids/detail"));
-}
-
-function renderUnmatchedRow(s) {
-  // Keine Server-eventId f\u00fcr eine lokale, unzugeordnete Session \u2014 kein Link m\u00f6glich.
-  return readyRow(s.sessionId,
-    '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#f5e6c8" stroke-width="2.2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>'
-    + '<div class="info"><div class="name outline">' + esc(s.instance || "Unbekannter Raid") + '</div>'
-    + '<div class="sub">' + fmtDay(s.startedAt) + " &middot; " + sourceLabel(s.gargul, s.rclc) + " &middot; kein Termin gefunden</div></div>");
-}
-
-function renderPendingRow(r) {
-  const count = r.inboxItems ? r.inboxItems + " Items" : "Hochgeladen";
-  const row = rowDiv("pending",
-    '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#8eaedb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12M6 21h12M7 3c0 5 10 7 10 18M17 3c0 5-10 7-10 18"/></svg>'
-    + '<div class="info"><div class="name">' + esc(r.title) + '</div>'
-    + '<div class="sub">' + fmtDay(r.startTime * 1000) + " &middot; " + count + " warten in der Inbox</div></div>");
-  // Bestätigt wird in der Addon-Inbox, nicht am Event — dorthin führt der Link.
-  const base = lastState && lastState.config && lastState.config.baseUrl;
-  if (base) {
-    const link = linkButton(base.replace(/\/+$/, "") + "/history/inbox");
-    link.title = "In der Addon-Inbox bestätigen";
-    link.setAttribute("aria-label", "In der Addon-Inbox bestätigen");
-    row.appendChild(link);
+function tileHtml(t) {
+  const head = '<span class="tile-head"><img src="' + t.icon + '" alt="" width="30" height="30">'
+    + '<span class="kicker">' + esc(t.kicker) + "</span>"
+    + '<span class="dot ' + (t.dot || "") + '" title="' + esc(t.dotTitle || "") + '"></span></span>';
+  const body = '<span class="tile-body"><span class="tile-val">' + esc(t.value) + "</span>"
+    + '<span class="tile-sub' + (t.subErr ? " err-text" : "") + '"' + (t.subTitle ? ' title="' + esc(t.subTitle) + '"' : "")
+    + ">" + esc(t.sub || "") + "</span></span>";
+  if (t.link) {
+    return '<button type="button" class="tile" data-act="open" data-arg="' + esc(t.link) + '" title="'
+      + esc((t.title ? t.title + "\n\n" : "") + "Auf der Website öffnen") + '">' + head + body + "</button>";
   }
-  return row;
+  return '<div class="tile"' + (t.title ? ' title="' + esc(t.title) + '"' : "") + ">" + head + body + (t.action || "") + "</div>";
 }
 
-function renderRestRow(r) {
-  const isDone = r.status === "done";
-  const icon = isDone
-    ? '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#7fc463" stroke-width="2.4"><path d="M4 12l5 5L20 6"/></svg>'
-    : '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#d4c05a" stroke-width="2.4"><path d="M6 12h12"/></svg>';
-  const row = rowDiv(isDone ? "done" : "empty",
-    icon + '<div class="info"><div class="name">' + esc(r.title) + '</div>'
-    + '<div class="sub">' + fmtDay(r.startTime * 1000) + " &middot; " + (isDone ? "Importiert" : "Kein Loot gefunden") + "</div></div>");
-  // Mit Loot dahin, wo der Loot steht (Historie); ohne Loot zum Event selbst.
-  const url = eventUrl(r.eventId, isDone ? "/history/event" : "/raids/detail");
-  if (url) row.appendChild(linkButton(url));
-  return row;
+function uploadTile(d, g) {
+  const readyCount = g.ready.length + g.unmatched.length;
+  const t = { kicker: "Loot-Upload", icon: ICON.upload, dot: "good", dotTitle: "Alles hochgeladen" };
+  if (!d.file) {
+    return { ...t, value: "Keine Addon-Datei", sub: "Siehe Hinweis oben", dot: "", dotTitle: "Keine Addon-Datei" };
+  }
+  if (lastRaids === null && !raidsError && configured()) {
+    t.value = "Wird geladen …";
+    t.dot = "";
+  } else if (readyCount) {
+    t.value = readyCount + (readyCount === 1 ? " Abend bereit" : " Abende bereit");
+    t.dot = "high";
+    t.dotTitle = "Es gibt etwas hochzuladen";
+    const working = busy.has("upload") || d.uploading;
+    t.action = '<button type="button" class="btn primary" data-act="upload-all"' + (working ? " disabled" : "") + ">"
+      + (working ? "Lädt hoch …" : "Alles hochladen") + "</button>";
+  } else {
+    t.value = "Alles hochgeladen";
+    if (g.pending.length) { t.dot = "pending"; t.dotTitle = "Wartet auf Bestätigung"; }
+  }
+  if (d.uploading) t.sub = "Lädt hoch …";
+  else if (g.pending.length) t.sub = g.pending.length + (g.pending.length === 1 ? " wartet" : " warten") + " auf Bestätigung in der Inbox";
+  else if (d.lastUpload) t.sub = "Zuletzt hochgeladen " + stamp(d.lastUpload.at);
+  else t.sub = "Wartet auf neuen Loot";
+  return t;
 }
 
-// Eine Zeile zum Stand der Council-Daten — mehr braucht die Hauptansicht
-// nicht; Auswahl und Knopf liegen hinter dem Zahnrad.
-function councilStamp(ms) {
-  const d = new Date(ms);
-  const time = d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-  if (d.toDateString() === new Date().toDateString()) return time;
-  return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) + " " + time;
-}
-function renderCouncil(c) {
-  const line = $("council-status");
+function councilTile(c) {
+  const t = { kicker: "Loot-Council", icon: ICON.council, link: siteUrl("/lootcouncil") };
   if (!c || (!c.lastFetch && !c.lastError && !c.fetching)) {
-    line.hidden = true;
-    return;
-  }
-  line.hidden = false;
-  line.title = "";
-  line.classList.toggle("err", !!c.lastError);
-  if (c.lastError && (!c.lastFetch || c.lastError.at >= c.lastFetch)) {
-    line.textContent = "Council: " + c.lastError.message;
-    return;
-  }
-  if (!c.lastFetch) {
-    line.textContent = "Council: wird geholt …";
-    return;
+    return { ...t, value: "Noch nicht geholt", sub: configured() ? "Wird gleich geholt" : "Nach der Einrichtung", dot: "", dotTitle: "Noch nichts" };
   }
   const cats = c.categories || [];
+  if (c.lastError && (!c.lastFetch || c.lastError.at >= c.lastFetch)) {
+    return { ...t, value: c.lastFetch ? councilSummary(c) : "Nicht geholt", sub: c.lastError.message, subErr: true, dot: "high", dotTitle: "Fehler" };
+  }
+  if (!c.lastFetch) return { ...t, value: "Wird geholt …", sub: "", dot: "", dotTitle: "" };
   if (!cats.length) {
-    line.classList.add("err");
-    line.textContent = "Council: keine Kategorie mit Loot-Council — auf der Webseite unter "
-      + "Einstellungen > Kategorien das Lootsystem auf Loot-Council stellen.";
-    return;
+    return {
+      ...t, value: "Keine Kategorie", dot: "high", dotTitle: "Keine Kategorie mit Loot-Council", subErr: true,
+      sub: "Auf der Webseite unter Einstellungen › Kategorien das Lootsystem auf Loot-Council stellen.",
+    };
   }
-  const stamp = councilStamp(c.generatedAt ? c.generatedAt * 1000 : c.lastFetch);
-  line.textContent = "Council: " + councilSummary(c) + ", Stand " + stamp + " — "
-    + ((c.files || []).length ? "nach /reload im Spiel sichtbar" : "kein Addon-Ordner gefunden");
-  line.title = cats.map((k) => k.name + ": " + k.raiders + " Raider").join("\n")
-    + (c.fallback ? "\n(älterer Server: nur die Kategorie aus der Konfiguration)" : "");
-}
-// "3 Kategorien, 24 Raider"
-function councilSummary(c) {
-  const n = (c.categories || []).length;
-  return (n === 1 ? "1 Kategorie" : n + " Kategorien") + ", " + c.raiders + " Raider";
+  const noDir = !(c.files || []).length;
+  return {
+    ...t,
+    value: councilSummary(c),
+    sub: cats.map((k) => k.name).join(", ") + " · Stand " + stamp(c.generatedAt ? c.generatedAt * 1000 : c.lastFetch)
+      + (noDir ? " · kein Addon-Ordner gefunden" : ""),
+    subErr: noDir,
+    dot: noDir ? "high" : "good",
+    dotTitle: noDir ? "Kein Addon-Ordner gefunden" : "Aktuell",
+    title: cats.map((k) => k.name + ": " + k.raiders + " Raider").join("\n")
+      + (c.fallback ? "\n(älterer Server: nur die Kategorie aus der Konfiguration)" : ""),
+  };
 }
 
-// One line for the guild bank handouts (GuildBankData.lua, /ehs bank in
-// game): how many are open, as of when, and what was ticked and reported.
-// Hidden as long as the server has no guild bank and nothing went wrong.
-function renderHandouts(h) {
-  const line = $("handouts-status");
-  if (!h || (!h.lastFetch && !h.lastError && !h.fetching && !h.done && !h.reportError)
-    || (h.lastFetch && !h.banks && !h.lastError && !h.done && !h.reportError)) {
-    line.hidden = true;
-    return;
+function guildBankTile(gb) {
+  const t = { kicker: "Gildenbank", icon: ICON.guildbank, link: siteUrl("/guildbank") };
+  if (!gb) {
+    return { ...t, value: "Noch kein Scan", sub: "Kommt mit dem nächsten Besuch der Gildenbank im Spiel", dot: "", dotTitle: "Kein Scan" };
   }
-  line.hidden = false;
+  let status = "wird hochgeladen";
+  let dot = "medium";
+  let subErr = false;
+  let subTitle = "";
+  if (gb.uploaded) { status = "hochgeladen"; dot = "good"; }
+  else if (gb.lastError) { status = "Upload fehlgeschlagen"; dot = "high"; subErr = true; subTitle = gb.lastError.message + " – neuer Versuch folgt"; }
+  return {
+    ...t,
+    value: (gb.guild || "?") + " · " + gb.items + " Stapel",
+    sub: "Scan " + stamp(gb.scannedAt) + " · " + plural(gb.tabs, "Tab", "Tabs") + " · " + status,
+    subErr, subTitle, dot,
+    dotTitle: gb.uploaded ? "Hochgeladen" : status,
+  };
+}
+
+function handoutsTile(h) {
+  const t = { kicker: "Ausgabeliste", icon: ICON.handouts };
+  if (!h || (!h.lastFetch && !h.lastError && !h.fetching && !h.done && !h.reportError)) {
+    return { ...t, value: "Noch nicht geholt", sub: configured() ? "Wird gleich geholt" : "Nach der Einrichtung", dot: "", dotTitle: "Noch nichts" };
+  }
   const fetchFailed = h.lastError && (!h.lastFetch || h.lastError.at >= h.lastFetch);
-  line.classList.toggle("err", !!(fetchFailed || h.reportError));
-  let text;
+  let value;
+  let sub;
+  let dot = "";
+  let dotTitle = "Nichts zu tun";
+  let subErr = false;
   if (fetchFailed) {
-    text = "Ausgabeliste: " + h.lastError.message;
+    value = h.lastFetch ? (h.handouts ? h.handouts + " offen" : "Nichts offen") : "Nicht geholt";
+    sub = h.lastError.message;
+    subErr = true;
+    dot = "high";
+    dotTitle = "Fehler";
   } else if (!h.lastFetch) {
-    text = "Ausgabeliste: wird geholt …";
+    value = "Wird geholt …";
+    sub = "";
+  } else if (!h.banks) {
+    value = "Keine Gildenbank";
+    sub = "Auf der Webseite ist keine Gildenbank eingerichtet";
   } else {
-    const stamp = councilStamp(h.generatedAt ? h.generatedAt * 1000 : h.lastFetch);
-    text = "Ausgabeliste: " + (h.handouts ? h.handouts + " Posten offen" : "nichts offen") + ", Stand " + stamp
-      + " — " + ((h.files || []).length ? "nach /reload im Spiel (/ehs bank)" : "kein Addon-Ordner gefunden");
+    value = h.handouts ? h.handouts + " offen" : "Nichts offen";
+    sub = "Stand " + stamp(h.generatedAt ? h.generatedAt * 1000 : h.lastFetch);
+    if (!(h.files || []).length) { sub += " · kein Addon-Ordner gefunden"; subErr = true; dot = "high"; dotTitle = "Kein Addon-Ordner"; }
+    else if (h.handouts) { dot = "medium"; dotTitle = "Im Spiel mit /ehs bank ausgeben"; }
   }
+  let subTitle = "";
   if (h.reportError) {
-    text += " · Melden fehlgeschlagen: " + h.reportError.message;
+    sub += " · Melden fehlgeschlagen";
+    subErr = true;
+    subTitle = h.reportError.message;
+    dot = "high";
   } else if (h.done) {
-    text += " · " + h.done + " abgehakt, wird gemeldet";
+    sub += " · " + h.done + " abgehakt, wird gemeldet";
   }
-  line.textContent = text;
+  return { ...t, value, sub, subErr, subTitle, dot, dotTitle };
 }
 
-function render() {
-  if (!lastState) return;
-  const d = lastState;
-
-  // Fehlerbanner statt eigener Status-Card: nur sichtbar, wenn tatsächlich
-  // etwas fehlt oder schiefgeht — sonst nur die Liste.
-  const problems = [];
-  if (!d.config.baseUrl || !d.config.hasToken) {
-    problems.push("Noch nicht eingerichtet — Adresse und Token unten unter Einstellungen eintragen.");
-    // Die .exe hat keine Konsole mehr, die durch die Einrichtung führt: das
-    // hier ist jetzt der erste Schritt, also nicht erst hinter dem Zahnrad.
-    if (!setupOpened) {
-      setupOpened = true;
-      $("settings-panel").hidden = false;
-      // Unter einer langen Liste lokaler Raid-Abende läge es sonst ausser Sicht.
-      setTimeout(() => $("settings-panel").scrollIntoView({ block: "start" }), 0);
-    }
+function rowHtml(r) {
+  let html = '<div class="row"><span class="chip ' + r.kind + '">' + SVG[r.kind] + "</span>"
+    + '<span class="row-text"><span class="row-title" title="' + esc(r.title) + '">' + esc(r.title) + "</span>"
+    + '<span class="row-sub">' + esc(r.sub) + "</span></span>";
+  if (r.primary) {
+    html += '<button type="button" class="btn sm ' + r.primary.cls + '" data-act="' + r.primary.act + '" data-arg="' + esc(r.primary.arg)
+      + '"' + (r.primary.disabled ? " disabled" : "") + (r.primary.title ? ' title="' + esc(r.primary.title) + '"' : "") + ">"
+      + esc(r.primary.label) + "</button>";
   }
+  if (r.link) {
+    html += '<button type="button" class="sq" data-act="open" data-arg="' + esc(r.link) + '" aria-label="Auf der Website öffnen" title="Auf der Website öffnen">' + SVG.ext + "</button>";
+  }
+  if (r.skip) {
+    html += '<button type="button" class="sq" data-act="skip" data-arg="' + esc(r.skip) + '" aria-label="Diesen Abend nicht hochladen" title="Diesen Abend nicht hochladen"'
+      + (busy.has("skip:" + r.skip) ? " disabled" : "") + ">" + SVG.x + "</button>";
+  }
+  return html + "</div>";
+}
+
+function itemsLabel(gargul, rclc) {
+  const n = (gargul || 0) + (rclc || 0);
+  return plural(n, "Item", "Items") + " · " + sourceLabel(gargul, rclc);
+}
+
+function readyButton(sessionId, d) {
+  const working = busy.has("one:" + sessionId) || d.uploading;
+  return { label: working ? "Lädt …" : "Hochladen", act: "upload-one", arg: sessionId, cls: "primary", disabled: working };
+}
+
+function buildRows(d, g) {
+  const ready = g.ready.map((r) => ({
+    kind: "ready",
+    title: r.title,
+    sub: fmtDay(r.startTime * 1000) + " · " + itemsLabel(r.gargul, r.rclc),
+    primary: readyButton(r.matchedSessionId, d),
+    // Noch kein Loot importiert: zum Event selbst, nicht zur Historie.
+    link: eventUrl(r.eventId, "/raids/detail"),
+    skip: r.matchedSessionId,
+  })).concat(g.unmatched.map((s) => ({
+    kind: "ready",
+    title: s.instance || "Unbekannter Raid",
+    sub: fmtDay(s.startedAt) + " · " + itemsLabel(s.gargul, s.rclc) + " · kein Termin gefunden",
+    primary: readyButton(s.sessionId, d),
+    // Keine Server-eventId für eine lokale, unzugeordnete Session: kein Link.
+    skip: s.sessionId,
+  })));
+  const inbox = siteUrl("/history/inbox");
+  const wait = g.pending.map((r) => ({
+    kind: "wait",
+    title: r.title,
+    sub: fmtDay(r.startTime * 1000) + " · " + (r.inboxItems ? plural(r.inboxItems, "Item wartet", "Items warten") + " in der Inbox" : "Hochgeladen, wartet in der Inbox"),
+    // Bestätigt wird in der Addon-Inbox, nicht am Event.
+    primary: inbox ? { label: "Bestätigen", act: "open", arg: inbox, cls: "blue", title: "In der Addon-Inbox auf der Website bestätigen" } : null,
+  }));
+  const done = g.pastRest.map((r) => {
+    const isDone = r.status === "done";
+    return {
+      kind: isDone ? "done" : "empty",
+      title: r.title,
+      sub: fmtDay(r.startTime * 1000) + " · " + (isDone ? "Importiert" : "Kein Loot gefunden"),
+      // Mit Loot dahin, wo der Loot steht (Historie); ohne Loot zum Event.
+      link: eventUrl(r.eventId, isDone ? "/history/event" : "/raids/detail"),
+    };
+  });
+  const upcoming = g.upcomingRest.map((r) => ({
+    kind: "upcoming",
+    title: r.title,
+    sub: fmtDay(r.startTime * 1000) + " · " + hhmm(r.startTime * 1000),
+    link: eventUrl(r.eventId, "/raids/detail"),
+  }));
+  return { ready, wait, done, upcoming };
+}
+
+const TABS = [
+  { id: "ready", label: "Bereit", hot: "hot-high", empty: "Nichts bereit zum Hochladen." },
+  { id: "wait", label: "Wartet", hot: "hot-pending", empty: "Nichts wartet auf Bestätigung." },
+  { id: "done", label: "Erledigt", hot: "", empty: "Keine Raid-Termine der letzten Wochen gefunden." },
+  { id: "upcoming", label: "Kommend", hot: "", empty: "Keine kommenden Raids." },
+];
+
+function renderMain() {
+  const d = lastState;
+  const g = buildGroups();
+
+  // Probleme als Kasten oben — nur sichtbar, wenn wirklich etwas fehlt.
+  const problems = [];
   if (!d.file) {
     const roots = d.searchedRoots || [];
-    problems.push(
-      "Keine EventHelperSync.lua gefunden. Ist das Addon installiert und war im Spiel schon einmal geladen? "
-      + "Falls ja, den WoW-Ordner unten unter „Pfad selbst angeben\" eintragen."
-      + (roots.length ? "<br>Durchsucht: " + roots.map((r) => "<code>" + esc(r) + "</code>").join(", ") : ""),
-    );
+    problems.push("Keine EventHelperSync.lua gefunden. Ist das Addon installiert und war es im Spiel schon einmal geladen?"
+      + (roots.length ? " Durchsucht: " + roots.map((r) => "<code>" + esc(r) + "</code>").join(", ") : "")
+      + '<button type="button" class="linkbtn" data-act="open-path">WoW-Ordner selbst angeben</button>');
   } else if (d.readError) {
     problems.push("Addon-Datei nicht lesbar: " + esc(d.readError));
   } else if (d.envelopeMissing) {
@@ -649,202 +1073,192 @@ function render() {
   }
   if (d.lastError) problems.push("Letzter Fehler: " + esc(d.lastError.message));
   if (raidsError) problems.push("Raid-Liste vom Server: " + esc(raidsError));
+  $("problems").hidden = !problems.length;
+  setHtml($("problems"), problems.map((p) => "<div>" + p + "</div>").join(""));
 
-  if (problems.length) {
-    $("banner").innerHTML = problems.join("<br>");
-    $("banner").hidden = false;
+  // Neue Daten fürs Spiel: Council/Ausgabeliste nach dem letzten Schreiben
+  // der SavedVariables geschrieben — also seitdem kein /reload im Spiel.
+  const sv = d.file ? d.fileMtime : 0;
+  const parts = [];
+  let newest = 0;
+  if (sv && d.council && d.council.changedAt > sv) { parts.push("Council"); newest = Math.max(newest, d.council.changedAt); }
+  if (sv && d.handouts && d.handouts.changedAt > sv) { parts.push("Ausgabeliste"); newest = Math.max(newest, d.handouts.changedAt); }
+  $("strip").hidden = !parts.length;
+  if (parts.length) $("strip-text").textContent = parts.join(" und ") + " von " + stamp(newest) + " · im Spiel /reload";
+
+  setHtml($("tiles"), [uploadTile(d, g), councilTile(d.council), guildBankTile(d.guildBank), handoutsTile(d.handouts)].map(tileHtml).join(""));
+
+  // Reiter
+  const rows = buildRows(d, g);
+  const counts = { ready: rows.ready.length, wait: rows.wait.length, done: rows.done.length, upcoming: rows.upcoming.length };
+  const tab = pickedTab || (counts.ready ? "ready" : counts.wait ? "wait" : "done");
+  setHtml($("tabs"), TABS.map((t) => '<button type="button" role="tab" class="tab" data-act="tab" data-arg="' + t.id
+    + '" aria-selected="' + (t.id === tab) + '" id="tab-' + t.id + '">' + t.label
+    + '<span class="count ' + (t.hot && counts[t.id] ? t.hot : "") + '">' + counts[t.id] + "</span></button>").join(""));
+  $("rows").setAttribute("aria-labelledby", "tab-" + tab);
+
+  const list = rows[tab];
+  let html;
+  const loading = lastRaids === null && configured();
+  if (!list.length) {
+    const def = TABS.find((t) => t.id === tab);
+    html = '<div class="rows-empty">' + (loading ? (raidsError ? "Raid-Liste nicht geladen." : "Raid-Liste wird geladen …") : def.empty) + "</div>";
   } else {
-    $("banner").hidden = true;
-  }
-
-  const { ready, unmatched, pending, pastRest, upcomingRest } = buildGroups();
-  const readyCount = ready.length + unmatched.length;
-  const openCount = readyCount + pending.length + pastRest.filter((r) => r.status === "empty").length;
-  $("summary").innerHTML = lastRaids === null
-    ? "Raid-Liste wird geladen …"
-    : "<b>" + readyCount + "</b> bereit zum Hochladen &middot; "
-      + (pending.length ? "<b>" + pending.length + "</b> warten auf Bestätigung &middot; " : "")
-      + openCount + " insgesamt offen";
-
-  const lists = $("lists");
-  lists.innerHTML = "";
-  if (readyCount) {
-    const group = document.createElement("div");
-    group.className = "group";
-    group.innerHTML = '<div class="group-label">BEREIT&nbsp;ZUM&nbsp;HOCHLADEN</div>';
-    for (const r of ready) group.appendChild(renderReadyRow(r));
-    for (const s of unmatched) group.appendChild(renderUnmatchedRow(s));
-    lists.appendChild(group);
-  }
-  if (pending.length) {
-    const group = document.createElement("div");
-    group.className = "group";
-    group.innerHTML = '<div class="group-label">WARTEN&nbsp;AUF&nbsp;BESTÄTIGUNG</div>';
-    for (const r of pending) group.appendChild(renderPendingRow(r));
-    lists.appendChild(group);
-  }
-  if (pastRest.length || upcomingRest.length) {
-    const group = document.createElement("div");
-    group.className = "group";
-    group.innerHTML = '<div class="group-label">ÜBRIGE&nbsp;RAIDS</div>';
-
-    // Nicht mehr als PAGE_SIZE vergangene Raids auf einmal — ein Konto mit
-    // langer Historie würde die Liste sonst endlos lang machen. pastPage
-    // bleibt über Refreshes hinweg erhalten, wird aber bei jedem Rendern auf
-    // die aktuell gültige Seitenzahl eingeklemmt (die Liste kann schrumpfen,
-    // sobald ein Raid importiert oder gesendet wurde).
-    const totalPages = Math.max(1, Math.ceil(pastRest.length / PAGE_SIZE));
-    pastPage = Math.min(pastPage, totalPages - 1);
-    const from = pastPage * PAGE_SIZE;
-    for (const r of pastRest.slice(from, from + PAGE_SIZE)) group.appendChild(renderRestRow(r));
-
-    if (pastRest.length > PAGE_SIZE) {
-      const pager = document.createElement("div");
-      pager.className = "pager";
-      const prev = document.createElement("button");
-      prev.type = "button";
-      prev.textContent = "◀";
-      prev.setAttribute("aria-label", "Vorherige Seite");
-      prev.disabled = pastPage === 0;
-      prev.addEventListener("click", () => { pastPage -= 1; render(); });
-      const info = document.createElement("span");
-      info.textContent = "Seite " + (pastPage + 1) + " / " + totalPages;
-      const next = document.createElement("button");
-      next.type = "button";
-      next.textContent = "▶";
-      next.setAttribute("aria-label", "Nächste Seite");
-      next.disabled = pastPage >= totalPages - 1;
-      next.addEventListener("click", () => { pastPage += 1; render(); });
-      pager.append(prev, info, next);
-      group.appendChild(pager);
+    const shown = expanded[tab] ? list : list.slice(0, ROW_LIMIT);
+    html = shown.map(rowHtml).join("");
+    if (shown.length < list.length) {
+      html += '<button type="button" class="linkbtn more" data-act="more" data-arg="' + tab + '">Weitere ' + (list.length - shown.length) + " anzeigen</button>";
     }
-
-    if (upcomingRest.length) {
-      const toggle = document.createElement("button");
-      toggle.type = "button";
-      toggle.className = "upcoming-toggle";
-      toggle.textContent = (upcomingExpanded ? "▾ " : "▸ ")
-        + upcomingRest.length + " kommende" + (upcomingRest.length === 1 ? "r Raid" : " Raids")
-        + (upcomingExpanded ? " ausblenden" : " einblenden");
-      toggle.addEventListener("click", () => { upcomingExpanded = !upcomingExpanded; render(); });
-      group.appendChild(toggle);
-      if (upcomingExpanded) {
-        for (const r of upcomingRest) group.appendChild(renderRestRow(r));
-      }
-    }
-
-    lists.appendChild(group);
   }
-  if (!readyCount && !pending.length && !pastRest.length && !upcomingRest.length && lastRaids !== null) {
-    lists.innerHTML = '<div class="empty-hint">Keine Raid-Termine der letzten Wochen gefunden.</div>';
-  }
+  setHtml($("rows"), html);
 
-  // One line for the guild bank scan (GuildBank.lua in the addon): which
-  // guild, as of when, and whether the server has it. A failed upload shows
-  // here, not in the banner: until the server knows the endpoint, that is
-  // expected and retried on its own.
-  const gb = d.guildBank;
-  if (gb) {
-    const status = gb.uploaded
-      ? '<span class="ok">hochgeladen</span>'
-      : gb.lastError
-        ? '<span class="err" title="' + esc(gb.lastError.message).replace(/"/g, "&quot;") + '">Upload fehlgeschlagen, neuer Versuch folgt</span>'
-        : "wird hochgeladen";
-    $("guildbank").innerHTML = "Gildenbank " + esc(gb.guild) + " &middot; Stand " + esc(fmtTime(gb.scannedAt))
-      + " &middot; " + gb.tabs + " Tab(s), " + gb.items + " Stapel &middot; " + status;
-    $("guildbank").hidden = false;
-  } else {
-    $("guildbank").hidden = true;
-  }
-
-  $("f-status").textContent = d.file
-    ? "Zuletzt geprüft " + ago(d.lastCheck)
-    : "Warte auf die Addon-Datei …";
-
-  renderCouncil(d.council);
-  renderHandouts(d.handouts);
-
-  // Einstellungen — nur füllen, solange niemand darin tippt.
-  if (!editing) {
-    const f = $("settings");
-    f.baseUrl.value = d.config.baseUrl || "";
-    f.pollSeconds.value = d.config.pollSeconds || 15;
-    $("token-hint").textContent = d.config.hasToken
-      ? "Gespeichert (endet auf …" + d.config.tokenHint + "). Leer lassen, um ihn zu behalten."
-      : "Steht im Admin-Menü unter Einstellungen → Loot-Sync. Wird dort genau einmal angezeigt.";
-
-    const sel = $("sv-select");
-    sel.innerHTML = "";
-    const auto = document.createElement("option");
-    auto.value = "";
-    auto.textContent = "Automatisch suchen";
-    sel.appendChild(auto);
-    for (const c of d.candidates) {
-      const o = document.createElement("option");
-      o.value = c.path;
-      o.textContent = c.flavor + " / " + c.account;
-      sel.appendChild(o);
-    }
-    if (d.config.savedVariablesPath && !d.candidates.some((c) => c.path === d.config.savedVariablesPath)) {
-      const o = document.createElement("option");
-      o.value = d.config.savedVariablesPath;
-      o.textContent = d.config.savedVariablesPath;
-      sel.appendChild(o);
-    }
-    sel.value = d.config.savedVariablesPath || "";
-    $("sv-hint").textContent = d.candidates.length
-      ? "„Automatisch suchen\" überlebt eine Neuinstallation von WoW."
-      : "Keine WoW-Installation gefunden — bitte den Pfad unten selbst angeben.";
-  }
-
-  $("btn-upload-all").disabled = d.uploading || !d.file;
-  $("btn-upload-all").textContent = d.uploading ? "Lädt hoch …" : "Alles hochladen";
-
-  // Verlauf
-  const log = $("log");
-  const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 20;
-  log.innerHTML = "";
-  for (const e of d.log) {
-    const div = document.createElement("div");
-    const t = document.createElement("span");
-    t.className = "t";
-    t.textContent = new Date(e.at).toLocaleTimeString("de-DE") + "  ";
-    const s = document.createElement("span");
-    s.className = e.level;
-    s.textContent = e.text;
-    div.append(t, s);
-    log.appendChild(div);
-  }
-  if (atBottom) log.scrollTop = log.scrollHeight;
-
-  fitWindow();
+  $("f-status").textContent = d.file ? "Addon-Datei geprüft " + ago(d.lastCheck) : "Warte auf die Addon-Datei …";
+  $("btn-check").disabled = busy.has("check");
 }
 
-// Das Fenster auf den Inhalt zuschneiden: feste, schmale Breite, Höhe nach
-// Inhalt (höchstens 90 % des Bildschirms, darüber scrollt es). Die Seite muss
-// das selbst tun — --window-size (lib/appWindow.js) greift nur, wenn Edge
-// nicht schon läuft; sonst nimmt das Fenster Edges eigene Grösse an.
-// Nachgezogen wird nur, wenn sich die Höhe des Inhalts ändert (Raid-Liste
-// geladen, Einstellungen auf/zu), damit eine eigene Grösse nicht bei jedem
-// 3-s-Poll wieder überschrieben wird. Im normalen Browser-Tab (Fallback)
-// ignoriert der Browser resizeTo() ohnehin.
-// 490 statt 400: darunter bricht die längste Unterzeile einer Raid-Zeile
-// ("Mo, 27.4.2026 · 11 Items (RCLootcouncil) · kein Termin gefunden") um,
-// sobald die Scrollleiste Platz nimmt (gemessen: passt ab 480, Rest Puffer).
-const APP_WIDTH = 490;
+function renderSettings() {
+  const d = lastState;
+  const f = $("settings");
+  if (!editing) {
+    f.baseUrl.value = d.config.baseUrl || "";
+    f.pollSeconds.value = d.config.pollSeconds || 15;
+    f.token.placeholder = d.config.hasToken ? "unverändert lassen" : "ehl_…";
+    $("token-hint").textContent = d.config.hasToken
+      ? "Gespeichert, endet auf …" + d.config.tokenHint + ". Leer lassen, um ihn zu behalten."
+      : "Auf der Webseite unter Einstellungen → Loot-Sync erstellen. Er wird dort genau einmal angezeigt.";
+
+    const sel = $("sv-select");
+    const opts = [{ value: "", text: "Automatisch suchen" }].concat(d.candidates.map((c) => ({
+      value: c.path, text: (c.label || c.flavor) + " · " + c.account,
+    })));
+    if (d.config.savedVariablesPath && !d.candidates.some((c) => c.path === d.config.savedVariablesPath)) {
+      opts.push({ value: d.config.savedVariablesPath, text: d.config.savedVariablesPath });
+    }
+    setHtml(sel, opts.map((o) => '<option value="' + esc(o.value) + '">' + esc(o.text) + "</option>").join(""));
+    sel.value = d.config.savedVariablesPath || "";
+    $("sv-hint").textContent = d.candidates.length
+      ? "„Automatisch suchen“ nimmt die zuletzt geschriebene Datei und überlebt eine Neuinstallation von WoW."
+      : "Keine WoW-Installation gefunden – bitte den Pfad unten selbst angeben.";
+    if (!d.candidates.length) $("manual-details").open = true;
+  }
+
+  const dirs = d.addonDirs || [];
+  // Two installations with the same flavor (e.g. on two drives): name the
+  // WoW folder, else the rows look identical.
+  const labelCount = {};
+  for (const x of dirs) labelCount[x.label || x.flavor] = (labelCount[x.label || x.flavor] || 0) + 1;
+  setHtml($("addon-dirs"), dirs.length
+    ? dirs.map((x) => {
+      const state = !x.version ? "unknown" : x.outdated ? "old" : "";
+      const label = x.label || x.flavor;
+      const where = labelCount[label] > 1
+        ? '<span class="hint where">' + esc(x.dir.replace(/[\\/][^\\/]+[\\/]Interface[\\/]AddOns[\\/][^\\/]+$/i, "")) + "</span>"
+        : "";
+      return '<div class="dir" title="' + esc(x.dir) + '"><span class="sdot ' + state + '"></span><b>' + esc(label) + "</b>" + where
+        + '<span class="ver' + (x.outdated ? " old" : "") + '">' + (x.version ? "v" + esc(x.version) + (x.outdated ? " · veraltet" : "") : "Version unbekannt") + "</span></div>";
+    }).join("")
+    : '<div class="dir"><span class="hint">Kein installierter Addon-Ordner EventHelperSync gefunden.</span></div>');
+
+  const iv = d.intervals || {};
+  const mins = (ms, def) => Math.round((ms || def * 60000) / 60000);
+  $("auto-council").textContent = "Council-Daten: alle " + mins(iv.councilMs, 15) + " Minuten und nach jedem Upload";
+  $("auto-handouts").textContent = "Ausgabeliste: alle " + mins(iv.handoutsMs, 5) + " Minuten und nach jedem Upload";
+
+  const up = $("act-upload");
+  up.disabled = busy.has("upload") || d.uploading || !d.file;
+  up.title = d.file ? "Alles aus der Addon-Datei hochladen" : "Keine Addon-Datei gefunden";
+  $("act-council").disabled = busy.has("council");
+  $("act-handouts").disabled = busy.has("handouts");
+  $("btn-test").disabled = busy.has("test");
+  $("btn-save").disabled = busy.has("save");
+}
+
+function filteredLog() {
+  const log = lastState.log || [];
+  if (logFilter === "ok") return log.filter((e) => e.level === "ok");
+  if (logFilter === "problems") return log.filter((e) => e.level === "warn" || e.level === "error");
+  return log;
+}
+
+function renderLog() {
+  const d = lastState;
+  for (const b of document.querySelectorAll(".seg button")) b.setAttribute("aria-pressed", String(b.dataset.arg === logFilter));
+  const lines = filteredLog().slice().reverse();
+  setHtml($("log"), lines.length
+    ? lines.map((e) => '<div class="line ' + esc(e.level) + '"><time>' + hhmmss(e.at) + '</time><span class="ldot"></span><span class="ltext">'
+      + esc(e.text) + "</span></div>").join("")
+    : '<div class="log-empty">Keine Einträge.</div>');
+  const n = (d.log || []).length;
+  $("log-count").textContent = n >= (d.logLimit || Infinity)
+    ? "Die letzten " + n + " Einträge seit dem Start"
+    : plural(n, "Eintrag", "Einträge") + " seit dem Start";
+}
+
+function renderSetup() {
+  const d = lastState;
+  if (!setupEditing) {
+    if (!$("su-base").value) $("su-base").value = d.config.baseUrl || "";
+    $("su-token").placeholder = d.config.hasToken ? "gespeichert, endet auf …" + d.config.tokenHint : "ehl_…";
+  }
+  const c = d.candidates[0];
+  const found = !!c;
+  const dirs = d.addonDirs || [];
+  if (found) {
+    const installed = dirs.some((x) => x.flavor === c.flavor);
+    $("su-wow-title").textContent = "World of Warcraft gefunden";
+    $("su-wow-text").textContent = (c.label || c.flavor) + " · Konto " + c.account + " · "
+      + (installed ? "Addon EventHelperSync installiert" : "Addon-Ordner EventHelperSync nicht gefunden");
+  } else {
+    $("su-wow-title").textContent = "World of Warcraft nicht gefunden";
+    $("su-wow-text").textContent = "Den WoW-Ordner angeben, z.B. D:\\Games\\World of Warcraft. Das Addon muss im Spiel schon einmal geladen gewesen sein.";
+  }
+  $("su-other").hidden = !found;
+  $("su-other").textContent = setupPathOpen ? "Doch automatisch suchen" : "Anderen Ordner wählen";
+  $("su-path").hidden = found && !setupPathOpen;
+  if (!found) setupPathOpen = true;
+  $("su-connect").disabled = busy.has("connect");
+  $("su-connect").textContent = busy.has("connect") ? "Verbinde …" : "Verbinden";
+  renderSetupSteps();
+}
+
+function renderSetupSteps() {
+  if (!lastState) return;
+  const hasBase = !!$("su-base").value.trim();
+  const hasToken = !!$("su-token").value.trim() || lastState.config.hasToken;
+  const found = !!lastState.candidates[0];
+  const step = (el, done, active, label) => {
+    el.className = "step-no" + (done ? " done" : active ? " active" : "");
+    el.innerHTML = done ? SVG.check : label;
+  };
+  step($("su-no1"), hasBase, true, "1");
+  step($("su-no2"), hasToken, hasBase, "2");
+  const no3 = $("su-no3");
+  no3.className = "step-no " + (found ? "done" : "warn");
+  no3.innerHTML = found ? SVG.check : SVG.warn;
+}
+
+// Das Fenster auf den Inhalt zuschneiden: feste Breite, Höhe nach Inhalt der
+// gerade sichtbaren Ansicht (höchstens 90 % des Bildschirms, darüber scrollt
+// es innen). Die Seite muss das selbst tun — --window-size (lib/appWindow.js)
+// greift nur, wenn Edge nicht schon läuft. Nachgezogen wird nur, wenn sich die
+// Höhe des Inhalts ändert (Ansicht, Reiter, Raid-Liste geladen), damit eine
+// eigene Grösse nicht bei jedem 3-s-Poll überschrieben wird. Im normalen
+// Browser-Tab (Fallback) ignoriert der Browser resizeTo() ohnehin.
+// 560: zwei Kacheln nebeneinander und eine Raid-Zeile mit drei Knöpfen, ohne
+// dass die Unterzeile ("Mi, 1.10.2026 · 14 Items · RCLootCouncil") umbricht.
+const APP_WIDTH = 560;
 let fittedHeight = 0;
 function fitWindow() {
-  const frame = document.querySelector(".frame");
-  const minHeight = frame.style.minHeight;
-  frame.style.minHeight = "0";
-  const content = frame.offsetHeight;
-  frame.style.minHeight = minHeight;
+  const v = activeView();
+  if (!v) return;
+  v.classList.add("measure");
+  const content = v.offsetHeight;
+  v.classList.remove("measure");
   if (!content || content === fittedHeight) return;
   fittedHeight = content;
-
   const extraW = window.outerWidth - window.innerWidth;
   const extraH = window.outerHeight - window.innerHeight;
-  const height = Math.max(320, Math.min(content + extraH, Math.round(screen.availHeight * 0.9)));
+  const height = Math.max(360, Math.min(content + extraH, Math.round(screen.availHeight * 0.9)));
   try {
     window.resizeTo(APP_WIDTH + extraW, height);
   } catch {
@@ -852,101 +1266,9 @@ function fitWindow() {
   }
 }
 
-$("btn-settings").addEventListener("click", () => {
-  $("settings-panel").hidden = !$("settings-panel").hidden;
-  fitWindow();
-});
-$("btn-close").addEventListener("click", async () => {
-  // Beendet den ganzen Sync-Tool im Hintergrund (die .exe hat keine
-  // Konsole) und schliesst danach dieses Fenster — in dieser Reihenfolge,
-  // sonst käme die Anfrage nie an.
-  try { await api("/api/quit", { method: "POST" }); } catch { /* egal, Fenster geht trotzdem zu */ }
-  window.close();
-});
-$("btn-refresh").addEventListener("click", () => { refresh(); refreshRaids(); });
-
-$("settings").addEventListener("input", () => { editing = true; });
-$("settings").addEventListener("submit", async (ev) => {
-  ev.preventDefault();
-  const f = ev.target;
-  try {
-    await api("/api/settings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        baseUrl: f.baseUrl.value.trim(),
-        token: f.token.value,
-        savedVariablesPath: f.savedVariablesPath.value,
-        manualPath: f.manualPath.value.trim(),
-        pollSeconds: Number(f.pollSeconds.value),
-      }),
-    });
-    f.token.value = "";
-    f.manualPath.value = "";
-    editing = false;
-    flash("Gespeichert.", "ok");
-    refresh();
-    refreshRaids();
-  } catch (e) {
-    flash(e.message, "err");
-  }
-});
-
-$("btn-upload-all").addEventListener("click", async () => {
-  $("btn-upload-all").disabled = true;
-  try {
-    const r = await api("/api/upload", { method: "POST" });
-    flash(r.results.length ? r.results.length + " Session(s) verarbeitet." : "Nichts hochzuladen.", "ok");
-  } catch (e) {
-    flash(e.message, "err");
-  }
-  refresh();
-  refreshRaids();
-});
-
-$("btn-council").addEventListener("click", async () => {
-  $("btn-council").disabled = true;
-  try {
-    const r = await api("/api/council", { method: "POST" });
-    const files = (r.council.files || []).length;
-    flash(files
-      ? councilSummary(r.council) + " in " + files + " Addon-Ordner geschrieben — im Spiel /reload."
-      : "Council-Daten geholt, aber kein Addon-Ordner gefunden.", files ? "ok" : "err");
-  } catch (e) {
-    flash(e.message, "err");
-  }
-  $("btn-council").disabled = false;
-  refresh();
-});
-
-$("btn-handouts").addEventListener("click", async () => {
-  $("btn-handouts").disabled = true;
-  try {
-    const r = await api("/api/handouts", { method: "POST" });
-    const files = (r.handouts.files || []).length;
-    flash(files
-      ? r.handouts.handouts + " Posten in " + files + " Addon-Ordner geschrieben — im Spiel /reload."
-      : "Ausgabeliste geholt, aber kein Addon-Ordner gefunden.", files ? "ok" : "err");
-  } catch (e) {
-    flash(e.message, "err");
-  }
-  $("btn-handouts").disabled = false;
-  refresh();
-});
-
-$("btn-test").addEventListener("click", async () => {
-  try {
-    await api("/api/test", { method: "POST" });
-    flash("Server erreichbar, Token gültig.", "ok");
-  } catch (e) {
-    flash(e.message, "err");
-  }
-});
-
-refresh();
-refreshRaids();
+refresh().then(refreshRaids);
 setInterval(refresh, 3000);
-// Ein fremder Server soll nicht bei jedem der 3s-Zyklen mit angefragt werden.
+// Ein fremder Server soll nicht bei jedem der 3-s-Zyklen mit angefragt werden.
 setInterval(refreshRaids, 12000);
 </script>
 </body>

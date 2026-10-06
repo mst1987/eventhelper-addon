@@ -196,3 +196,46 @@ describe("searchedRoots", () => {
         expect(roots).not.toContain(path.join(tmp, "gibtsnicht"));
     });
 });
+
+describe("flavorLabel", () => {
+    it("names the known flavor folders and keeps unknown ones", () => {
+        expect(wowPaths.flavorLabel("_anniversary_")).toBe("TBC Anniversary");
+        expect(wowPaths.flavorLabel("_classic_beta_")).toBe("Forever");
+        expect(wowPaths.flavorLabel("_classic_era_")).toBe("Classic Era");
+        expect(wowPaths.flavorLabel("_mein_ordner_")).toBe("_mein_ordner_");
+        expect(wowPaths.flavorLabel("")).toBe("");
+    });
+});
+
+describe("compareVersions", () => {
+    it("compares numerically, not as text", () => {
+        expect(wowPaths.compareVersions("1.10.0", "1.9.2")).toBeGreaterThan(0);
+        expect(wowPaths.compareVersions("1.11.0", "1.11.0")).toBe(0);
+        expect(wowPaths.compareVersions("1.11", "1.11.1")).toBeLessThan(0);
+    });
+});
+
+describe("describeAddonDirs", () => {
+    function addon(root, flavor, version) {
+        const dir = path.join(root, flavor, "Interface", "AddOns", "EventHelperSync");
+        fs.mkdirSync(dir, { recursive: true });
+        if (version !== null) {
+            fs.writeFileSync(path.join(dir, "EventHelperSync.toc"),
+                `## Interface: 20506\n## Title: EventHelper Sync\n## Version: ${version}\n\nCore.lua\n`);
+        }
+        return dir;
+    }
+
+    it("reads flavor name and addon version and marks older addons as outdated", () => {
+        const wow = path.join(tmp, "World of Warcraft");
+        addon(wow, "_anniversary_", "1.11.0");
+        addon(wow, "_classic_beta_", "1.10.0");
+        addon(wow, "_classic_era_", null);
+        const dirs = wowPaths.describeAddonDirs([], { roots: [wow], toolVersion: "1.11.0" });
+        const by = Object.fromEntries(dirs.map((d) => [d.flavor, d]));
+        expect(by._anniversary_).toMatchObject({ label: "TBC Anniversary", version: "1.11.0", outdated: false });
+        expect(by._classic_beta_).toMatchObject({ label: "Forever", version: "1.10.0", outdated: true });
+        // No .toc: no version, and nothing to call outdated.
+        expect(by._classic_era_).toMatchObject({ label: "Classic Era", version: "", outdated: false });
+    });
+});

@@ -1,13 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <!-- Quelle des Programm-Icons (EventHelperSync.exe) und des Fenster-Icons
-       (Favicon in lib/webui-page.js): ein Edelstein für "Loot" im Goldrahmen
-       der Oberfläche. icon.ico daneben wird daraus erzeugt:
-       npm run build:icon (scripts/render-icon.js). -->
-  <rect width="32" height="32" rx="6" fill="#1c150c"/>
-  <rect x="1.5" y="1.5" width="29" height="29" rx="5" fill="none" stroke="#d8b567" stroke-width="2"/>
-  <path d="M16 6 L8 13 L16 13 Z" fill="#c4473c"/>
-  <path d="M16 6 L24 13 L16 13 Z" fill="#a8322c"/>
-  <path d="M8 13 L16 26 L16 13 Z" fill="#86221f"/>
-  <path d="M24 13 L16 26 L16 13 Z" fill="#6c1a18"/>
-  <path d="M16 6 L24 13 L16 26 L8 13 Z" fill="none" stroke="#d8b567" stroke-width="1.4" stroke-linejoin="round"/>
+       (Favicon in lib/webui-page.js): das Wappen der Oberfläche, ein Schild
+       auf dem violett-türkisen Verlauf der EventHelper-Webseite. icon.ico
+       daneben wird daraus erzeugt: npm run build:icon (scripts/render-icon.js). -->
+  <defs>
+    <linearGradient id="g" x1=".25" y1=".07" x2=".75" y2=".93">
+      <stop offset="0" stop-color="#8a7cff"/>
+      <stop offset="1" stop-color="#35d6c4"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="8" fill="url(#g)"/>
+  <path transform="translate(2.8 2.8) scale(1.1)" d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"
+        fill="none" stroke="#130f26" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

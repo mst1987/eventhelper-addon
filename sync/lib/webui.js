@@ -35,6 +35,8 @@ const HOST = "127.0.0.1";
 // wird der nächste genommen (siehe listen()).
 const DEFAULT_PORT = 8730;
 const PORT_TRIES = 20;
+// How long the list of installed addon folders in /api/state is reused.
+const ADDON_DIRS_TTL_MS = 15 * 1000;
 
 function json(res, status, body) {
     const text = JSON.stringify(body);
@@ -90,6 +92,28 @@ function createWebUI(runner, { onQuit } = {}) {
 
     const authorized = (req, parsed) => parsed.searchParams.get("key") === key;
 
+    // The installed addon folders with their versions. The page asks every
+    // 3 s; looking through every drive that often is not needed for a list
+    // that changes when someone installs WoW or an addon update.
+    let addonDirsCache = null;
+    let addonDirsAt = 0;
+    function addonDirs(toolVersion) {
+        if (!addonDirsCache || Date.now() - addonDirsAt > ADDON_DIRS_TTL_MS) {
+            try {
+                addonDirsCache = wowPaths.describeAddonDirs(runner.config.extraRoots, {
+                    savedVariablesPath: runner.config.savedVariablesPath || "",
+                    toolVersion: toolVersion || "",
+                }).map((d) => ({
+                    flavor: d.flavor, label: d.label, dir: d.dir, version: d.version, outdated: d.outdated,
+                }));
+            } catch {
+                addonDirsCache = [];
+            }
+            addonDirsAt = Date.now();
+        }
+        return addonDirsCache;
+    }
+
     const server_ = http.createServer(async (req, res) => {
         const parsed = new URL(req.url, `http://${HOST}`);
 
@@ -131,9 +155,17 @@ function createWebUI(runner, { onQuit } = {}) {
                     guildBank: s.guildBank || null,
                     handouts: s.handouts || null,
                     log: s.log,
+                    logLimit: s.logLimit || s.log.length,
+                    intervals: s.intervals || null,
+                    connection: s.connection || null,
                     config: safeConfig(runner.config),
                     candidates: wowPaths.discover(runner.config.extraRoots)
-                        .map((c) => ({ path: c.path, flavor: c.flavor, account: c.account })),
+                        .map((c) => ({
+                            path: c.path, flavor: c.flavor, label: wowPaths.flavorLabel(c.flavor), account: c.account,
+                        })),
+                    // Where the tool writes council data and handouts, with
+                    // the addon version found there (settings view).
+                    addonDirs: addonDirs(s.version),
                     // Nur wenn nichts gefunden wurde: dann ist "wo wurde gesucht?"
                     // die einzige Frage, die weiterhilft. Sonst nur Rauschen.
                     searchedRoots: s.file ? [] : wowPaths.searchedRoots(runner.config.extraRoots),
@@ -174,6 +206,8 @@ function createWebUI(runner, { onQuit } = {}) {
 
                 config.save(next);
                 runner.reload();
+                // A new file can mean another WoW installation.
+                addonDirsCache = null;
                 json(res, 200, { ok: true, config: safeConfig(config.load()) });
                 return;
             }
@@ -225,9 +259,25 @@ function createWebUI(runner, { onQuit } = {}) {
                 return;
             }
 
+            // "Verbindung testen" / "Verbinden": with address and token from
+            // the form, if given, so they can be checked before they are
+            // saved; empty fields fall back to the saved values.
             if (req.method === "POST" && parsed.pathname === "/api/test") {
-                await runner.testConnection();
+                const override = {};
+                const baseUrl = String(body.baseUrl || "").trim().replace(/\/+$/, "");
+                const token = String(body.token || "").trim();
+                if (baseUrl) override.baseUrl = baseUrl;
+                if (token) override.token = token;
+                await runner.testConnection(override);
                 json(res, 200, { ok: true });
+                return;
+            }
+
+            // "Jetzt prüfen": look at the addon file now instead of at the
+            // next poll (uploads if it changed, like every poll).
+            if (req.method === "POST" && parsed.pathname === "/api/check") {
+                await runner.tick();
+                json(res, 200, { ok: true, lastCheck: runner.state.lastCheck });
                 return;
             }
 
@@ -236,7 +286,16 @@ function createWebUI(runner, { onQuit } = {}) {
             // den echten Server bei jeder Anfrage — das Token bleibt dabei hier
             // im Node-Prozess, die Seite bekommt es nie zu sehen.
             if (req.method === "GET" && parsed.pathname === "/api/raids") {
-                const { raids } = await fetchRaidStatus(runner.config, runner.state.sessions);
+                let raids;
+                try {
+                    ({ raids } = await fetchRaidStatus(runner.config, runner.state.sessions));
+                } catch (e) {
+                    // The raid list is the request the window makes most
+                    // often: it keeps the connection pill current.
+                    if (runner.noteConnection) runner.noteConnection(e);
+                    throw e;
+                }
+                if (runner.noteConnection) runner.noteConnection(null);
                 json(res, 200, { raids });
                 return;
             }

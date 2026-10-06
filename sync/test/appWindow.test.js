@@ -96,7 +96,7 @@ describe("openAppWindow", () => {
         putEdge(tmp);
         process.env["ProgramFiles(x86)"] = tmp;
         openAppWindow("http://127.0.0.1:8730/?key=abc");
-        expect(execFile.mock.calls[0][1]).toContain("--window-size=506,560");
+        expect(execFile.mock.calls[0][1]).toContain("--window-size=576,680");
     });
 
     // Muss auf den normalen Browser-Tab zurückfallen können (webui.js's

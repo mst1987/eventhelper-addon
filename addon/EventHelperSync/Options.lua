@@ -538,7 +538,7 @@ local function build()
     frame.minimap:SetPoint("TOPLEFT", 300, settingsTop - 96)
 
     frame.autoHandouts = checkbox(frame,
-        "Gildenbank-Ausgabe mit der Bank öffnen", "",
+        "Gildenbank-Ausgabe mit Bank und Briefkasten öffnen", "",
         function() return EHS.db.settings.autoOpenHandouts ~= false end,
         function(v) EHS.db.settings.autoOpenHandouts = v end)
     frame.autoHandouts:SetPoint("TOPLEFT", 26, settingsTop - 122)

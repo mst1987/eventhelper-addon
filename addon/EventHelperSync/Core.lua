@@ -75,7 +75,7 @@ local DEFAULTS = {
     -- oder zum Entzaubern, gehören nicht in die Loot-Historie (Collect.lua).
     skipAwardReasons = true,
     -- Open the guild bank handout list (GuildBankUI.lua) by itself when the
-    -- guild bank opens and something is waiting to be handed out.
+    -- guild bank or the mailbox opens and something is waiting to be handed out.
     autoOpenHandouts = true,
 }
 

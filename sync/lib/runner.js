@@ -18,6 +18,7 @@ const {
     readGuildBank, guildBankKey, postGuildBank,
 } = require("./uploader");
 const council = require("./council");
+const handouts = require("./guildbankHandouts");
 
 // Wie viele Log-Zeilen aufgehoben werden. Genug für einen Raid-Abend, wenig
 // genug, dass der Speicher nicht mitwächst.
@@ -32,6 +33,16 @@ const COUNCIL_MIN_GAP_MS = 60 * 1000;
 // file change retries at once). Keeps a missing endpoint from filling the log
 // every poll.
 const GUILD_BANK_RETRY_MS = 5 * 60 * 1000;
+// Guild bank handouts (lib/guildbankHandouts.js): they change more often than
+// the council data (a request confirmed on the website should show up at the
+// bank soon), so every 5 minutes, plus after every upload, after a guild bank
+// scan went up and after ticked entries were reported. Automatic occasions
+// within a minute fall together, like the council.
+const HANDOUTS_INTERVAL_MS = 5 * 60 * 1000;
+const HANDOUTS_MIN_GAP_MS = 60 * 1000;
+// After a failed report of ticked entries: wait this long before the next
+// try (a changed file retries at once).
+const HANDOUTS_REPORT_RETRY_MS = 5 * 60 * 1000;
 
 function createRunner(options = {}) {
     const state = {
@@ -67,6 +78,25 @@ function createRunner(options = {}) {
             files: [],
             lastError: null,
         },
+        /**
+         * Guild bank handouts: the last download (for the status line) and
+         * the ticked entries waiting to be reported.
+         */
+        handouts: {
+            fetching: false,
+            lastFetch: 0,
+            generatedAt: 0,
+            banks: 0,
+            handouts: 0,
+            files: [],
+            lastError: null,
+            /** Entries ticked in game (in the file) not reported yet. */
+            done: 0,
+            reporting: false,
+            /** { at, reported, ok, duplicate, notConfirmed, unknown } of the last report. */
+            lastReport: null,
+            reportError: null,
+        },
     };
 
     let cfg = config.load();
@@ -80,6 +110,16 @@ function createRunner(options = {}) {
     let guildBankScan = null;
     let guildBankRetryAt = 0;
     let guildBankError = null;
+    let handoutsTimer = null;
+    let handoutsRun = null;
+    // A forced refresh asked for while one runs: run once more afterwards, the
+    // running one may have started before the change (scan, report).
+    let handoutsAgain = false;
+    let handoutsSignature = "";
+    // The entries ticked in game, as read from the file.
+    let handoutsDone = [];
+    let handoutsReportRun = null;
+    let handoutsReportRetryAt = 0;
 
     function log(level, text) {
         const entry = { at: Date.now(), level, text };
@@ -106,6 +146,8 @@ function createRunner(options = {}) {
             state.readError = null;
             guildBankScan = null;
             state.guildBank = null;
+            handoutsDone = [];
+            state.handouts.done = 0;
             return;
         }
         try {
@@ -147,6 +189,17 @@ function createRunner(options = {}) {
             state.sessions = [];
         }
         readGuildBankState();
+        readHandoutsDoneState();
+    }
+
+    /** The ticked handouts in the file; on their own, like the guild bank scan. */
+    function readHandoutsDoneState() {
+        try {
+            handoutsDone = handouts.readGuildBankDone(state.file) || [];
+        } catch {
+            handoutsDone = [];
+        }
+        state.handouts.done = handouts.unreported(handoutsDone, cfg.guildBankDoneReported).length;
     }
 
     /** The guild bank scan in the file; on its own, so it never breaks the loot part. */
@@ -207,7 +260,150 @@ function createRunner(options = {}) {
         cfg = config.save({ ...config.load(), guildBankUploads: uploads });
         log("ok", `${label}: hochgeladen — ${state.guildBank.tabs} Tab(s), ${state.guildBank.items} Stapel.`);
         readGuildBankState();
+        // The handouts carry the bank count of the last scan: fetch them anew.
+        refreshHandouts({ force: true });
         return true;
+    }
+
+    /**
+     * Fetch the guild bank handouts and write GuildBankData.lua into every
+     * installed addon folder (lib/guildbankHandouts.js).
+     *
+     * Never throws and never rejects, like refreshCouncil(): a failure here
+     * must not stop the uploads. It lands in state.handouts.lastError and,
+     * once per new message, in the log. A successful fetch is logged only when
+     * the list changed - every 5 minutes would drown the log.
+     *
+     * @param {{ force?: boolean }} [options]  force: also right after the last
+     *   fetch, and with a message when nothing is set up (a click in the UI).
+     *   A forced call while a fetch runs fetches once more afterwards.
+     * @returns {Promise<object|null>} the result of syncHandouts(), else null
+     */
+    function refreshHandouts({ force = false } = {}) {
+        if (handoutsRun) {
+            if (force) handoutsAgain = true;
+            return handoutsRun;
+        }
+        const h = state.handouts;
+        if (!force && h.lastFetch && Date.now() - h.lastFetch < HANDOUTS_MIN_GAP_MS) return Promise.resolve(null);
+        h.fetching = true;
+        const run = (async () => {
+            try {
+                if ((config.missing(cfg) || []).length) {
+                    if (force) throw new Error("Noch nicht eingerichtet — Adresse und Token fehlen.");
+                    return null;
+                }
+                const result = await handouts.syncHandouts(cfg);
+                const hadError = !!h.lastError;
+                Object.assign(h, {
+                    lastFetch: Date.now(),
+                    generatedAt: Number(result.payload.generatedAt) || 0,
+                    banks: result.banks,
+                    handouts: result.handouts,
+                    files: result.files,
+                    lastError: result.errors.length ? { at: Date.now(), message: result.errors.join("; ") } : null,
+                });
+                const signature = JSON.stringify([result.payload.banks, result.files.length]);
+                if (signature !== handoutsSignature || hadError) {
+                    handoutsSignature = signature;
+                    if (!result.dirs.length) {
+                        log("warn", `Ausgabeliste geholt (${result.handouts} Posten), aber kein installierter `
+                            + "Addon-Ordner EventHelperSync gefunden — nichts geschrieben.");
+                    } else if (result.files.length) {
+                        log("ok", `Ausgabeliste: ${result.handouts} Posten aus ${result.banks} Gildenbank(en) in `
+                            + `${result.files.length} Addon-Ordner geschrieben — im Spiel nach /reload (/ehs bank).`);
+                    }
+                }
+                for (const err of result.errors) log("error", `Ausgabeliste nicht geschrieben: ${err}`);
+                return result;
+            } catch (e) {
+                const repeated = h.lastError && h.lastError.message === e.message;
+                h.lastError = { at: Date.now(), message: e.message };
+                if (!repeated || force) log("error", `Ausgabeliste: ${e.message}`);
+                return null;
+            } finally {
+                h.fetching = false;
+            }
+        })();
+        // Released only after the assignment, as in refreshCouncil().
+        handoutsRun = run;
+        run.then(() => {
+            if (handoutsRun === run) handoutsRun = null;
+            if (handoutsAgain) {
+                handoutsAgain = false;
+                refreshHandouts({ force: true });
+            }
+        });
+        return run;
+    }
+
+    /** Remember reported ids (with the time) in the config, old ones pruned. */
+    function rememberReported(ids) {
+        if (!ids || !ids.length) return;
+        const reported = handouts.pruneReported(cfg.guildBankDoneReported);
+        const now = Date.now();
+        for (const id of ids) reported[id] = now;
+        cfg = config.save({ ...config.load(), guildBankDoneReported: reported });
+    }
+
+    /**
+     * Report the handouts ticked in game (EventHelperSyncDB.guildBankDone)
+     * that were not reported yet. Runs every tick and does nothing without
+     * such entries. A failure is retried after a pause (or at once when the
+     * file changes); a success fetches the handouts again, so the next
+     * GuildBankData.lua no longer lists them.
+     * @param {{ force?: boolean }} [opts] force: ignore the retry pause
+     * @returns {Promise<boolean>} whether something was reported
+     */
+    function reportHandoutsDone(opts = {}) {
+        if (handoutsReportRun) return handoutsReportRun;
+        const h = state.handouts;
+        const pending = handouts.unreported(handoutsDone, cfg.guildBankDoneReported);
+        h.done = pending.length;
+        if (!pending.length || (config.missing(cfg) || []).length) return Promise.resolve(false);
+        if (!opts.force && Date.now() < handoutsReportRetryAt) return Promise.resolve(false);
+        h.reporting = true;
+        const run = (async () => {
+            try {
+                const result = await handouts.reportDone(cfg, pending);
+                rememberReported(result.reported);
+                handoutsReportRetryAt = 0;
+                h.reportError = null;
+                h.lastReport = {
+                    at: Date.now(),
+                    reported: result.reported.length,
+                    ok: result.ok.length,
+                    duplicate: result.duplicate.length,
+                    notConfirmed: result.notConfirmed.length,
+                    unknown: result.unknown.length,
+                };
+                const extra = [];
+                if (result.duplicate.length) extra.push(`${result.duplicate.length} schon ausgegeben`);
+                if (result.notConfirmed.length) extra.push(`${result.notConfirmed.length} nicht mehr vorgemerkt`);
+                if (result.unknown.length) extra.push(`${result.unknown.length} unbekannt`);
+                log("ok", `Gildenbank-Ausgabe: ${result.reported.length} abgehakte(n) Posten gemeldet`
+                    + `${extra.length ? ` (${extra.join(", ")})` : ""}.`);
+                refreshHandouts({ force: true });
+                return true;
+            } catch (e) {
+                const partial = (e && e.reported) || [];
+                rememberReported(partial);
+                handoutsReportRetryAt = Date.now() + HANDOUTS_REPORT_RETRY_MS;
+                h.reportError = { at: Date.now(), message: e.message };
+                log("error", `Gildenbank-Ausgabe: Melden fehlgeschlagen — ${e.message}. `
+                    + "Neuer Versuch in 5 min oder bei der nächsten Änderung.");
+                if (partial.length) refreshHandouts({ force: true });
+                return false;
+            } finally {
+                h.reporting = false;
+                h.done = handouts.unreported(handoutsDone, cfg.guildBankDoneReported).length;
+            }
+        })();
+        handoutsReportRun = run;
+        run.then(() => {
+            if (handoutsReportRun === run) handoutsReportRun = null;
+        });
+        return run;
     }
 
     /**
@@ -299,6 +495,7 @@ function createRunner(options = {}) {
             // Nicht abgewartet: der Abruf blockiert den Upload-Takt nicht und
             // kann ihn auch nicht scheitern lassen (refreshCouncil wirft nie).
             refreshCouncil();
+            refreshHandouts();
             return results;
         } catch (e) {
             state.lastError = { at: Date.now(), message: e.message };
@@ -329,6 +526,7 @@ function createRunner(options = {}) {
                 rememberResults(results);
                 for (const r of results) log("ok", `${r.sessionId}: ${describe(r)}`);
                 refreshCouncil();
+                refreshHandouts();
             }
             return results;
         } catch (e) {
@@ -377,12 +575,15 @@ function createRunner(options = {}) {
                 } catch {
                     // Already logged. The guild bank below goes on regardless.
                 }
-                // A changed file retries a failed guild bank upload at once.
+                // A changed file retries a failed guild bank upload (and a
+                // failed report of ticked handouts) at once.
                 guildBankRetryAt = 0;
+                handoutsReportRetryAt = 0;
             }
             // Every tick, not only on a change: a failed upload is retried
             // once its pause is over.
             await syncGuildBank();
+            await reportHandoutsDone();
         } catch {
             // Bereits protokolliert; der nächste Durchlauf versucht es erneut.
         } finally {
@@ -419,6 +620,8 @@ function createRunner(options = {}) {
         timer = setInterval(tick, Math.max(5, Number(cfg.pollSeconds) || 15) * 1000);
         refreshCouncil();
         councilTimer = setInterval(() => refreshCouncil(), COUNCIL_INTERVAL_MS);
+        refreshHandouts();
+        handoutsTimer = setInterval(() => refreshHandouts(), HANDOUTS_INTERVAL_MS);
     }
 
     function stop() {
@@ -426,6 +629,8 @@ function createRunner(options = {}) {
         timer = null;
         if (councilTimer) clearInterval(councilTimer);
         councilTimer = null;
+        if (handoutsTimer) clearInterval(handoutsTimer);
+        handoutsTimer = null;
     }
 
     /**
@@ -472,12 +677,16 @@ function createRunner(options = {}) {
         readState();
         timer = setInterval(tick, Math.max(5, Number(cfg.pollSeconds) || 15) * 1000);
         councilTimer = setInterval(() => refreshCouncil(), COUNCIL_INTERVAL_MS);
+        handoutsTimer = setInterval(() => refreshHandouts(), HANDOUTS_INTERVAL_MS);
         log("info", "Einstellungen neu geladen.");
         // Andere Kategorie/Rolle oder ein neues Ziel: gleich neu holen, nicht
         // erst in einer Viertelstunde.
         const councilChanged = ["baseUrl", "token", "councilCategory", "councilRole"]
             .some((k) => (before[k] || "") !== (cfg[k] || ""));
         refreshCouncil({ force: councilChanged });
+        // A new target: fetch the handouts at once as well.
+        const targetChanged = ["baseUrl", "token"].some((k) => (before[k] || "") !== (cfg[k] || ""));
+        refreshHandouts({ force: targetChanged });
     }
 
     return {
@@ -494,6 +703,8 @@ function createRunner(options = {}) {
         readState,
         setExcluded,
         refreshCouncil,
+        refreshHandouts,
+        reportHandoutsDone,
         get config() { return cfg; },
     };
 }
@@ -549,4 +760,5 @@ function describe(r) {
 
 module.exports = {
     createRunner, describe, whyNothing, LOG_LIMIT, COUNCIL_INTERVAL_MS, COUNCIL_MIN_GAP_MS, GUILD_BANK_RETRY_MS,
+    HANDOUTS_INTERVAL_MS, HANDOUTS_MIN_GAP_MS, HANDOUTS_REPORT_RETRY_MS,
 };

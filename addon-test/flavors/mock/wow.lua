@@ -35,6 +35,9 @@ local KNOWN_EVENTS = {
     ADDON_LOADED = true, PLAYER_LOGIN = true, PLAYER_LOGOUT = true, PLAYER_ENTERING_WORLD = true,
     ZONE_CHANGED_NEW_AREA = true, ENCOUNTER_END = true, PLAYER_REGEN_DISABLED = true,
     PLAYER_REGEN_ENABLED = true,
+    -- the guild bank on both (Forever has no GUILDBANKFRAME_*)
+    PLAYER_INTERACTION_MANAGER_FRAME_SHOW = true, PLAYER_INTERACTION_MANAGER_FRAME_HIDE = true,
+    GUILDBANKBAGSLOTS_CHANGED = true,
 }
 
 local TEMPLATES = {
@@ -254,6 +257,8 @@ end
 
 function InCombatLockdown() return false end
 function IsShiftKeyDown() return WoWMock.shift end
+function IsControlKeyDown() return WoWMock.ctrl end
+function GetGuildInfo(unit) if unit == "player" then return WoWMock.guild end end
 function UnitName() return "Gemli" end
 function GetRealmName() return "Thunderstrike" end
 function UnitFactionGroup() return "Alliance" end
@@ -278,7 +283,7 @@ end
 
 if FOREVER then
     WOW_PROJECT_ID, WOW_PROJECT_MAINLINE = 1, 1
-    Enum = { TooltipDataType = { Item = 0, Spell = 1 } }
+    Enum = { TooltipDataType = { Item = 0, Spell = 1 }, PlayerInteractionType = { GuildBanker = 10 } }
     C_Item = { GetItemInfo = itemInfo }
     C_AddOns = { GetAddOnMetadata = metadata }
     TooltipDataProcessor = {}

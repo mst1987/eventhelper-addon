@@ -104,6 +104,9 @@ local function textButton(parent, label, width, tooltip)
     return button
 end
 
+-- Die Bausteine auch fuer das Gildenbank-Fenster (GuildBankUI.lua): gleicher Look.
+EHS.Widgets = { text = text, solid = solid, textButton = textButton }
+
 -- ---------------------------------------------------------------------------
 -- Tooltip einer Zeile
 -- ---------------------------------------------------------------------------

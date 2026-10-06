@@ -233,6 +233,23 @@ async function syncCouncil(config, { now = new Date(), roots } = {}) {
         role: config.councilRole || "",
     }));
     const text = buildCouncilFile(payload, { now });
+    const { dirs, files, errors } = writeToAddonDirs(config, COUNCIL_FILE, text, { roots });
+    return { payload, raiders: payload.raiders.length, dirs, files, errors };
+}
+
+/**
+ * Eine Datei in jeden installierten Addon-Ordner schreiben (atomar, siehe
+ * writeAtomic). Ein fehlender Addon-Ordner wird nie angelegt; ein Ordner, in
+ * den sich nicht schreiben lässt, landet in `errors` und hält die übrigen
+ * nicht auf. Gemeinsam für CouncilData.lua und GuildBankData.lua
+ * (lib/guildbankHandouts.js).
+ * @param {object} config  wie aus lib/config.js
+ * @param {string} fileName  z.B. "CouncilData.lua"
+ * @param {string} text  der ganze Inhalt
+ * @param {{ roots?: string[] }} [options]  roots nur für Tests
+ * @returns {{ dirs: object[], files: string[], errors: string[] }}
+ */
+function writeToAddonDirs(config, fileName, text, { roots } = {}) {
     const dirs = wowPaths.findAddonDirs(config.extraRoots, {
         savedVariablesPath: config.savedVariablesPath || "",
         roots,
@@ -240,7 +257,7 @@ async function syncCouncil(config, { now = new Date(), roots } = {}) {
     const files = [];
     const errors = [];
     for (const { dir } of dirs) {
-        const file = path.join(dir, COUNCIL_FILE);
+        const file = path.join(dir, fileName);
         try {
             writeAtomic(file, text);
             files.push(file);
@@ -248,10 +265,10 @@ async function syncCouncil(config, { now = new Date(), roots } = {}) {
             errors.push(`${file}: ${e.message}`);
         }
     }
-    return { payload, raiders: payload.raiders.length, dirs, files, errors };
+    return { dirs, files, errors };
 }
 
 module.exports = {
     syncCouncil, fetchCouncil, validateCouncil, buildCouncilFile, toLua, luaString, toLatin1, writeAtomic,
-    CouncilError, COUNCIL_FORMAT, COUNCIL_VERSION, COUNCIL_FILE, COUNCIL_GLOBAL,
+    writeToAddonDirs, CouncilError, COUNCIL_FORMAT, COUNCIL_VERSION, COUNCIL_FILE, COUNCIL_GLOBAL,
 };

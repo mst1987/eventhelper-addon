@@ -40,6 +40,7 @@ local PROJECTS = { [1] = "forever", [2] = "classic", [5] = "tbc" }
 -- Runtime state only, nothing of this is saved.
 local bank = {
     open = false,
+    openedAt = 0,   -- time() of the last open, to tell a scan of this visit
     scanning = false,
     queue = nil,    -- viewable tabs still to read: { { index, name }, ... }
     tabs = nil,     -- tabs read so far (wire format)
@@ -86,6 +87,18 @@ local function clientProject(interface)
     if interface >= 20000 and interface < 30000 then return "tbc" end
     if interface >= 10000 and interface < 12000 then return "classic" end
     return "forever"
+end
+
+-- Listeners for open/close/scan (the handout list, GuildBankHandouts.lua).
+local listeners = {}
+
+--- Call every listener with ("open" | "close" | "scan"). A listener that
+-- breaks must not break the guild bank.
+local function notify(what)
+    for _, fn in ipairs(listeners) do
+        local ok, err = pcall(fn, what)
+        if not ok then EHS:Debug("Gildenbank-Listener:", tostring(err)) end
+    end
 end
 
 local function realmName()
@@ -153,6 +166,7 @@ local function finishScan()
     stopScan()
 
     EHS:Print(("Gildenbank gescannt: %d Tabs, %d Gegenstände. Speichern mit /ehs upload."):format(#tabs, count))
+    notify("scan")
 end
 
 local queryNext
@@ -229,6 +243,24 @@ function EHS:IsGuildBankOpen()
     return bank.open
 end
 
+--- time() of the last opening of the guild bank (0 = not yet this session).
+function EHS:GuildBankOpenedAt()
+    return bank.openedAt
+end
+
+--- "tbc" | "forever" | "classic": the client this runs on, as in the key of
+-- a guild bank (client.project of a scan, gameVersion of the handouts).
+function EHS:ClientProject()
+    local ok, _, _, _, interface = call(GetBuildInfo)
+    return clientProject(ok and interface or nil)
+end
+
+--- Be told when the guild bank opens ("open"), closes ("close") or a scan
+-- is stored ("scan"). Each call runs under pcall.
+function EHS:OnGuildBankEvent(fn)
+    if type(fn) == "function" then listeners[#listeners + 1] = fn end
+end
+
 function EHS:IsGuildBankScanning()
     return bank.scanning
 end
@@ -242,15 +274,19 @@ end
 local function onOpen()
     if bank.open then return end
     bank.open = true
+    bank.openedAt = time()
     EHS:ScanGuildBank()
+    notify("open")
 end
 
 local function onClose()
+    local wasOpen = bank.open
     bank.open = false
     if bank.scanning then
         stopScan()
         EHS:Print("Gildenbank geschlossen, Scan abgebrochen.")
     end
+    if wasOpen then notify("close") end
 end
 
 local frame = CreateFrame("Frame")

@@ -84,7 +84,11 @@ local function build()
 
     button:SetScript("OnClick", function(_, mouseButton)
         local shift = IsShiftKeyDown and IsShiftKeyDown()
-        if mouseButton == "MiddleButton" or (mouseButton == "LeftButton" and shift) then
+        local ctrl = IsControlKeyDown and IsControlKeyDown()
+        if mouseButton == "LeftButton" and ctrl then
+            -- Die Gildenbank-Ausgabe: was an wen raus muss.
+            EHS:ToggleGuildBankUI()
+        elseif mouseButton == "MiddleButton" or (mouseButton == "LeftButton" and shift) then
             -- Der Loot-Council: beim Verteilen der schnellste Weg dorthin.
             EHS:ToggleCouncil()
         elseif mouseButton == "RightButton" then
@@ -120,9 +124,17 @@ local function build()
             GameTooltip:AddDoubleLine("Stand", "|cff44dd44gespeichert|r")
         end
 
+        -- Nur wenn es Ausgabe-Daten gibt: sonst ist die Zeile nur Rauschen.
+        local okHandouts, open = pcall(EHS.HandoutCounts, EHS)
+        if okHandouts and EHS.Handouts.Load() then
+            GameTooltip:AddDoubleLine("Gildenbank-Ausgabe",
+                open > 0 and ("|cffffd200%d offen|r"):format(open) or "|cff44dd44nichts offen|r")
+        end
+
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine("Linksklick: Fenster öffnen", 1, 1, 1)
         GameTooltip:AddLine("Shift-Linksklick / Mittelklick: Loot-Council", 1, 1, 1)
+        GameTooltip:AddLine("Strg-Linksklick: Gildenbank-Ausgabe", 1, 1, 1)
         GameTooltip:AddLine("Rechtsklick: jetzt speichern (lädt die UI neu)", 1, 1, 1)
         GameTooltip:AddLine("Ziehen: um die Minimap bewegen", .6, .6, .6)
         GameTooltip:Show()

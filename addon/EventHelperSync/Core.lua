@@ -74,6 +74,9 @@ local DEFAULTS = {
     -- Items, die gar nicht an einen Raider gingen, sondern in die Gildenbank
     -- oder zum Entzaubern, gehören nicht in die Loot-Historie (Collect.lua).
     skipAwardReasons = true,
+    -- Open the guild bank handout list (GuildBankUI.lua) by itself when the
+    -- guild bank opens and something is waiting to be handed out.
+    autoOpenHandouts = true,
 }
 
 local function applyDefaults(target, defaults)
@@ -137,9 +140,11 @@ function EHS:FlushAndReload()
     local envelope = self:Rebuild()
     local items = 0
     for _, session in ipairs(envelope.sessions) do items = items + #session.items end
-    -- A fresh guild bank scan alone is worth a reload too (GuildBank.lua).
+    -- A fresh guild bank scan alone is worth a reload too (GuildBank.lua),
+    -- and so are handouts ticked off in game (GuildBankHandouts.lua).
     local guildBank = self:GuildBankUnsaved()
-    if items == 0 and not guildBank then
+    local handouts = self.HandoutsUnsaved and self:HandoutsUnsaved()
+    if items == 0 and not guildBank and not handouts then
         self:Print("Nichts zu speichern - es wurde kein Loot gefunden.")
         return false
     end
@@ -147,7 +152,9 @@ function EHS:FlushAndReload()
     -- Erst merken, dann neu laden: der Wert muss mit in die Datei, die der
     -- Reload gleich schreibt.
     self.db.lastFlushedAt = time()
-    if items == 0 then
+    if items == 0 and not guildBank then
+        self:Print("Speichere die abgehakten Gildenbank-Ausgaben und lade die UI neu.")
+    elseif items == 0 then
         self:Print("Speichere den Gildenbank-Scan und lade die UI neu.")
     else
         self:Print(("Speichere %d Item(s) und lade die UI neu - das Sync-Tool holt sie gleich ab."):format(items))
@@ -235,6 +242,14 @@ local function reportStatus()
             date("%d.%m.%Y %H:%M", guildBank.scannedAt), #(guildBank.tabs or {})))
     end
 
+    -- The handout list is an extra: a broken one must not break the status.
+    local okHandouts, open, done = pcall(EHS.HandoutCounts, EHS)
+    if okHandouts and EHS.Handouts and EHS.Handouts.Load() then
+        local line = ("Gildenbank-Ausgabe: %d Posten offen"):format(open)
+        if done > 0 then line = line .. (", %d abgehakt (noch nicht gemeldet)"):format(done) end
+        EHS:Print(line .. ". Liste: /ehs bank")
+    end
+
     if EHS.db.lastError then
         EHS:Print("|cffdd4444Letzter Fehler:|r " .. EHS.db.lastError)
     end
@@ -275,6 +290,8 @@ SlashCmdList.EVENTHELPERSYNC = function(msg)
         EHS:ShowExportFrame()
     elseif cmd == "council" or cmd == "lc" then
         EHS:ToggleCouncil()
+    elseif cmd == "bank" or cmd == "ausgabe" then
+        EHS:ToggleGuildBankUI()
     elseif cmd == "days" then
         local days = tonumber(rest)
         if not days or days < 1 then
@@ -296,6 +313,7 @@ SlashCmdList.EVENTHELPERSYNC = function(msg)
         EHS:Print("  /ehs button     - Upload-Knopf ein-/ausblenden")
         EHS:Print("  /ehs export     - Export als JSON zum Kopieren anzeigen")
         EHS:Print("  /ehs council    - Loot-Council: Bedarf und erhaltener Loot je Raider (auch /ehc)")
+        EHS:Print("  /ehs bank       - Gildenbank-Ausgabe: was an wen raus muss, zum Abhaken (auch /ehb)")
         EHS:Print("  /ehs days <n>   - wie viele Tage zurück exportiert werden")
         EHS:Print("  /ehs debug      - Debug-Ausgaben umschalten")
     end

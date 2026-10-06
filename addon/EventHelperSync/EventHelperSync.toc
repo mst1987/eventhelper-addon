@@ -1,6 +1,6 @@
 ## Interface: 20506, 16001
 ## Title: EventHelper Sync
-## Notes: Bündelt den vergebenen Loot aus RCLootcouncil und Gargul zu Raid-Sessions für den EventHelper-Import und zeigt den Loot-Council im Spiel.
+## Notes: Bündelt den vergebenen Loot aus RCLootcouncil und Gargul zu Raid-Sessions für den EventHelper-Import und zeigt den Loot-Council und die Gildenbank-Ausgabe im Spiel.
 ## Author: Pulse
 ## Version: 1.9.0
 ## SavedVariables: EventHelperSyncDB
@@ -21,3 +21,6 @@ UI.lua
 CouncilData.lua
 Council.lua
 CouncilUI.lua
+GuildBankData.lua
+GuildBankHandouts.lua
+GuildBankUI.lua

@@ -3,7 +3,7 @@
   "private": true,
   "description": "Runs the EventHelperSync Lua files in a fengari VM against a mocked WoW API. Not part of the addon or the sync tool.",
   "scripts": {
-    "test": "node run.js"
+    "test": "node run.js && node flavors/run.js"
   },
   "devDependencies": {
     "fengari": "^0.1.4"

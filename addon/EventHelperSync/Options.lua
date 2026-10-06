@@ -57,7 +57,7 @@ local function fmtSpan(session)
     local from = date("%H:%M", session.startedAt)
     local to = date("%H:%M", session.endedAt)
     if from == to then return from end
-    return from .. "–" .. to
+    return from .. "-" .. to
 end
 
 -- ---------------------------------------------------------------------------
@@ -239,6 +239,109 @@ local function buildRow(parent, index)
     return row
 end
 
+local function pickRaid(name)
+    filter.raid = name
+    EHS:RefreshOptions()
+end
+
+--- Der Raid-Filter: das klassische Dropdown, wo es das gibt. WoW Forever ist
+--- ein Retail-Client; fehlt dort UIDropDownMenu, wird es ein Knopf mit dem
+--- neuen Kontextmenü (MenuUtil) - und ohne beides schaltet jeder Klick zum
+--- nächsten Raid weiter.
+local function buildRaidFilter(y)
+    local ok, drop = false, nil
+    if UIDropDownMenu_Initialize and UIDropDownMenu_SetWidth and UIDropDownMenu_SetText then
+        ok, drop = pcall(CreateFrame, "Frame", "EventHelperSyncRaidFilter", frame, "UIDropDownMenuTemplate")
+    end
+    if ok and drop then
+        frame.raidDrop = drop
+        frame.raidDrop:SetPoint("TOPLEFT", 46, y + 6)
+        UIDropDownMenu_SetWidth(frame.raidDrop, 190)
+        UIDropDownMenu_Initialize(frame.raidDrop, function(_, level)
+            local info = UIDropDownMenu_CreateInfo()
+            info.func = function(self)
+                filter.raid = self.value == "__all__" and "" or self.value
+                UIDropDownMenu_SetSelectedValue(frame.raidDrop, self.value)
+                EHS:RefreshOptions()
+            end
+            info.text, info.value = "Alle Raids", "__all__"
+            info.checked = filter.raid == ""
+            UIDropDownMenu_AddButton(info, level)
+            for _, name in ipairs(raidNames()) do
+                info = UIDropDownMenu_CreateInfo()
+                info.func = function(self)
+                    filter.raid = self.value
+                    UIDropDownMenu_SetSelectedValue(frame.raidDrop, self.value)
+                    EHS:RefreshOptions()
+                end
+                info.text, info.value = name, name
+                info.checked = filter.raid == name
+                UIDropDownMenu_AddButton(info, level)
+            end
+        end)
+        return
+    end
+
+    frame.raidButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    frame.raidButton:SetSize(200, 22)
+    frame.raidButton:SetPoint("TOPLEFT", 56, y + 4)
+    frame.raidButton:SetScript("OnClick", function(self)
+        local names = raidNames()
+        if MenuUtil and MenuUtil.CreateContextMenu then
+            pcall(MenuUtil.CreateContextMenu, self, function(_, root)
+                root:CreateRadio("Alle Raids", function() return filter.raid == "" end, function() pickRaid("") end)
+                for _, name in ipairs(names) do
+                    root:CreateRadio(name, function() return filter.raid == name end, function() pickRaid(name) end)
+                end
+            end)
+            return
+        end
+        local nextName = names[1] or ""
+        for i, name in ipairs(names) do
+            if name == filter.raid then nextName = names[i + 1] or "" end
+        end
+        pickRaid(nextName)
+    end)
+end
+
+--- Die Raid-Tabelle scrollt per FauxScrollFrame, wo es das gibt; sonst (auch
+--- das kann auf dem Retail-Client von WoW Forever fehlen) per Mausrad mit
+--- selbst gezähltem Versatz.
+local function buildScroll(y)
+    local ok, scroll = false, nil
+    if FauxScrollFrame_Update and FauxScrollFrame_GetOffset and FauxScrollFrame_OnVerticalScroll then
+        ok, scroll = pcall(CreateFrame, "ScrollFrame", "$parentList", frame, "FauxScrollFrameTemplate")
+    end
+    if ok and scroll then
+        frame.scroll = scroll
+        frame.scroll:SetScript("OnVerticalScroll", function(self, offset)
+            FauxScrollFrame_OnVerticalScroll(self, offset, ROW_HEIGHT, function() EHS:RefreshOptions() end)
+        end)
+    else
+        frame.scroll = CreateFrame("Frame", nil, frame)
+        frame.scroll.manual = true
+        frame.scroll.offset = 0
+        frame.scroll.maxOffset = 0
+    end
+    frame.scroll:SetPoint("TOPLEFT", 20, y)
+    frame.scroll:SetSize(WIDTH - 62, VISIBLE_ROWS * ROW_HEIGHT)
+end
+
+local function scrollUpdate(total)
+    local scroll = frame.scroll
+    if scroll.manual then
+        scroll.maxOffset = math.max(0, total - VISIBLE_ROWS)
+        scroll.offset = math.min(scroll.offset, scroll.maxOffset)
+    else
+        FauxScrollFrame_Update(scroll, total, VISIBLE_ROWS, ROW_HEIGHT)
+    end
+end
+
+local function scrollOffset()
+    if frame.scroll.manual then return frame.scroll.offset end
+    return FauxScrollFrame_GetOffset(frame.scroll)
+end
+
 local function build()
     frame = CreateFrame("Frame", "EventHelperSyncOptionsFrame", UIParent, "BasicFrameTemplateWithInset")
     frame:SetSize(WIDTH, HEIGHT)
@@ -267,7 +370,8 @@ local function build()
 
     frame.pending = label(frame, "", "GameFontNormalSmall")
     frame.pending:SetPoint("TOPLEFT", 16, -76)
-    frame.pending:SetWidth(WIDTH - 300)
+    -- schmaler als die Zeile darüber: rechts daneben sitzt der Loot-Council-Knopf
+    frame.pending:SetWidth(WIDTH - 400)
     frame.pending:SetJustifyH("LEFT")
 
     frame.upload = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
@@ -284,37 +388,19 @@ local function build()
     frame.showExport:SetText("Export als Text anzeigen")
     frame.showExport:SetScript("OnClick", function() EHS:ShowExportFrame() end)
 
+    frame.council = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    frame.council:SetSize(120, 22)
+    frame.council:SetPoint("TOPRIGHT", -262, -76)
+    frame.council:SetText("Loot-Council")
+    frame.council:SetScript("OnClick", function() EHS:ToggleCouncil() end)
+
     -- --- Filterleiste ------------------------------------------------------
     local FILTER_Y = -112
 
     frame.filterLabel = label(frame, "Filter:", "GameFontNormalSmall")
     frame.filterLabel:SetPoint("TOPLEFT", 16, FILTER_Y)
 
-    frame.raidDrop = CreateFrame("Frame", "EventHelperSyncRaidFilter", frame, "UIDropDownMenuTemplate")
-    frame.raidDrop:SetPoint("TOPLEFT", 46, FILTER_Y + 6)
-    UIDropDownMenu_SetWidth(frame.raidDrop, 190)
-    UIDropDownMenu_Initialize(frame.raidDrop, function(_, level)
-        local info = UIDropDownMenu_CreateInfo()
-        info.func = function(self)
-            filter.raid = self.value == "__all__" and "" or self.value
-            UIDropDownMenu_SetSelectedValue(frame.raidDrop, self.value)
-            EHS:RefreshOptions()
-        end
-        info.text, info.value = "Alle Raids", "__all__"
-        info.checked = filter.raid == ""
-        UIDropDownMenu_AddButton(info, level)
-        for _, name in ipairs(raidNames()) do
-            info = UIDropDownMenu_CreateInfo()
-            info.func = function(self)
-                filter.raid = self.value
-                UIDropDownMenu_SetSelectedValue(frame.raidDrop, self.value)
-                EHS:RefreshOptions()
-            end
-            info.text, info.value = name, name
-            info.checked = filter.raid == name
-            UIDropDownMenu_AddButton(info, level)
-        end
-    end)
+    buildRaidFilter(FILTER_Y)
 
     frame.onlyPending = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
     frame.onlyPending:SetSize(22, 22)
@@ -378,16 +464,19 @@ local function build()
 
     -- --- Tabelle -----------------------------------------------------------
     local LIST_Y = HEAD_Y - 18
-    frame.scroll = CreateFrame("ScrollFrame", "$parentList", frame, "FauxScrollFrameTemplate")
-    frame.scroll:SetPoint("TOPLEFT", 20, LIST_Y)
-    frame.scroll:SetSize(WIDTH - 62, VISIBLE_ROWS * ROW_HEIGHT)
-    frame.scroll:SetScript("OnVerticalScroll", function(self, offset)
-        FauxScrollFrame_OnVerticalScroll(self, offset, ROW_HEIGHT, function() EHS:RefreshOptions() end)
-    end)
+    buildScroll(LIST_Y)
 
     frame.rowHolder = CreateFrame("Frame", nil, frame)
     frame.rowHolder:SetPoint("TOPLEFT", frame.scroll, "TOPLEFT", 0, 0)
     frame.rowHolder:SetSize(WIDTH - 60, VISIBLE_ROWS * ROW_HEIGHT)
+    if frame.scroll.manual then
+        frame.rowHolder:EnableMouseWheel(true)
+        frame.rowHolder:SetScript("OnMouseWheel", function(_, delta)
+            local scroll = frame.scroll
+            scroll.offset = math.max(0, math.min(scroll.maxOffset, scroll.offset - delta * 3))
+            EHS:RefreshOptions()
+        end)
+    end
     for i = 1, VISIBLE_ROWS do
         rows[i] = buildRow(frame.rowHolder, i)
     end
@@ -495,7 +584,12 @@ function EHS:RefreshOptions()
         or "Jetzt speichern")
     frame.upload:SetEnabled(not InCombatLockdown() and (pending > 0 or includedItems > 0))
 
-    UIDropDownMenu_SetText(frame.raidDrop, filter.raid ~= "" and filter.raid or "Alle Raids")
+    local raidText = filter.raid ~= "" and filter.raid or "Alle Raids"
+    if frame.raidDrop then
+        UIDropDownMenu_SetText(frame.raidDrop, raidText)
+    else
+        frame.raidButton:SetText(raidText)
+    end
     frame.onlyPending:SetChecked(filter.onlyPending)
     frame.onlySelected:SetChecked(filter.onlySelected)
 
@@ -506,8 +600,8 @@ function EHS:RefreshOptions()
             or "Kein Raid-Abend passt zu den Filtern.")
         or "")
 
-    FauxScrollFrame_Update(frame.scroll, #shown, VISIBLE_ROWS, ROW_HEIGHT)
-    local offset = FauxScrollFrame_GetOffset(frame.scroll)
+    scrollUpdate(#shown)
+    local offset = scrollOffset()
     for i = 1, VISIBLE_ROWS do
         local row = rows[i]
         local session = shown[i + offset]
@@ -534,9 +628,9 @@ function EHS:RefreshOptions()
             row.cells[4]:SetText(session.instance ~= "" and session.instance or grey("unbekannt"))
             row.cells[5]:SetText(tostring(#session.items))
             row.cells[6]:SetText(tostring(st.players))
-            row.cells[7]:SetText(st.bosses > 0 and tostring(st.bosses) or grey("–"))
+            row.cells[7]:SetText(st.bosses > 0 and tostring(st.bosses) or grey("-"))
             row.cells[8]:SetText(quelle)
-            row.cells[9]:SetText(st.pending > 0 and gold(tostring(st.pending)) or grey("–"))
+            row.cells[9]:SetText(st.pending > 0 and gold(tostring(st.pending)) or grey("-"))
 
             -- Abgewählte Zeilen sichtbar zurücknehmen, statt sie zu verstecken:
             -- man muss sie ja wiederfinden, um sie zurückzuholen.
@@ -548,7 +642,7 @@ function EHS:RefreshOptions()
 
     local gefiltert = #sessions - #shown
     frame.listFoot:SetText(gefiltert > 0
-        and ("%d von %d Abenden angezeigt — %d durch Filter ausgeblendet."):format(#shown, #sessions, gefiltert)
+        and ("%d von %d Abenden angezeigt - %d durch Filter ausgeblendet."):format(#shown, #sessions, gefiltert)
         or ("%d Raid-Abende."):format(#shown))
 
     frame.days.refresh()

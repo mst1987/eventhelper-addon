@@ -393,6 +393,71 @@ describe("webui", () => {
         });
     });
 
+    describe("Council-Daten", () => {
+        const COUNCIL = {
+            fetching: false, lastFetch: 1700000000000, generatedAt: 1791234567, raiders: 24,
+            categoryName: "SSC/TK Mittwoch", role: "", bisTier: "t6",
+            categories: [{ id: "123", name: "SSC/TK Mittwoch" }], files: ["A", "B"], lastError: null,
+        };
+
+        it("liefert den Council-Stand mit /api/state", async () => {
+            const runner = fakeRunner();
+            runner.state.council = COUNCIL;
+            await startUI(runner);
+            const body = await (await get("/api/state")).json();
+            expect(body.council).toEqual(COUNCIL);
+            expect(body.config).toMatchObject({ councilCategory: "", councilRole: "" });
+        });
+
+        it("holt auf Klick sofort und meldet das Ergebnis", async () => {
+            const runner = fakeRunner({ refreshCouncil: jest.fn(async () => ({ raiders: 24 })) });
+            runner.state.council = COUNCIL;
+            await startUI(runner);
+            const res = await post("/api/council");
+            expect(res.status).toBe(200);
+            expect(runner.refreshCouncil).toHaveBeenCalledWith({ force: true });
+            expect((await res.json()).council.raiders).toBe(24);
+        });
+
+        it("reicht einen Fehler beim Holen als Meldung durch", async () => {
+            const runner = fakeRunner({ refreshCouncil: jest.fn(async () => null) });
+            runner.state.council = { ...COUNCIL, lastError: { at: 1, message: "Server weg" } };
+            await startUI(runner);
+            const res = await post("/api/council");
+            expect(res.status).toBe(502);
+            expect((await res.json()).error).toBe("Server weg");
+        });
+
+        it("speichert Kategorie und Rolle, und nur gültige Rollen", async () => {
+            await startUI(fakeRunner());
+            await post("/api/settings", {
+                baseUrl: "https://example.test:3005", councilCategory: " 123 ", councilRole: "healer",
+            });
+            expect(config.save).toHaveBeenLastCalledWith(
+                expect.objectContaining({ councilCategory: "123", councilRole: "healer" }),
+            );
+            await post("/api/settings", { baseUrl: "https://example.test:3005", councilRole: "tank" });
+            expect(config.save).toHaveBeenLastCalledWith(expect.objectContaining({ councilRole: "" }));
+        });
+
+        it("lässt die Council-Auswahl stehen, wenn sie nicht mitgeschickt wird", async () => {
+            config.load.mockReturnValue({ ...CONFIG, councilCategory: "123", councilRole: "caster" });
+            await startUI(fakeRunner());
+            await post("/api/settings", { baseUrl: "https://example.test:3005" });
+            expect(config.save).toHaveBeenLastCalledWith(
+                expect.objectContaining({ councilCategory: "123", councilRole: "caster" }),
+            );
+        });
+
+        it("hat den Knopf hinter dem Zahnrad und die Statuszeile in der Seite", async () => {
+            await startUI(fakeRunner());
+            const html = await (await get("/")).text();
+            expect(html).toContain("Council-Daten holen");
+            expect(html).toContain('id="council-status"');
+            expect(html).toContain("nach /reload im Spiel sichtbar");
+        });
+    });
+
     it("antwortet auf unbekannte Pfade mit 404", async () => {
         await startUI(fakeRunner());
         expect((await get("/gibtsnicht")).status).toBe(404);

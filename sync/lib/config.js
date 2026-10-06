@@ -38,6 +38,10 @@ const DEFAULTS = {
     // { [sessionId]: { at, status, added, skipped } }. Nur zur Anzeige — der
     // Server dedupliziert selbst, das hier ersetzt keine Prüfung.
     uploadLog: {},
+    // Loot-Council im Spiel (lib/council.js): für welche Raid-Kategorie und
+    // welche Rolle die Daten geholt werden. "" = alle bzw. Caster und Heiler.
+    councilCategory: "",
+    councilRole: "",
     // The scannedAt of the last guild bank scan the server accepted, per guild
     // bank: { ["<project>|<realm>|<guild>"]: scannedAt }. A scan is uploaded
     // once, not on every file change.

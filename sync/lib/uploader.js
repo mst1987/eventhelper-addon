@@ -48,21 +48,21 @@ function envelopeForSession(envelope, session) {
     };
 }
 
-/** POST gegen einen `/api/...`-Pfad des Servers, mit Bearer-Token — die
- * gemeinsame Grundlage von postSession() (Loot-Upload) und fetchRaidStatus()
- * (Raid-Liste). */
-async function postJson(config, path, payload) {
+/** Anfrage gegen einen `/api/...`-Pfad des Servers, mit Bearer-Token — die
+ * gemeinsame Grundlage von postSession() (Loot-Upload), fetchRaidStatus()
+ * (Raid-Liste) und getJson() (Council-Daten, siehe lib/council.js). Die Hülle
+ * `{ data }` wird ausgepackt, `{ error: { message } }` wird zum UploadError mit
+ * genau dieser Meldung. */
+async function requestJson(config, method, path, payload) {
     const url = `${String(config.baseUrl).replace(/\/+$/, "")}${path}`;
+    const init = { method, headers: { Authorization: `Bearer ${config.token}` } };
+    if (payload !== undefined) {
+        init.headers["Content-Type"] = "application/json";
+        init.body = JSON.stringify(payload);
+    }
     let res;
     try {
-        res = await fetch(url, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${config.token}`,
-            },
-            body: JSON.stringify(payload),
-        });
+        res = await fetch(url, init);
     } catch (e) {
         throw new UploadError(`${url} nicht erreichbar: ${e.message}`);
     }
@@ -79,6 +79,15 @@ async function postJson(config, path, payload) {
         throw new UploadError(err ? err.message : `HTTP ${res.status}`, res.status);
     }
     return (body && body.data) || body;
+}
+
+function postJson(config, path, payload) {
+    return requestJson(config, "POST", path, payload);
+}
+
+/** GET gegen einen `/api/...`-Pfad, Antwort wie bei postJson() ausgepackt. */
+function getJson(config, path) {
+    return requestJson(config, "GET", path);
 }
 
 async function postSession(config, payload) {
@@ -214,6 +223,6 @@ function describeResult(r) {
 
 module.exports = {
     readEnvelope, uploadFile, uploadOneSession, postSession, fetchRaidStatus, envelopeForSession,
-    describeResult, UploadError, SYNC_VERSION,
+    describeResult, getJson, UploadError, SYNC_VERSION,
     readGuildBank, guildBankKey, postGuildBank, GUILD_BANK_FORMAT,
 };

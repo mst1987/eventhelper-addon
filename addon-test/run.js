@@ -135,13 +135,10 @@ function luaStrings(code) {
     return out;
 }
 
-// Files that already used characters outside Latin-1 ("—", "–", "…") before
-// this check existed. They are reported but do not fail the run; every other
-// file - and every new one - must stay within Latin-1.
-const LEGACY_GLYPH_FILES = new Set([
-    "Button.lua", "Collect.lua", "Core.lua", "Diag.lua", "Export.lua",
-    "Minimap.lua", "Options.lua", "Sessions.lua", "UI.lua", "Zones.lua",
-]);
+// Files allowed to keep strings outside Latin-1 (reported, not failing). Empty
+// since the council change replaced the last "—"/"–" in visible strings: every
+// file must stay within Latin-1 (flavors/latin1.js checks the .toc as well).
+const LEGACY_GLYPH_FILES = new Set([]);
 
 // The game fonts (Friz Quadrata, ARIALN) draw Latin-1 only: an arrow, a dash,
 // typographic quotes or an ellipsis show as an empty box. Every string the

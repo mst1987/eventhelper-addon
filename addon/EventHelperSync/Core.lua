@@ -34,7 +34,28 @@ EventHelperSync = EventHelperSync or {}
 local EHS = EventHelperSync
 
 EHS.name = ADDON_NAME
-EHS.version = GetAddOnMetadata and GetAddOnMetadata(ADDON_NAME, "Version") or "1.8.0"
+
+--- Ein Feld aus der .toc. WoW Forever (Retail-Client) kennt nur noch
+--- C_AddOns.GetAddOnMetadata, TBC Anniversary hat beide.
+local function addonMetadata(field)
+    local getter = (C_AddOns and C_AddOns.GetAddOnMetadata) or _G.GetAddOnMetadata
+    if not getter then return nil end
+    local ok, value = pcall(getter, ADDON_NAME, field)
+    if ok then return value end
+    return nil
+end
+
+EHS.version = addonMetadata("Version") or "1.9.0"
+
+--- Ereignisse anmelden, ohne dass ein unbekanntes alles abbricht: WoW Forever
+--- wirft bei RegisterEvent mit einem Ereignis, das es nicht kennt.
+function EHS:RegisterEvents(frame, ...)
+    for i = 1, select("#", ...) do
+        local event = select(i, ...)
+        local ok = pcall(frame.RegisterEvent, frame, event)
+        if not ok then self:Debug("Ereignis gibt es hier nicht:", event) end
+    end
+end
 
 -- Voreinstellungen. lookbackDays begrenzt, wie weit zurück Loot exportiert wird:
 -- die Historien beider Addons wachsen über Monate, hochgeladen werden muss aber
@@ -119,7 +140,7 @@ function EHS:FlushAndReload()
     -- A fresh guild bank scan alone is worth a reload too (GuildBank.lua).
     local guildBank = self:GuildBankUnsaved()
     if items == 0 and not guildBank then
-        self:Print("Nichts zu speichern — es wurde kein Loot gefunden.")
+        self:Print("Nichts zu speichern - es wurde kein Loot gefunden.")
         return false
     end
 
@@ -129,16 +150,14 @@ function EHS:FlushAndReload()
     if items == 0 then
         self:Print("Speichere den Gildenbank-Scan und lade die UI neu.")
     else
-        self:Print(("Speichere %d Item(s) und lade die UI neu — das Sync-Tool holt sie gleich ab."):format(items))
+        self:Print(("Speichere %d Item(s) und lade die UI neu - das Sync-Tool holt sie gleich ab."):format(items))
     end
     ReloadUI()
     return true
 end
 
 local frame = CreateFrame("Frame")
-frame:RegisterEvent("ADDON_LOADED")
-frame:RegisterEvent("PLAYER_LOGIN")
-frame:RegisterEvent("PLAYER_LOGOUT")
+EHS:RegisterEvents(frame, "ADDON_LOADED", "PLAYER_LOGIN", "PLAYER_LOGOUT")
 
 frame:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" and arg1 == ADDON_NAME then
@@ -159,6 +178,10 @@ frame:SetScript("OnEvent", function(_, event, arg1)
         EHS:StartZoneTracking()
         EHS:StartButton()
         EHS:StartMinimap()
+        -- Der Council-Tooltip ist eine Zugabe: scheitert er auf einem Client,
+        -- soll der Rest trotzdem laufen.
+        local ok, err = pcall(EHS.StartCouncilTooltips, EHS)
+        if not ok then EHS:Debug("Council-Tooltip:", tostring(err)) end
         return
     end
 
@@ -200,7 +223,7 @@ local function reportStatus()
         sources.gargul and "|cff44dd44gefunden|r" or "|cffdd4444nicht geladen|r"))
 
     for _, session in ipairs(envelope.sessions) do
-        EHS:Print((" · %s — %s, %d Item(s)"):format(
+        EHS:Print((" · %s - %s, %d Item(s)"):format(
             date("%d.%m.%Y %H:%M", session.startedAt),
             session.instance ~= "" and session.instance or "unbekannte Instanz",
             #session.items))
@@ -220,7 +243,7 @@ local function reportStatus()
     if pending > 0 then
         EHS:Print(("|cffffd200%d Item(s) liegen noch nicht auf der Platte.|r Mit |cffffd200/ehs upload|r speichern (lädt die UI neu)."):format(pending))
     else
-        EHS:Print("Alles gespeichert — das Sync-Tool hat den aktuellen Stand.")
+        EHS:Print("Alles gespeichert - das Sync-Tool hat den aktuellen Stand.")
     end
 end
 
@@ -250,6 +273,8 @@ SlashCmdList.EVENTHELPERSYNC = function(msg)
         EHS:RefreshMinimap()
     elseif cmd == "export" then
         EHS:ShowExportFrame()
+    elseif cmd == "council" or cmd == "lc" then
+        EHS:ToggleCouncil()
     elseif cmd == "days" then
         local days = tonumber(rest)
         if not days or days < 1 then
@@ -263,14 +288,15 @@ SlashCmdList.EVENTHELPERSYNC = function(msg)
         EHS:Print("Debug-Ausgaben " .. (EHS.db.settings.debug and "an" or "aus") .. ".")
     else
         EHS:Print("Befehle:")
-        EHS:Print("  /ehs            — Fenster mit Status, Raid-Abenden und Einstellungen")
-        EHS:Print("  /ehs upload     — jetzt speichern (lädt die UI neu) statt auszuloggen")
-        EHS:Print("  /ehs status     — dasselbe kurz im Chat")
-        EHS:Print("  /ehs diag       — warum findet er nichts? Zeigt jede Stufe einzeln")
-        EHS:Print("  /ehs minimap    — Minimap-Knopf ein-/ausblenden")
-        EHS:Print("  /ehs button     — Upload-Knopf ein-/ausblenden")
-        EHS:Print("  /ehs export     — Export als JSON zum Kopieren anzeigen")
-        EHS:Print("  /ehs days <n>   — wie viele Tage zurück exportiert werden")
-        EHS:Print("  /ehs debug      — Debug-Ausgaben umschalten")
+        EHS:Print("  /ehs            - Fenster mit Status, Raid-Abenden und Einstellungen")
+        EHS:Print("  /ehs upload     - jetzt speichern (lädt die UI neu) statt auszuloggen")
+        EHS:Print("  /ehs status     - dasselbe kurz im Chat")
+        EHS:Print("  /ehs diag       - warum findet er nichts? Zeigt jede Stufe einzeln")
+        EHS:Print("  /ehs minimap    - Minimap-Knopf ein-/ausblenden")
+        EHS:Print("  /ehs button     - Upload-Knopf ein-/ausblenden")
+        EHS:Print("  /ehs export     - Export als JSON zum Kopieren anzeigen")
+        EHS:Print("  /ehs council    - Loot-Council: Bedarf und erhaltener Loot je Raider (auch /ehc)")
+        EHS:Print("  /ehs days <n>   - wie viele Tage zurück exportiert werden")
+        EHS:Print("  /ehs debug      - Debug-Ausgaben umschalten")
     end
 end

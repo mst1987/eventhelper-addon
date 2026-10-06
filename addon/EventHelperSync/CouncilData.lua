@@ -1,0 +1,4 @@
+-- Placeholder for the loot-council data (format "eventhelper-council", see README).
+-- EventHelper Sync (the PC tool) overwrites this file with the data from the
+-- EventHelper server; it shows up in game after the next /reload (/ehc).
+-- Until then EventHelperSync_Council stays nil and the window says so.

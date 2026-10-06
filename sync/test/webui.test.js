@@ -13,11 +13,14 @@ jest.mock("../lib/wowPaths", () => ({
     discover: jest.fn(() => [
         { path: "C:/WoW/_classic_era_/WTF/Account/PULSE/SavedVariables/EventHelperSync.lua", flavor: "_classic_era_", account: "PULSE", mtime: 1 },
     ]),
+    flavorLabel: jest.requireActual("../lib/wowPaths").flavorLabel,
+    describeAddonDirs: jest.fn(() => []),
 }));
 jest.mock("../lib/uploader", () => ({ fetchRaidStatus: jest.fn() }));
 jest.mock("child_process");
 
 const config = require("../lib/config");
+const wowPaths = require("../lib/wowPaths");
 const { fetchRaidStatus } = require("../lib/uploader");
 const { execFile } = require("child_process");
 const { createWebUI, safeConfig } = require("../lib/webui");
@@ -147,7 +150,7 @@ describe("webui", () => {
             expect(res.status).toBe(200);
             expect(res.headers.get("content-type")).toMatch(/text\/html/);
             const html = await res.text();
-            expect(html).toContain("EventHelper Loot-Sync");
+            expect(html).toContain("<title>EventHelper Sync</title>");
         });
 
         // Ein Raid, dessen Upload unbestätigt in der Addon-Inbox liegt, stand
@@ -156,7 +159,8 @@ describe("webui", () => {
             await startUI(fakeRunner());
             const html = await (await get("/")).text();
             expect(html).toContain('r.status === "pending"');
-            expect(html).toContain("WARTEN&nbsp;AUF&nbsp;BESTÄTIGUNG");
+            expect(html).toContain('label: "Wartet"');
+            expect(html).toContain('label: "Bestätigen"');
             expect(html).toContain('"/history/inbox"');
         });
 
@@ -186,6 +190,7 @@ describe("webui", () => {
             expect(body.candidates).toEqual([{
                 path: "C:/WoW/_classic_era_/WTF/Account/PULSE/SavedVariables/EventHelperSync.lua",
                 flavor: "_classic_era_",
+                label: "Classic Era",
                 account: "PULSE",
             }]);
         });
@@ -483,15 +488,121 @@ describe("webui", () => {
             );
         });
 
-        it("hat den Knopf hinter dem Zahnrad und die Statuszeile, aber keine Kategorie-Auswahl mehr", async () => {
+        it("hat den Knopf in den Einstellungen und die Kachel, aber keine Kategorie-Auswahl mehr", async () => {
             await startUI(fakeRunner());
             const html = await (await get("/")).text();
-            expect(html).toContain("Council-Daten holen");
-            expect(html).toContain('id="council-status"');
-            expect(html).toContain("nach /reload im Spiel sichtbar");
-            expect(html).toContain(" Kategorien");
+            expect(html).toContain('data-act="council"');
+            expect(html).toContain("Council holen");
+            expect(html).toContain('kicker: "Loot-Council"');
+            expect(html).toContain('"/lootcouncil"');
+            expect(html).toContain('"Kategorien"');
             expect(html).not.toContain('name="councilCategory"');
             expect(html).not.toContain('name="councilRole"');
+        });
+    });
+
+    describe("Neugestaltung (Fenster im EventHelper-Stil)", () => {
+        it("liefert Verbindung, Verlaufsgrenze und Intervalle mit /api/state", async () => {
+            const runner = fakeRunner();
+            Object.assign(runner.state, {
+                connection: { ok: false, at: 1, message: "ECONNREFUSED" },
+                logLimit: 300,
+                intervals: { councilMs: 900000, handoutsMs: 300000 },
+            });
+            await startUI(runner);
+            const body = await (await get("/api/state")).json();
+            expect(body.connection).toEqual({ ok: false, at: 1, message: "ECONNREFUSED" });
+            expect(body.logLimit).toBe(300);
+            expect(body.intervals).toEqual({ councilMs: 900000, handoutsMs: 300000 });
+        });
+
+        it("liefert die gefundenen Addon-Ordner mit Version, gemessen an der Version des Tools", async () => {
+            wowPaths.describeAddonDirs.mockReturnValue([
+                { flavor: "_classic_beta_", label: "Forever", dir: "D:/WoW/_classic_beta_/Interface/AddOns/EventHelperSync", version: "1.0.0", outdated: true },
+            ]);
+            await startUI(fakeRunner());
+            const body = await (await get("/api/state")).json();
+            expect(body.addonDirs).toEqual([
+                { flavor: "_classic_beta_", label: "Forever", dir: "D:/WoW/_classic_beta_/Interface/AddOns/EventHelperSync", version: "1.0.0", outdated: true },
+            ]);
+            expect(wowPaths.describeAddonDirs).toHaveBeenCalledWith(CONFIG.extraRoots, expect.objectContaining({ toolVersion: "1.1.0" }));
+        });
+
+        // Die Seite fragt alle 3 s; die Laufwerke dafür jedes Mal abzusuchen
+        // wäre Verschwendung. Nach dem Speichern aber sofort neu.
+        it("sucht die Addon-Ordner nicht bei jeder Anfrage neu, nach dem Speichern aber schon", async () => {
+            await startUI(fakeRunner());
+            await get("/api/state");
+            await get("/api/state");
+            expect(wowPaths.describeAddonDirs).toHaveBeenCalledTimes(1);
+            await post("/api/settings", { baseUrl: "https://example.test:3005" });
+            await get("/api/state");
+            expect(wowPaths.describeAddonDirs).toHaveBeenCalledTimes(2);
+        });
+
+        it("prüft die Verbindung mit eingetippten, noch nicht gespeicherten Werten", async () => {
+            const runner = fakeRunner();
+            await startUI(runner);
+            await post("/api/test", { baseUrl: "https://neu.example:3005//", token: " ehl_neu " });
+            expect(runner.testConnection).toHaveBeenCalledWith({ baseUrl: "https://neu.example:3005", token: "ehl_neu" });
+            expect(config.save).not.toHaveBeenCalled();
+            await post("/api/test", {});
+            expect(runner.testConnection).toHaveBeenLastCalledWith({});
+        });
+
+        it("POST /api/check sieht sofort in die Addon-Datei", async () => {
+            const runner = fakeRunner({ tick: jest.fn(async () => {}) });
+            await startUI(runner);
+            const res = await post("/api/check");
+            expect(res.status).toBe(200);
+            expect(runner.tick).toHaveBeenCalled();
+            expect((await res.json()).lastCheck).toBe(1700000000000);
+        });
+
+        it("hält die Verbindungsanzeige mit der Raid-Liste aktuell", async () => {
+            const runner = fakeRunner({ noteConnection: jest.fn() });
+            await startUI(runner);
+            await get("/api/raids");
+            expect(runner.noteConnection).toHaveBeenLastCalledWith(null);
+            const err = new Error("nicht erreichbar");
+            fetchRaidStatus.mockRejectedValue(err);
+            await get("/api/raids");
+            expect(runner.noteConnection).toHaveBeenLastCalledWith(err);
+        });
+
+        it("hat die vier Ansichten, ohne externe Schriften oder Skripte", async () => {
+            await startUI(fakeRunner());
+            const html = await (await get("/")).text();
+            for (const id of ["v-setup", "v-main", "v-settings", "v-log"]) expect(html).toContain(`id="${id}"`);
+            expect(html).not.toMatch(/fonts\.googleapis|Cinzel|<script src=|<link rel="stylesheet"/);
+            expect(html).toContain("const APP_WIDTH = 560;");
+        });
+
+        it("bettet die WoW-Icons ein, statt sie zur Laufzeit zu laden", async () => {
+            await startUI(fakeRunner());
+            const html = await (await get("/")).text();
+            expect(html).not.toContain("zamimg.com");
+            expect((html.match(/data:image\/jpeg;base64,/g) || []).length).toBeGreaterThanOrEqual(4);
+        });
+
+        it("hat Favicon und Programm-Icon im selben Wappen-Stil", async () => {
+            const fs = require("fs");
+            const path = require("path");
+            await startUI(fakeRunner());
+            const html = await (await get("/")).text();
+            const svg = fs.readFileSync(path.join(__dirname, "..", "assets", "icon.svg"), "utf8");
+            for (const color of ["8a7cff", "35d6c4", "130f26"]) {
+                expect(html).toContain(`%23${color}`);
+                expect(svg).toContain(`#${color}`);
+            }
+        });
+
+        it("zeigt neue Council-/Ausgabelisten-Daten nur bis zum nächsten Schreiben der SavedVariables", async () => {
+            await startUI(fakeRunner());
+            const html = await (await get("/")).text();
+            expect(html).toContain("d.council.changedAt > sv");
+            expect(html).toContain("d.handouts.changedAt > sv");
+            expect(html).toContain("im Spiel /reload");
         });
     });
 

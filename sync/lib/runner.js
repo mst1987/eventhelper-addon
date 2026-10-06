@@ -70,6 +70,16 @@ function createRunner(options = {}) {
          */
         guildBank: null,
         log: [],
+        /** How many log lines are kept (for "the last N entries" in the UI). */
+        logLimit: LOG_LIMIT,
+        /** The automatic intervals, for the settings view. */
+        intervals: { councilMs: COUNCIL_INTERVAL_MS, handoutsMs: HANDOUTS_INTERVAL_MS },
+        /**
+         * Whether the server was reachable with the token at the last request
+         * that says so (connection test, upload, raid list, council, handouts):
+         * ok null = not known yet. For the connection pill in the UI.
+         */
+        connection: { ok: null, at: 0, message: "" },
         /** Der letzte Abruf der Council-Daten — für die Statuszeile. */
         council: {
             fetching: false,
@@ -83,6 +93,8 @@ function createRunner(options = {}) {
             fallback: false,
             files: [],
             lastError: null,
+            /** When CouncilData.lua was last written with changed content (ms), 0 = never. */
+            changedAt: 0,
         },
         /**
          * Guild bank handouts: the last download (for the status line) and
@@ -96,6 +108,8 @@ function createRunner(options = {}) {
             handouts: 0,
             files: [],
             lastError: null,
+            /** When GuildBankData.lua was last written with changed content (ms), 0 = never. */
+            changedAt: 0,
             /** Entries ticked in game (in the file) not reported yet. */
             done: 0,
             reporting: false,
@@ -126,6 +140,21 @@ function createRunner(options = {}) {
     let handoutsDone = [];
     let handoutsReportRun = null;
     let handoutsReportRetryAt = 0;
+    let councilSignature = "";
+    let handoutsContent = "";
+    let handoutsHad = 0;
+
+    /**
+     * Record what a request against the server says about the connection.
+     * No error: reachable. An error without HTTP status (network) or with
+     * 401/403 (token): no connection. Any other HTTP error means the server
+     * answered, so the connection itself is fine.
+     */
+    function noteConnection(err) {
+        const status = err && err.status;
+        const failed = !!err && (status === undefined || status === null || status === 401 || status === 403);
+        state.connection = { ok: !failed, at: Date.now(), message: failed ? String(err.message || err) : "" };
+    }
 
     function log(level, text) {
         const entry = { at: Date.now(), level, text };
@@ -250,7 +279,9 @@ function createRunner(options = {}) {
         const label = `Gildenbank ${state.guildBank.guild || "?"}`;
         try {
             await postGuildBank(cfg, scan);
+            noteConnection(null);
         } catch (e) {
+            if (e instanceof UploadError) noteConnection(e);
             guildBankRetryAt = Date.now() + GUILD_BANK_RETRY_MS;
             guildBankError = { at: Date.now(), message: e.message };
             state.guildBank.lastError = guildBankError;
@@ -300,7 +331,20 @@ function createRunner(options = {}) {
                     return null;
                 }
                 const result = await handouts.syncHandouts(cfg);
+                noteConnection(null);
                 const hadError = !!h.lastError;
+                // "New data for the game" in the UI: only a written file whose
+                // content changed counts, and an empty list only when it
+                // empties one that had entries (a server without a guild bank
+                // would otherwise ask for a /reload at every start).
+                const content = JSON.stringify(result.payload.banks);
+                if (result.files.length && content !== handoutsContent && (result.handouts > 0 || handoutsHad > 0)) {
+                    h.changedAt = Date.now();
+                }
+                if (result.files.length) {
+                    handoutsContent = content;
+                    handoutsHad = result.handouts;
+                }
                 Object.assign(h, {
                     lastFetch: Date.now(),
                     generatedAt: Number(result.payload.generatedAt) || 0,
@@ -438,7 +482,15 @@ function createRunner(options = {}) {
                     return null;
                 }
                 const result = await council.syncCouncil(cfg);
+                noteConnection(null);
                 const categories = Array.isArray(result.payload.categories) ? result.payload.categories : [];
+                // "New data for the game" in the UI: the time stamp of the
+                // payload changes with every fetch, the content rarely.
+                const signature = JSON.stringify(categories);
+                if (result.files.length && signature !== councilSignature) {
+                    c.changedAt = Date.now();
+                    councilSignature = signature;
+                }
                 Object.assign(c, {
                     lastFetch: Date.now(),
                     generatedAt: Number(result.payload.generatedAt) || 0,
@@ -494,6 +546,7 @@ function createRunner(options = {}) {
         state.uploading = true;
         try {
             const { results, skipped } = await uploadFile(cfg, state.file);
+            noteConnection(null);
             state.lastUpload = { at: Date.now(), results, skipped };
             state.lastError = null;
             rememberResults(results);
@@ -512,6 +565,7 @@ function createRunner(options = {}) {
             return results;
         } catch (e) {
             state.lastError = { at: Date.now(), message: e.message };
+            if (e instanceof UploadError) noteConnection(e);
             log("error", e instanceof UploadError ? `Upload fehlgeschlagen: ${e.message}` : e.message);
             throw e;
         } finally {
@@ -533,6 +587,7 @@ function createRunner(options = {}) {
         state.uploading = true;
         try {
             const { results } = await uploadOneSession(cfg, state.file, sessionId);
+            noteConnection(null);
             if (results.length) {
                 state.lastUpload = { at: Date.now(), results, skipped: 0 };
                 state.lastError = null;
@@ -544,6 +599,7 @@ function createRunner(options = {}) {
             return results;
         } catch (e) {
             state.lastError = { at: Date.now(), message: e.message };
+            if (e instanceof UploadError) noteConnection(e);
             log("error", e instanceof UploadError ? `Upload fehlgeschlagen: ${e.message}` : e.message);
             throw e;
         } finally {
@@ -605,8 +661,20 @@ function createRunner(options = {}) {
     }
     tick.lastSeenMtime = -1;
 
-    /** Token und Erreichbarkeit prüfen, ohne etwas zu importieren. */
-    async function testConnection() {
+    /**
+     * Token und Erreichbarkeit prüfen, ohne etwas zu importieren.
+     * @param {{ baseUrl?: string, token?: string }} [override]  test these
+     *   values instead of the saved ones (setup and settings test before
+     *   saving). Only a test of the saved values updates state.connection.
+     */
+    async function testConnection(override = {}) {
+        const target = { ...cfg };
+        if (override.baseUrl) target.baseUrl = override.baseUrl;
+        if (override.token) target.token = override.token;
+        const own = target.baseUrl === cfg.baseUrl && target.token === cfg.token;
+        if ((config.missing(target) || []).length) {
+            throw new Error("Adresse und Token angeben.");
+        }
         const probe = {
             format: "eventhelper-loot",
             version: 1,
@@ -618,7 +686,13 @@ function createRunner(options = {}) {
             // etwas in der Inbox landet.
             sessions: [],
         };
-        await postSession(cfg, probe);
+        try {
+            await postSession(target, probe);
+        } catch (e) {
+            if (own) noteConnection(e instanceof UploadError ? e : { message: e.message });
+            throw e;
+        }
+        if (own) noteConnection(null);
         return true;
     }
 
@@ -714,6 +788,7 @@ function createRunner(options = {}) {
         uploadOne,
         syncGuildBank,
         testConnection,
+        noteConnection,
         readState,
         setExcluded,
         refreshCouncil,

@@ -159,29 +159,36 @@ Es gibt zwei Wege — der erste braucht **kein** installiertes Node.js.
 
 #### a) Als fertige `EventHelperSync.exe`
 
-Die `.exe` aus den [Releases](https://github.com/mst1987/eventhelper-addon/releases) herunterladen und **doppelklicken**. Beim ersten Start sind im Fenster gleich die Einstellungen aufgeklappt (Server-Adresse, Token, WoW-Ordner); nach dem Speichern beobachtet es von selbst. Ab dann genügt ein Doppelklick zum Starten.
+Die `.exe` aus den [Releases](https://github.com/mst1987/eventhelper-addon/releases) herunterladen und **doppelklicken**. Beim ersten Start zeigt das Fenster die **Einrichtung** (Server-Adresse, Token, gefundenes WoW); „Verbinden" prüft die Verbindung und speichert erst dann, danach beobachtet es von selbst. Ab dann genügt ein Doppelklick zum Starten.
 
 Dabei öffnet sich **nur** ein eigenes Fenster — keine Konsole, kein Browser-Tab. Die `.exe` ist als Windows-GUI-Programm gebaut (siehe „Wie die `.exe` gebaut wird"), und `lib/appWindow.js` startet die vorhandene Edge- oder Chrome-Installation mit `--app=…` (weder Adressleiste noch Tabs zu sehen). Das Fenster passt sich an seinen Inhalt an: schmal, und nur so hoch wie nötig. Findet sich kein Edge/Chrome, fällt es auf einen normalen Browser-Tab zurück, technisch bleibt es in beiden Fällen dieselbe lokale Seite auf `127.0.0.1`:
 
 ```
- ┌─ EVENTHELPER SYNC ──────────────────────────────── ⚙  ✕ ┐
- │          2 bereit zum Hochladen · 4 insgesamt offen      │
- │                                                            │
- │ BEREIT ZUM HOCHLADEN                                       │
- │  [ Gruul & Magtheridon · Mi 24.09. · 42 Items (Gargul) ]  │
- │  [ SSC + TK · So 21.09. · 12 Items (RCLootcouncil)     ]  │
- │                                                            │
- │ ÜBRIGE RAIDS                                                │
- │  ✓ Karazhan · Mo 22.09. · Importiert                        │
- │  – Hyjal · Do 18.09. · Kein Loot gefunden                   │
- │                                                              │
- │ Zuletzt geprüft vor 8 s                      ↻ jetzt prüfen │
- └────────────────────────────────────────────────────────────┘
+ ┌──────────────────────────────────────────────────────────────┐
+ │ ◆ EventHelper Sync          ● Verbunden     [Verlauf][⚙][✕] │
+ │   V1.12.0 · PULSE-GDKP.DE:3005                               │
+ ├──────────────────────────────────────────────────────────────┤
+ │ ↻ Neue Daten fürs Spiel: Council von 21:48 · im Spiel /reload│
+ │ ┌ LOOT-UPLOAD ─────────── ● ┐ ┌ LOOT-COUNCIL ────────── ● ┐ │
+ │ │ 2 Abende bereit           │ │ 1 Kategorie · 12 Raider   │ │
+ │ │ [Alles hochladen]         │ │ TBC Montag · Stand 21:48  │ │
+ │ └───────────────────────────┘ └───────────────────────────┘ │
+ │ ┌ GILDENBANK ──────────── ● ┐ ┌ AUSGABELISTE ────────── ● ┐ │
+ │ │ Pulse · 242 Stapel        │ │ Nichts offen              │ │
+ │ └───────────────────────────┘ └───────────────────────────┘ │
+ │ Raid-Abende  [Bereit 2] Wartet 1  Erledigt 24  Kommend 7    │
+ │  ↑ SSC + TK · Mi, 1.10.2026 · 14 Items   [Hochladen] [↗][✕] │
+ │  ↑ Unbekannter Raid · kein Termin gefunden [Hochladen]  [✕] │
+ ├──────────────────────────────────────────────────────────────┤
+ │ Addon-Datei geprüft vor 15 s                  [Jetzt prüfen] │
+ └──────────────────────────────────────────────────────────────┘
 ```
 
-Ein Klick auf eine bereite Zeile lädt **genau diesen einen Raid** hoch — nicht die ganze Datei. Die Zeile springt danach auf „Importiert". Das Zahnrad oben klappt Einstellungen (Server, Token, Addon-Datei, Loot-Council-Kategorie und -Rolle) und den Verlauf ein; „Alles hochladen" für die ganze Datei auf einmal, „Verbindung testen" und „Council-Daten holen" liegen dort mit drin, nicht in der Hauptansicht. Dort steht vom [Loot-Council](#loot-council-im-spiel) nur eine Zeile: „Council: 24 Raider, Stand 21:30 — nach /reload im Spiel sichtbar".
+Die **Übersicht** zeigt oben die Verbindung (Verbunden / Keine Verbindung / Nicht eingerichtet), darunter einen Hinweis, wenn Council-Daten oder Ausgabeliste neu geschrieben wurden, seit WoW zuletzt seine SavedVariables geschrieben hat (dann im Spiel `/reload`), vier Kacheln (Loot-Upload, [Loot-Council](#loot-council-im-spiel), Gildenbank, Ausgabeliste — ein Klick auf Council bzw. Gildenbank öffnet die Seite auf der Webseite) und die Raid-Abende in vier Reitern: **Bereit**, **Wartet** (liegt unbestätigt in der Addon-Inbox, „Bestätigen" öffnet sie), **Erledigt** (importiert oder kein Loot) und **Kommend**. „Hochladen" an einer bereiten Zeile lädt **genau diesen einen Raid** hoch — nicht die ganze Datei; „Alles hochladen" in der Kachel die ganze Datei. ↗ öffnet den Raid auf der Webseite. Lange Listen zeigen die ersten 8, der Rest kommt mit „Weitere N anzeigen".
 
-**Ohne bekannten Raid-Termin** (z.B. ein Pug-Abend ohne Raid-Helper-Event) landet trotzdem in „Bereit zum Hochladen" — nur ohne Raid-Namen, mit einem kleinen ✕ daneben, um genau diesen Abend abzuwählen. Das Fenster darf jederzeit zu — der Upload läuft im Hintergrund weiter. Wieder aufrufen: die `.exe` noch einmal doppelklicken. Sie merkt, dass schon eine läuft, öffnet deren Fenster und beendet sich (`lib/instance.js`) — es laufen nie zwei nebeneinander. Ganz beenden: das ✕ oben rechts im Fenster.
+**Einstellungen** (⚙) ist eine eigene Ansicht: Server und Token (mit „Verbindung testen", auch vor dem Speichern), Addon-Datei, die gefundenen Addon-Ordner mit Spielvariante und Addon-Version (ein älteres Addon als das Tool ist als „veraltet" markiert), „Pfad selbst angeben", das Prüfintervall und „Jetzt ausführen" (Loot hochladen, Council holen, Ausgabeliste holen). Der **Verlauf** (Uhr-Symbol) zeigt die letzten Meldungen, filterbar nach Erfolgen und Problemen, und kopiert sie auf Wunsch in die Zwischenablage.
+
+**Ohne bekannten Raid-Termin** (z.B. ein Pug-Abend ohne Raid-Helper-Event) landet trotzdem unter „Bereit" — nur ohne Raid-Namen, mit einem kleinen ✕ daneben, um genau diesen Abend abzuwählen. Das Fenster darf jederzeit zu — der Upload läuft im Hintergrund weiter. Wieder aufrufen: die `.exe` noch einmal doppelklicken. Sie merkt, dass schon eine läuft, öffnet deren Fenster und beendet sich (`lib/instance.js`) — es laufen nie zwei nebeneinander. Ganz beenden: das ✕ oben rechts im Fenster.
 
 **Die Abwahl ist die letzte Entscheidung vor dem Senden.** Ein abgewählter Abend erreicht den Server gar nicht erst und muss dort auch nicht von Hand verworfen werden.
 
@@ -270,13 +277,13 @@ Das sieht nur, wer das Addon hat: es wird nichts an den Raid geschickt.
 
 - beim Start des Sync-Tools, danach **alle 15 Minuten**,
 - nach jedem Upload,
-- auf Klick: ⚙ → **„Council-Daten holen"**, oder `npm run council` (mit Node.js).
+- auf Klick: ⚙ → Jetzt ausführen → **„Council holen"**, oder `npm run council` (mit Node.js).
 
 Geschrieben wird in **jeden** installierten Addon-Ordner, den die Suche findet — wer auf TBC Anniversary und WoW Forever raidet, hat in beiden denselben Stand. Ein fehlender Addon-Ordner wird nie angelegt. Die Datei wird erst daneben geschrieben und dann umbenannt, WoW sieht also nie eine halbe. Zeichen, die die Spielschrift nicht kennt (`–`, `…`, typografische Anführungszeichen, Emoji), werden dabei zu ASCII bzw. `?`; Umlaute bleiben.
 
-Ein Fehler beim Holen (Server nicht erreichbar, Server noch ohne diese Route, Ordner schreibgeschützt) hält den Upload nie an. Er steht im Verlauf und in der Statuszeile der Oberfläche.
+Ein Fehler beim Holen (Server nicht erreichbar, Server noch ohne diese Route, Ordner schreibgeschützt) hält den Upload nie an. Er steht im Verlauf und in der Kachel „Loot-Council" der Oberfläche.
 
-**Welche Kategorien, welche Filter?** Das stellt die Webseite ein, nicht das Sync-Tool (ab 1.11.0): geholt wird jede Raid-Kategorie, deren Lootsystem unter *Einstellungen → Kategorien* **Loot-Council** ist — jede genau so, wie die Loot-Council-Seite sie zeigt (Rolle, Tiers/Raids, BiS-Liste; ausgeplante Raider fehlen). Die Statuszeile sagt „Council: N Kategorien, M Raider". Gibt es keine solche Kategorie, sagen das Statuszeile und Fenster. Ein älterer Server (nur Version 1) bekommt weiter die alte Anfrage mit Kategorie/Rolle aus einer älteren Konfiguration; das Ergebnis wird als eine Kategorie geschrieben.
+**Welche Kategorien, welche Filter?** Das stellt die Webseite ein, nicht das Sync-Tool (ab 1.11.0): geholt wird jede Raid-Kategorie, deren Lootsystem unter *Einstellungen → Kategorien* **Loot-Council** ist — jede genau so, wie die Loot-Council-Seite sie zeigt (Rolle, Tiers/Raids, BiS-Liste; ausgeplante Raider fehlen). Die Kachel „Loot-Council" sagt „N Kategorien · M Raider". Gibt es keine solche Kategorie, sagen das die Kachel und das Fenster im Spiel. Ein älterer Server (nur Version 1) bekommt weiter die alte Anfrage mit Kategorie/Rolle aus einer älteren Konfiguration; das Ergebnis wird als eine Kategorie geschrieben.
 
 ### Das Fenster
 
@@ -340,7 +347,7 @@ POST /api/ingest/guildbank/handouts ◄─ Sync-Tool ◄─ EventHelperSyncDB.gu
 
 ### Wann geholt und gemeldet wird
 
-- Geholt wird beim Start des Sync-Tools, danach **alle 5 Minuten**, nach jedem Upload, nach jedem hochgeladenen Gildenbank-Scan (der Bestand ändert sich) und nach jeder Meldung. Auf Klick: ⚙ → **„Ausgabeliste holen"**, oder `npm run handouts`.
+- Geholt wird beim Start des Sync-Tools, danach **alle 5 Minuten**, nach jedem Upload, nach jedem hochgeladenen Gildenbank-Scan (der Bestand ändert sich) und nach jeder Meldung. Auf Klick: ⚙ → Jetzt ausführen → **„Ausgabeliste holen"**, oder `npm run handouts`.
 - Gemeldet wird, sobald die Addon-Datei abgehakte Posten enthält, die noch nicht gemeldet sind — also nach `/ehs upload`, `/reload` oder dem Ausloggen. Höchstens 200 je Anfrage. Gemeldete Posten merkt sich das Tool (30 Tage), sie gehen nicht doppelt raus; danach holt es die Liste sofort neu, und nach dem nächsten `/reload` verschwinden sie im Spiel. Ein Fehler (Server weg, 5xx) wird nach 5 Minuten oder bei der nächsten Änderung der Datei erneut versucht. Doppelt melden schadet nicht: der Server antwortet dann mit „schon ausgegeben".
 
 ### Das Fenster
@@ -420,9 +427,9 @@ Was noch in der Gildenbank liegt, holt ein Klick auf die Zeile an der offenen Ba
 | Ein Raid-Abend wird nicht hochgeladen | Wurde er per ✕ neben der Zeile abgewählt? Abgewählte Abende bleiben abgewählt und tauchen in „Bereit zum Hochladen" nicht mehr auf. |
 | Die Oberfläche öffnet sich nicht | Die `.exe` noch einmal doppelklicken — läuft sie schon, öffnet das ihr Fenster erneut. Die Adresse samt Schlüssel steht außerdem in `~/.eventhelper-sync.running.json` und lässt sich von Hand aufrufen (ohne den Schlüssel antwortet sie mit 403). Kein installierter Edge/Chrome gefunden: das Fenster öffnet sich dann als normaler Browser-Tab statt chromelos — technisch dieselbe Seite. Scheitert der Start ganz, sagt ein Fehlerdialog warum. |
 | Knopf ist grau | Du bist im Kampf. Nach dem Kampf wird er wieder klickbar. |
-| Loot-Council: „Noch keine Council-Daten" | Läuft das Sync-Tool, und steht in seiner Statuszeile „Council: … Raider"? Danach im Spiel `/reload` — Addon-Dateien liest WoW nur beim Laden. |
-| Statuszeile: „kein Addon-Ordner gefunden" | Das Addon liegt nicht unter `<WoW>/<Variante>/Interface/AddOns/EventHelperSync`, oder WoW an einem Ort, den die Suche nicht kennt — unter ⚙ „Pfad selbst angeben". |
-| Statuszeile: „Der Server kennt noch keine Council-Daten" | Der EventHelper ist älter als diese Funktion (Route `GET /api/ingest/council` fehlt). |
+| Loot-Council: „Noch keine Council-Daten" | Läuft das Sync-Tool, und steht in seiner Kachel „Loot-Council" „… Raider"? Danach im Spiel `/reload` — Addon-Dateien liest WoW nur beim Laden. |
+| Kachel: „kein Addon-Ordner gefunden" | Das Addon liegt nicht unter `<WoW>/<Variante>/Interface/AddOns/EventHelperSync`, oder WoW an einem Ort, den die Suche nicht kennt — unter ⚙ „Pfad selbst angeben". |
+| Kachel Loot-Council: „Der Server kennt noch keine Council-Daten" | Der EventHelper ist älter als diese Funktion (Route `GET /api/ingest/council` fehlt). |
 | Loot-Council: „neuer als dieses Addon" | Sync-Tool und Server sprechen eine neuere Version des Formats — das Addon aktualisieren. |
 | SmartScreen blockiert die `.exe` | Die Datei ist nicht signiert. „Weitere Informationen" → „Trotzdem ausführen", oder Weg (b) mit Node benutzen. |
 | Sync-Tool: „API-Token unbekannt oder zurückgezogen" | Token wurde im Menü gelöscht, oder falsch kopiert. Neu erstellen und im Fenster unter ⚙ eintragen (mit Node: `npm run init`). |
@@ -684,6 +691,7 @@ Und im Sync-Tool:
 | `lib/instance.js` | höchstens eine laufende Instanz; ein zweiter Start öffnet deren Fenster |
 | `lib/webui.js` | der lokale HTTP-Server hinter der Oberfläche |
 | `lib/webui-page.js` | die Seite als eine Zeichenkette — kein Build-Schritt, packt sich mit |
+| `lib/webui-icons.js` | die WoW-Icons der Kacheln als Daten-URIs (das Fenster lädt nichts aus dem Netz) |
 
 ### Ein Release bauen
 

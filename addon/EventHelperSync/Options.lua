@@ -370,8 +370,9 @@ local function build()
 
     frame.pending = label(frame, "", "GameFontNormalSmall")
     frame.pending:SetPoint("TOPLEFT", 16, -76)
-    -- schmaler als die Zeile darüber: rechts daneben sitzt der Loot-Council-Knopf
-    frame.pending:SetWidth(WIDTH - 400)
+    -- schmaler als die Zeile darüber: rechts daneben sitzen die Knöpfe für
+    -- Loot-Council und Gildenbank-Ausgabe
+    frame.pending:SetWidth(WIDTH - 520)
     frame.pending:SetJustifyH("LEFT")
 
     frame.upload = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
@@ -393,6 +394,12 @@ local function build()
     frame.council:SetPoint("TOPRIGHT", -262, -76)
     frame.council:SetText("Loot-Council")
     frame.council:SetScript("OnClick", function() EHS:ToggleCouncil() end)
+
+    frame.guildBank = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    frame.guildBank:SetSize(110, 22)
+    frame.guildBank:SetPoint("TOPRIGHT", -386, -76)
+    frame.guildBank:SetText("Gildenbank")
+    frame.guildBank:SetScript("OnClick", function() EHS:ToggleGuildBankUI() end)
 
     -- --- Filterleiste ------------------------------------------------------
     local FILTER_Y = -112
@@ -530,8 +537,14 @@ local function build()
         function(v) EHS.db.settings.showMinimap = v; EHS:RefreshMinimap() end)
     frame.minimap:SetPoint("TOPLEFT", 300, settingsTop - 96)
 
+    frame.autoHandouts = checkbox(frame,
+        "Gildenbank-Ausgabe mit der Bank öffnen", "",
+        function() return EHS.db.settings.autoOpenHandouts ~= false end,
+        function(v) EHS.db.settings.autoOpenHandouts = v end)
+    frame.autoHandouts:SetPoint("TOPLEFT", 26, settingsTop - 122)
+
     frame.skipInfo = label(frame, "", "GameFontDisableSmall")
-    frame.skipInfo:SetPoint("TOPLEFT", 26, settingsTop - 122)
+    frame.skipInfo:SetPoint("TOPLEFT", 26, settingsTop - 148)
     frame.skipInfo:SetWidth(WIDTH - 60)
     frame.skipInfo:SetJustifyH("LEFT")
 
@@ -650,6 +663,7 @@ function EHS:RefreshOptions()
     frame.showButton.refresh()
     frame.minimap.refresh()
     frame.skipAward.refresh()
+    frame.autoHandouts.refresh()
 
     -- Wie viel der Schalter tatsächlich wegnimmt — sonst bleibt er eine
     -- Behauptung, und niemand weiss, ob er greift.

@@ -12,6 +12,7 @@
     "once": "node index.js once",
     "status": "node index.js status",
     "council": "node index.js council",
+    "handouts": "node index.js handouts",
     "test": "jest",
     "lint": "eslint .",
     "build:exe": "node scripts/build-exe.js",

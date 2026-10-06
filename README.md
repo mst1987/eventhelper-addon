@@ -128,6 +128,7 @@ Ein normaler Wurf mit der Antwort „PvP/Bank" bleibt dabei drin — der ging ja
 | `/ehs button` | Upload-Knopf ein-/ausblenden |
 | `/ehs export` | Export als JSON in einer Kopierbox (Weg ohne Sync-Tool) |
 | `/ehs council` oder `/ehc` | das [Loot-Council-Fenster](#loot-council-im-spiel) öffnen |
+| `/ehs bank` oder `/ehb` | die [Gildenbank-Ausgabe](#gildenbank-ausgabe-im-spiel) öffnen |
 | `/ehs days <n>` | wie viele Tage zurück exportiert werden (Standard: 21) |
 | `/ehs debug` | Debug-Ausgaben umschalten |
 
@@ -212,6 +213,7 @@ npm start         # beobachtet die Datei und lädt hoch
 | `npm run status` | zeigen, was gefunden wurde, ohne zu senden |
 | `npm run init` | Konfiguration (neu) anlegen |
 | `npm run council` | Council-Daten einmal holen und in die Addon-Ordner schreiben |
+| `npm run handouts` | Gildenbank-Ausgabeliste einmal holen und in die Addon-Ordner schreiben |
 
 ---
 
@@ -306,6 +308,45 @@ Auf WoW Forever hängt das an `TooltipDataProcessor`, auf TBC Anniversary an `On
 
 ---
 
+## Gildenbank-Ausgabe im Spiel
+
+Raider fragen im EventHelper Gegenstände aus dem Gildenbank-Bestand an, die Orga bestätigt sie. Was bestätigt ist, muss jemand im Spiel aus der Bank holen und weitergeben — die Liste dafür kommt auf demselben Weg wie die Council-Daten ins Spiel, und was dort abgehakt wird, geht zurück:
+
+```
+   Server                                         auf dem PC                       im Spiel
+   ──────                                         ──────────                       ────────
+GET  /api/ingest/guildbank/handouts ─► Sync-Tool ─► GuildBankData.lua ─► /reload ─► Fenster (/ehs bank)
+POST /api/ingest/guildbank/handouts ◄─ Sync-Tool ◄─ EventHelperSyncDB.guildBankDone ◄─ abhaken, /ehs upload
+```
+
+### Wann geholt und gemeldet wird
+
+- Geholt wird beim Start des Sync-Tools, danach **alle 5 Minuten**, nach jedem Upload, nach jedem hochgeladenen Gildenbank-Scan (der Bestand ändert sich) und nach jeder Meldung. Auf Klick: ⚙ → **„Ausgabeliste holen"**, oder `npm run handouts`.
+- Gemeldet wird, sobald die Addon-Datei abgehakte Posten enthält, die noch nicht gemeldet sind — also nach `/ehs upload`, `/reload` oder dem Ausloggen. Höchstens 200 je Anfrage. Gemeldete Posten merkt sich das Tool (30 Tage), sie gehen nicht doppelt raus; danach holt es die Liste sofort neu, und nach dem nächsten `/reload` verschwinden sie im Spiel. Ein Fehler (Server weg, 5xx) wird nach 5 Minuten oder bei der nächsten Änderung der Datei erneut versucht. Doppelt melden schadet nicht: der Server antwortet dann mit „schon ausgegeben".
+
+### Das Fenster
+
+`/ehs bank`, `/ehb`, Strg-Linksklick auf den Minimap-Knopf, der Knopf „Gildenbank" im Hauptfenster — und **von selbst, wenn die Gildenbank geöffnet wird** und etwas offen ist (abschaltbar im Hauptfenster). Dann schliesst es sich auch mit der Bank.
+
+```
+ ┌ Gildenbank-Ausgabe ───────────────────────────────────────────── [Offen][Alle] [x] ┐
+ │ Stand: 05.10. 21:30, vor 1 Std. - Pulse (Thunderstrike)                            │
+ │ 3 Posten offen - 1 abgehakt, wird beim nächsten Sync gemeldet     Gildenbank offen │
+ │ ────────────────────────────────────────────────────────────────────────────────── │
+ │ [ ] Anna        [?] 3x Super Healing Potion          Tab 3        4 da             │
+ │ [ ] Naphfß      [?] 2x Super Healing Potion          Tab 3        nur 1!           │
+ │ [x] Zibbo       [#] 2x Bold Living Ruby  (durchgestrichen)  Tab 1/2      14 da     │
+ └────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Eine Zeile pro Posten, nach Empfänger gruppiert: Häkchen, Name in Klassenfarbe (hat der Raider keinen Charakter hinterlegt, steht sein Discord-Name in Grau), Icon, Menge und Gegenstand in Qualitätsfarbe, der Bank-Tab und wie viele da sind. Reicht der Bestand nicht, steht dort in Gelb **„nur 1!"** — offene Posten desselben Gegenstands teilen sich den Bestand der Reihe nach. Ist die Gildenbank offen und wurde bei diesem Besuch gescannt, zählt der **live** gezählte Bestand, sonst der Stand des letzten hochgeladenen Scans. Gezeigt werden die Posten der Gildenbank dieses Charakters (Client, Realm, Gilde); gibt es die nicht, die Banken dieses Clients bzw. alle, mit Hinweis in der Kopfzeile.
+
+Abhaken legt den Posten unter `EventHelperSyncDB.guildBankDone` ab (`{ id, via = "manual", by = "Name-Realm", at }`), die Zeile wird gedimmt und durchgestrichen, „Offen" blendet sie aus. Haken wieder weg nimmt es zurück, solange es noch nicht gemeldet ist. `/ehs upload` speichert auch, wenn nur abgehakt wurde. Der Tooltip einer Zeile zeigt Zweck, wer angefragt und wer bestätigt hat, den Bestand je Tab und „Abhaken, wenn rausgegeben." bzw. den Hinweis auf die Fehlmenge.
+
+Für die Ausgabe per Post (#18) gibt es dieselbe Logik als API in `GuildBankHandouts.lua`: `EHS:GetHandouts()` (offene Posten dieses Charakters, nach Empfänger gruppiert), `EHS:MarkHandedOut(ids, via, by)`, `EHS:UnmarkHandedOut(ids)`, `EHS:IsHandedOut(id)`, `EHS:HandoutCounts()`, und `EHS:OnGuildBankEvent(fn)` in `GuildBank.lua` meldet „open", „close" und „scan".
+
+---
+
 ## Fehlersuche
 
 | Symptom | Ursache / Abhilfe |
@@ -390,7 +431,7 @@ Der Lua-Parser (`sync/lib/luaParser.js`) führt die SavedVariables **nicht** als
 
 `addon-test/flavors/` (zweiter Teil von `npm test`) lädt alle Dateien der `.toc` vorab gegen eine eigene nachgebaute WoW-API (`flavors/mock/wow.lua`) — einmal Classic-artig (TBC Anniversary: `GetItemInfo`, `UIDropDownMenu`, `OnTooltipSetItem`) und einmal Retail-artig (WoW Forever: nur `C_Item`/`C_AddOns`, `TooltipDataProcessor`, `MenuUtil`, unbekannte Ereignisse werfen, ohne die Classic-Vorlagen). Die Council-Daten dafür schreibt der echte Serializer aus `sync/lib/council.js`. Vorher prüft `latin1.js`, dass jeder String im Addon nur Zeichen enthält, die die Spielschrift darstellen kann (kein `→`, `–`, `…`, keine typografischen Anführungszeichen). Der Ordner liegt bewusst neben `addon/EventHelperSync`, nicht darin — er kommt nicht ins Release-Zip.
 
-> Ist der Addon-Ordner im Spiel per Junction mit diesem Repo verbunden, überschreibt das Sync-Tool die eingecheckte Platzhalter-`CouncilData.lua`. Damit `git status` sauber bleibt: `git update-index --skip-worktree addon/EventHelperSync/CouncilData.lua`.
+> Ist der Addon-Ordner im Spiel per Junction mit diesem Repo verbunden, überschreibt das Sync-Tool die eingecheckten Platzhalter `CouncilData.lua` und `GuildBankData.lua`. Damit `git status` sauber bleibt: `git update-index --skip-worktree addon/EventHelperSync/CouncilData.lua addon/EventHelperSync/GuildBankData.lua`.
 
 ### Das Format
 
@@ -497,6 +538,32 @@ EventHelperSync_Council = {
 }
 ```
 
+### Das Ausgabe-Format
+
+`eventhelper-guildbank-handouts` Version 1, serverseitig `GET`/`POST /api/ingest/guildbank/handouts` (Repo `d:/programming/eventhelper`, `docs/loot-import.md`, „Ausgabeliste für das Addon"). Auch hier lehnt das Sync-Tool eine höhere Version ab. Das Sync-Tool schreibt die Antwort als `GuildBankData.lua` mit der globalen Variable `EventHelperSync_GuildBankHandouts`:
+
+```jsonc
+{
+  "format": "eventhelper-guildbank-handouts", "version": 1, "generatedAt": 1791294674,
+  "banks": [{                          // auch Banken ohne Posten, damit das Addon die Liste leeren kann
+    "key": "tbc:spineshatter:die gilde", "gameVersion": "tbc", "realm": "Spineshatter", "guild": "Die Gilde",
+    "faction": "Alliance", "scannedAt": 1791000000,
+    "handouts": [{
+      "id": "ad8f943938a6", "itemId": 24027, "name": "Bold Living Ruby",
+      "icon": "inv_jewelcrafting_livingruby_03",   // "" = unbekannt
+      "quality": 3,                                // -1 = unbekannt
+      "amount": 2, "purpose": "Gruul",
+      "character": { "name": "Zibbo", "realm": "Spineshatter", "faction": "Alliance", "classFile": "PRIEST" },  // null = kein Charakter
+      "requestedBy": "Anna", "requestedAt": 1791294665, "confirmedBy": "Arthas", "confirmedAt": 1791294665,
+      "inBank": 14,
+      "tabs": [{ "index": 1, "name": "Edelsteine", "count": 10 }]
+    }]
+  }]
+}
+```
+
+Zurück geht `POST { "done": [{ "id", "via": "manual" | "mail", "by": "Name-Realm", "at": <Unix-Sekunden> }] }` mit höchstens 200 Einträgen; die Antwort teilt jede id in `ok`, `duplicate`, `notConfirmed` oder `unknown` — jede davon gilt als erledigt. Die gemeldeten ids merkt sich das Tool in `~/.eventhelper-sync.json` (`guildBankDoneReported`).
+
 ### Aufbau des Addons
 
 | Datei | Aufgabe |
@@ -514,6 +581,9 @@ EventHelperSync_Council = {
 | `CouncilData.lua` | Platzhalter; das Sync-Tool überschreibt ihn mit den Council-Daten |
 | `Council.lua` | Council-Logik ohne Fenster: Daten prüfen, Item → Raider, denen es fehlt, Texte und Farben |
 | `CouncilUI.lua` | Loot-Council-Fenster, Item-Tooltip, `/ehc` |
+| `GuildBankData.lua` | Platzhalter; das Sync-Tool überschreibt ihn mit der Gildenbank-Ausgabeliste |
+| `GuildBankHandouts.lua` | Ausgabe-Logik ohne Fenster: Daten prüfen, Banken dieses Charakters, Bestand und Fehlmenge, Abhaken (`guildBankDone`), API für die Post-Ausgabe |
+| `GuildBankUI.lua` | Fenster „Gildenbank-Ausgabe", `/ehs bank`, `/ehb`, öffnet sich mit der Gildenbank |
 
 Und im Sync-Tool:
 
@@ -523,7 +593,8 @@ Und im Sync-Tool:
 | `lib/wowPaths.js` | die Addon-Datei über alle Client-Varianten und Accounts finden, ebenso die installierten Addon-Ordner |
 | `lib/uploader.js` | eine Session pro Anfrage hochladen; Gildenbank-Scan lesen und hochladen |
 | `lib/council.js` | Council-Daten holen, prüfen, als `CouncilData.lua` in jeden Addon-Ordner schreiben |
-| `lib/runner.js` | der laufende Betrieb samt Zustand (letzter Upload, Fehler, Verlauf, Gildenbank, Council) |
+| `lib/guildbankHandouts.js` | Ausgabeliste holen, prüfen, als `GuildBankData.lua` schreiben; abgehakte Posten lesen und melden |
+| `lib/runner.js` | der laufende Betrieb samt Zustand (letzter Upload, Fehler, Verlauf, Gildenbank, Council, Ausgabeliste) |
 | `lib/appWindow.js` | das chromelose Edge/Chrome-Fenster, Hinweisdialoge der `.exe` |
 | `lib/instance.js` | höchstens eine laufende Instanz; ein zweiter Start öffnet deren Fenster |
 | `lib/webui.js` | der lokale HTTP-Server hinter der Oberfläche |

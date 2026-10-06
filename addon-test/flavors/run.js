@@ -12,13 +12,15 @@
 // Before that: every visible string in the addon must be drawable by the game
 // font (Latin-1, see latin1.js).
 //
-// The council fixture is written by the sync tool's own serializer
-// (sync/lib/council.js), so the specs read exactly what the tool writes.
+// The council and handout fixtures are written by the sync tool's own
+// serializer (sync/lib/council.js, sync/lib/guildbankHandouts.js), so the
+// specs read exactly what the tool writes.
 const fs = require("fs");
 const path = require("path");
 const { lua, lauxlib, lualib, to_luastring, to_jsstring } = require("fengari");
 const { checkLua, checkToc } = require("./latin1");
 const { buildCouncilFile } = require("../../sync/lib/council");
+const { buildHandoutsFile } = require("../../sync/lib/guildbankHandouts");
 
 const ADDON_NAME = "EventHelperSync";
 const ADDON_DIR = path.join(__dirname, "..", "..", "addon", ADDON_NAME);
@@ -113,12 +115,68 @@ function fixturePayload() {
     };
 }
 
-function newState(flavor, fixture) {
+/** Guild bank handouts as the server sends them: the same list for a TBC and
+ * a Forever bank of the guild Pulse on Thunderstrike (ids "t..." / "f..."),
+ * 16 rows (more than the window shows), a raider without a character, two
+ * handouts competing for the same potions, tricky strings. */
+function handoutsPayload() {
+    const now = 1791240000;
+    const ruby = { itemId: 24027, name: "Bold Living Ruby", icon: "inv_jewelcrafting_livingruby_03", quality: 3 };
+    const potion = { itemId: 22829, name: "Super Healing Potion", icon: "", quality: 1 };
+    const zibbo = { name: "Zibbo", realm: "Thunderstrike", faction: "Alliance", classFile: "PRIEST" };
+    const list = (p) => {
+        const out = [
+            {
+                id: `${p}1`, ...ruby, amount: 2, purpose: "Gruul – „Mag“ …", character: zibbo,
+                requestedBy: "Anna", requestedAt: now - 7200, confirmedBy: "Arthas", confirmedAt: now - 3600, inBank: 14,
+                tabs: [{ index: 1, name: "Edelsteine", count: 10 }, { index: 2, name: "Verbrauch", count: 4 }],
+            },
+            {
+                id: `${p}2`, itemId: 13512, name: "Flask of Supreme Power", icon: "inv_potion_41", quality: 1, amount: 1,
+                purpose: "", character: zibbo,
+                requestedBy: "Anna", requestedAt: now - 7200, confirmedBy: "Arthas", confirmedAt: now - 3500, inBank: 0, tabs: [],
+            },
+            {
+                id: `${p}3`, ...potion, amount: 3, purpose: "Kara", character: null,
+                requestedBy: "Anna", requestedAt: now - 7200, confirmedBy: "Arthas", confirmedAt: now - 3400, inBank: 4,
+                tabs: [{ index: 3, name: "Tränke", count: 4 }],
+            },
+            {
+                id: `${p}4`, ...potion, amount: 2, purpose: "Kara",
+                character: { name: "Naphfß", realm: "Thunderstrike", faction: "Alliance", classFile: "SHAMAN" },
+                requestedBy: "Naph", requestedAt: now - 7200, confirmedBy: "Arthas", confirmedAt: now - 3300, inBank: 4,
+                tabs: [{ index: 3, name: "Tränke", count: 4 }],
+            },
+        ];
+        for (let i = 1; i <= 12; i += 1) {
+            out.push({
+                id: `${p}r${i}`, itemId: 17020, name: "Arcane Powder", icon: "inv_misc_dust_02", quality: 1, amount: 1,
+                purpose: "", character: { name: `Raider${String(i).padStart(2, "0")}`, realm: "Thunderstrike", classFile: "MAGE" },
+                requestedBy: `R${i}`, requestedAt: now - 7200, confirmedBy: "Arthas", confirmedAt: now - 3000 + i, inBank: 50,
+                tabs: [{ index: 3, name: "Tränke", count: 50 }],
+            });
+        }
+        return out;
+    };
+    const bank = (gameVersion, p) => ({
+        key: `${gameVersion}:thunderstrike:pulse`, gameVersion, realm: "Thunderstrike", guild: "Pulse",
+        faction: "Alliance", scannedAt: now - 86400, handouts: list(p),
+    });
+    return {
+        format: "eventhelper-guildbank-handouts",
+        version: 1,
+        generatedAt: now - 3600,
+        banks: [bank("tbc", "t"), bank("forever", "f")],
+    };
+}
+
+function newState(flavor, fixture, handoutsFixture) {
     const L = lauxlib.luaL_newstate();
     lualib.luaL_openlibs(L);
     setGlobalString(L, "__FLAVOR", flavor);
     setGlobalString(L, "__TOC_VERSION", tocVersion());
     setGlobalString(L, "__COUNCIL_FIXTURE", fixture);
+    setGlobalString(L, "__HANDOUTS_FIXTURE", handoutsFixture);
     runChunk(L, fs.readFileSync(path.join(__dirname, "mock", "wow.lua"), "utf8"), "mock/wow.lua");
     lua.lua_newtable(L);
     lua.lua_setglobal(L, to_luastring("__EHS_NS"));
@@ -149,6 +207,7 @@ function checkLatin1() {
 function main() {
     const only = process.argv[2];
     const fixture = buildCouncilFile(fixturePayload(), { syncVersion: "test", now: new Date(0) });
+    const handoutsFixture = buildHandoutsFile(handoutsPayload(), { syncVersion: "test", now: new Date(0) });
     const specDir = path.join(__dirname, "spec");
     const specs = fs.readdirSync(specDir).filter((f) => f.endsWith(".lua") && (!only || f.includes(only))).sort();
     let failed = only ? 0 : checkLatin1();
@@ -157,7 +216,7 @@ function main() {
         for (const flavor of FLAVORS) {
             runs += 1;
             try {
-                const L = newState(flavor, fixture);
+                const L = newState(flavor, fixture, handoutsFixture);
                 runChunk(L, fs.readFileSync(path.join(specDir, spec), "utf8"), `spec/${spec}`);
                 lua.lua_getglobal(L, to_luastring("__ASSERTIONS"));
                 const count = lua.lua_tointeger(L, -1);

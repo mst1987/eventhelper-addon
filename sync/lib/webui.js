@@ -134,6 +134,7 @@ function createWebUI(runner, { onQuit } = {}) {
                     uploading: s.uploading,
                     council: s.council || null,
                     guildBank: s.guildBank || null,
+                    handouts: s.handouts || null,
                     log: s.log,
                     config: safeConfig(runner.config),
                     candidates: wowPaths.discover(runner.config.extraRoots)
@@ -216,6 +217,22 @@ function createWebUI(runner, { onQuit } = {}) {
                     return;
                 }
                 json(res, 200, { ok: true, council });
+                return;
+            }
+
+            // "Ausgabeliste holen": report what was ticked in game, then fetch
+            // the guild bank handouts at once (lib/guildbankHandouts.js)
+            // instead of waiting for the 5-minute interval.
+            if (req.method === "POST" && parsed.pathname === "/api/handouts") {
+                await runner.reportHandoutsDone({ force: true });
+                const result = await runner.refreshHandouts({ force: true });
+                const handouts = runner.state.handouts || {};
+                if (!result) {
+                    const message = handouts.lastError ? handouts.lastError.message : "Ausgabeliste nicht geholt.";
+                    json(res, 502, { error: message });
+                    return;
+                }
+                json(res, 200, { ok: true, handouts });
                 return;
             }
 

@@ -393,6 +393,49 @@ describe("webui", () => {
         });
     });
 
+    describe("Gildenbank-Ausgabeliste", () => {
+        const HANDOUTS = {
+            fetching: false, lastFetch: 1700000000000, generatedAt: 1791294674, banks: 1, handouts: 3,
+            files: ["A"], lastError: null, done: 1, reporting: false, lastReport: null, reportError: null,
+        };
+
+        it("liefert den Stand mit /api/state", async () => {
+            const runner = fakeRunner();
+            runner.state.handouts = HANDOUTS;
+            await startUI(runner);
+            const body = await (await get("/api/state")).json();
+            expect(body.handouts).toEqual(HANDOUTS);
+        });
+
+        it("meldet auf Klick erst das Abgehakte, holt dann sofort", async () => {
+            const order = [];
+            const runner = fakeRunner({
+                reportHandoutsDone: jest.fn(async () => { order.push("report"); return true; }),
+                refreshHandouts: jest.fn(async () => { order.push("fetch"); return { handouts: 3 }; }),
+            });
+            runner.state.handouts = HANDOUTS;
+            await startUI(runner);
+            const res = await post("/api/handouts");
+            expect(res.status).toBe(200);
+            expect(order).toEqual(["report", "fetch"]);
+            expect(runner.reportHandoutsDone).toHaveBeenCalledWith({ force: true });
+            expect(runner.refreshHandouts).toHaveBeenCalledWith({ force: true });
+            expect((await res.json()).handouts.handouts).toBe(3);
+        });
+
+        it("reicht einen Fehler beim Holen als Meldung durch", async () => {
+            const runner = fakeRunner({
+                reportHandoutsDone: jest.fn(async () => false),
+                refreshHandouts: jest.fn(async () => null),
+            });
+            runner.state.handouts = { ...HANDOUTS, lastError: { at: 1, message: "Server weg" } };
+            await startUI(runner);
+            const res = await post("/api/handouts");
+            expect(res.status).toBe(502);
+            expect((await res.json()).error).toBe("Server weg");
+        });
+    });
+
     describe("Council-Daten", () => {
         const COUNCIL = {
             fetching: false, lastFetch: 1700000000000, generatedAt: 1791234567, raiders: 24,

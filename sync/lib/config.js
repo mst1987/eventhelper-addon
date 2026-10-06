@@ -46,6 +46,11 @@ const DEFAULTS = {
     // bank: { ["<project>|<realm>|<guild>"]: scannedAt }. A scan is uploaded
     // once, not on every file change.
     guildBankUploads: {},
+    // Guild bank handouts ticked in game and already reported to the server:
+    // { [handoutId]: reportedAt (ms) }. Keeps them from being sent again while
+    // the SavedVariables still list them; pruned after 30 days
+    // (lib/guildbankHandouts.js).
+    guildBankDoneReported: {},
 };
 
 function load() {

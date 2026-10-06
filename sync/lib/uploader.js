@@ -223,6 +223,6 @@ function describeResult(r) {
 
 module.exports = {
     readEnvelope, uploadFile, uploadOneSession, postSession, fetchRaidStatus, envelopeForSession,
-    describeResult, getJson, UploadError, SYNC_VERSION,
+    describeResult, getJson, postJson, UploadError, SYNC_VERSION,
     readGuildBank, guildBankKey, postGuildBank, GUILD_BANK_FORMAT,
 };

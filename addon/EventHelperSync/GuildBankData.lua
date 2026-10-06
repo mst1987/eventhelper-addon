@@ -1,0 +1,5 @@
+-- Placeholder for the guild bank handouts (format "eventhelper-guildbank-handouts",
+-- see README). EventHelper Sync (the PC tool) overwrites this file with the
+-- confirmed requests from the EventHelper server; they show up in game after
+-- the next /reload (/ehs bank). Until then EventHelperSync_GuildBankHandouts
+-- stays nil and the window says so.

@@ -207,6 +207,7 @@ module.exports.PAGE = String.raw`<!doctype html>
   <div class="lists" id="lists"></div>
 
   <div class="council-line" id="council-status" hidden></div>
+  <div class="council-line" id="handouts-status" hidden></div>
   <div class="guildbank" id="guildbank" hidden></div>
 
   <div class="footer">
@@ -266,6 +267,7 @@ module.exports.PAGE = String.raw`<!doctype html>
         <button type="button" class="btn" id="btn-upload-all">Alles hochladen</button>
         <button type="button" class="btn" id="btn-test">Verbindung testen</button>
         <button type="button" class="btn" id="btn-council">Council-Daten holen</button>
+        <button type="button" class="btn" id="btn-handouts">Ausgabeliste holen</button>
       </div>
     </form>
     <div id="log"></div>
@@ -578,6 +580,37 @@ function renderCouncil(c) {
     + ((c.files || []).length ? "nach /reload im Spiel sichtbar" : "kein Addon-Ordner gefunden");
 }
 
+// One line for the guild bank handouts (GuildBankData.lua, /ehs bank in
+// game): how many are open, as of when, and what was ticked and reported.
+// Hidden as long as the server has no guild bank and nothing went wrong.
+function renderHandouts(h) {
+  const line = $("handouts-status");
+  if (!h || (!h.lastFetch && !h.lastError && !h.fetching && !h.done && !h.reportError)
+    || (h.lastFetch && !h.banks && !h.lastError && !h.done && !h.reportError)) {
+    line.hidden = true;
+    return;
+  }
+  line.hidden = false;
+  const fetchFailed = h.lastError && (!h.lastFetch || h.lastError.at >= h.lastFetch);
+  line.classList.toggle("err", !!(fetchFailed || h.reportError));
+  let text;
+  if (fetchFailed) {
+    text = "Ausgabeliste: " + h.lastError.message;
+  } else if (!h.lastFetch) {
+    text = "Ausgabeliste: wird geholt …";
+  } else {
+    const stamp = councilStamp(h.generatedAt ? h.generatedAt * 1000 : h.lastFetch);
+    text = "Ausgabeliste: " + (h.handouts ? h.handouts + " Posten offen" : "nichts offen") + ", Stand " + stamp
+      + " — " + ((h.files || []).length ? "nach /reload im Spiel (/ehs bank)" : "kein Addon-Ordner gefunden");
+  }
+  if (h.reportError) {
+    text += " · Melden fehlgeschlagen: " + h.reportError.message;
+  } else if (h.done) {
+    text += " · " + h.done + " abgehakt, wird gemeldet";
+  }
+  line.textContent = text;
+}
+
 function render() {
   if (!lastState) return;
   const d = lastState;
@@ -723,6 +756,7 @@ function render() {
     : "Warte auf die Addon-Datei …";
 
   renderCouncil(d.council);
+  renderHandouts(d.handouts);
 
   // Einstellungen — nur füllen, solange niemand darin tippt.
   if (!editing) {
@@ -902,6 +936,21 @@ $("btn-council").addEventListener("click", async () => {
     flash(e.message, "err");
   }
   $("btn-council").disabled = false;
+  refresh();
+});
+
+$("btn-handouts").addEventListener("click", async () => {
+  $("btn-handouts").disabled = true;
+  try {
+    const r = await api("/api/handouts", { method: "POST" });
+    const files = (r.handouts.files || []).length;
+    flash(files
+      ? r.handouts.handouts + " Posten in " + files + " Addon-Ordner geschrieben — im Spiel /reload."
+      : "Ausgabeliste geholt, aber kein Addon-Ordner gefunden.", files ? "ok" : "err");
+  } catch (e) {
+    flash(e.message, "err");
+  }
+  $("btn-handouts").disabled = false;
   refresh();
 });
 

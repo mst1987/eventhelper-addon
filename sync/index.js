@@ -14,6 +14,7 @@
  *   npx eventhelper-sync watch    dauerhaft beobachten (Standard)
  *   npx eventhelper-sync status   zeigen, was gefunden wurde, ohne zu senden
  *   npx eventhelper-sync council  Council-Daten einmal holen und ins Addon schreiben
+ *   npx eventhelper-sync handouts Gildenbank-Ausgabeliste einmal holen und ins Addon schreiben
  */
 const fs = require("fs");
 const readline = require("readline");
@@ -22,6 +23,7 @@ const wowPaths = require("./lib/wowPaths");
 const { readEnvelope, uploadFile, describeResult, UploadError, SYNC_VERSION } = require("./lib/uploader");
 const { createRunner } = require("./lib/runner");
 const council = require("./lib/council");
+const guildbankHandouts = require("./lib/guildbankHandouts");
 const { createWebUI, openInBrowser } = require("./lib/webui");
 const { openAppWindow, showMessageBox } = require("./lib/appWindow");
 const instance = require("./lib/instance");
@@ -221,6 +223,32 @@ async function cmdCouncil() {
 }
 
 /**
+ * Die Gildenbank-Ausgabeliste einmal holen und als GuildBankData.lua in jeden
+ * installierten Addon-Ordner schreiben (lib/guildbankHandouts.js) — dasselbe,
+ * was der Dauerbetrieb alle 5 Minuten tut. Abgehakte Posten meldet nur der
+ * Dauerbetrieb.
+ */
+async function cmdHandouts() {
+    const cfg = requireReady();
+    let result;
+    try {
+        result = await guildbankHandouts.syncHandouts(cfg);
+    } catch (e) {
+        fail(`Ausgabeliste nicht geholt: ${e.message}`);
+        process.exit(1);
+    }
+    log(`${result.handouts} Posten aus ${result.banks} Gildenbank(en).`);
+    if (!result.dirs.length) {
+        fail("Kein installierter Addon-Ordner EventHelperSync gefunden — nichts geschrieben.");
+        process.exit(1);
+    }
+    for (const file of result.files) log(`geschrieben: ${file}`);
+    for (const err of result.errors) fail(`nicht geschrieben: ${err}`);
+    if (result.errors.length) process.exit(1);
+    log("Im Spiel /reload, dann /ehs bank.");
+}
+
+/**
  * Ob dies die gepackte Windows-.exe ist. Die ist ein GUI-Programm ohne Konsole
  * (scripts/exeResources.js): Einrichtung läuft dort über die Oberfläche,
  * Meldungen über einen Dialog — was in die Konsole ginge, sähe niemand.
@@ -324,7 +352,7 @@ async function main() {
         showMessageBox(
             `„${cmd}" ist ein Konsolenbefehl — die EventHelperSync.exe hat keine Konsole.\n\n`
             + "Ein Doppelklick öffnet das Fenster; Einrichtung und Upload liegen dort.\n"
-            + "Die Befehle init, once, status und council gibt es mit Node.js: npx eventhelper-sync <befehl>",
+            + "Die Befehle init, once, status, council und handouts gibt es mit Node.js: npx eventhelper-sync <befehl>",
         );
         return;
     }
@@ -342,9 +370,10 @@ async function main() {
     case "once": return cmdOnce();
     case "status": return cmdStatus();
     case "council": return cmdCouncil();
+    case "handouts": return cmdHandouts();
     case "watch": return cmdWatch();
     default:
-        console.log("Befehle: init | once | watch | status | council");
+        console.log("Befehle: init | once | watch | status | council | handouts");
         console.log("  watch --no-ui   ohne Browser-Oberfläche (für den Betrieb als Dienst)");
         console.log(`Konfiguration: ${config.CONFIG_FILE}`);
         process.exit(1);

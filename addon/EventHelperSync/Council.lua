@@ -310,8 +310,9 @@ function Council.BuildIndex(category)
 end
 
 -- Ein Index je Kategorie (bzw. je Datentabelle fuer alle zusammen); die
--- Daten aendern sich nur mit einem /reload, also reicht es, ihn einmal zu
--- bauen. Schwache Schluessel: alte Daten gehen weg.
+-- Daten aendern sich nur mit einem /reload - oder ApplyAwards() liefert neue
+-- Tabellen -, also reicht es, ihn einmal je Tabelle zu bauen. Schwache
+-- Schluessel: alte Daten gehen weg.
 local indexCache = setmetatable({}, { __mode = "k" })
 
 local function indexOf(source)
@@ -489,9 +490,9 @@ end
 function Council.TooltipLine(raider)
     local name = Council.Color(raider.character or "?", Council.ClassColor(raider.classFile))
     if raider.specLabel and raider.specLabel ~= "" then name = name .. " (" .. raider.specLabel .. ")" end
-    return ("%s %s - %s"):format(name,
+    return ("%s %s%s - %s"):format(name,
         Council.Color(("Bedarf %d"):format(int(raider.need)), Council.NeedColor(raider.need)),
-        Council.ItemsLabel(raider.lootCount))
+        Council.ProvisionalMark(raider), Council.ItemsLabel(raider.lootCount))
 end
 
 Council.TOOLTIP_HEADER = "Loot-Council:"
@@ -509,4 +510,408 @@ function Council.TooltipLines(source, itemId, limit)
     end
     if total > #list then lines[#lines + 1] = ("... und %d weitere"):format(total - #list) end
     return lines
+end
+
+-- ---------------------------------------------------------------------------
+-- Vergaben seit dem letzten Sync (vorlaeufig)
+-- ---------------------------------------------------------------------------
+--
+-- Die Council-Daten sind der Stand des Servers zum Zeitpunkt generatedAt. Was
+-- danach im Raid vergeben wird, steht schon in den Historien von
+-- RCLootcouncil und Gargul (Collect.lua liest sie). ApplyAwards() rechnet es
+-- hier nach denselben Regeln wie der Server dazu - vorlaeufig, bis der
+-- naechste Sync es mitbringt (dann ist generatedAt neuer, und die Vergaben
+-- fallen ueber den Zeitstempel von selbst wieder heraus).
+--
+-- Nachgebaut aus dem EventHelper (Repo eventhelper):
+--   src/utils/loot/lootReasons.js  reasonIdFor(), countsAsLoot()
+--   src/web/loot/lootCouncil.js    needScore(), scoreRows(), rosterRow()
+--   src/web/loot/councilSync.js    raiderView() (Prozentwerte, Rundung)
+
+-- Die Gruende des Servers, mit seinen Beschriftungen (REASONS).
+Council.REASON_LABEL = {
+    bis = "BiS", mainspec = "Mainspec", upgrade = "Upgrade", minor = "Kleines Upgrade",
+    offspec = "Offspec", pvp = "PvP", greed = "Greed", disenchant = "Entzaubert", bank = "Bank",
+    other = "Sonstiges",
+}
+
+-- COUNTING_REASONS: was als "hat schon etwas bekommen" zaehlt. "other" zaehlt
+-- mit - eine unbekannte Antwort ist viel oefter die Hauptspec-Taste einer
+-- Gilde als ein Splitter.
+local COUNTING_REASONS = { bis = true, mainspec = true, upgrade = true, minor = true, other = true }
+
+-- PATTERNS aus lootReasons.js, in derselben Reihenfolge (der erste Treffer
+-- gewinnt). Lua kennt kein \b und kein "|": je Grund eine Liste von Mustern
+-- auf den kleingeschriebenen Text, \b als Frontier %f[%w_] / %f[^%w_].
+local function word(w) return "%f[%w_]" .. w .. "%f[^%w_]" end
+local REASON_PATTERNS = {
+    { "disenchant", { "disenchant", "entzauber", word("shard"), word("sharding"), word("de") } },
+    { "bank", { "bank" } },
+    { "pvp", { word("pvp"), "arena", "resil" } },
+    { "offspec", { "off.?spec", word("os"), "zweit.?spec", "neben.?spec", "second.?spec", "dual.?spec" } },
+    { "bis", { word("bis"), "best.?in.?slot" } },
+    { "minor", { "minor", "klein", "side.?grade", "leichte" } },
+    { "upgrade", { "upgrade", "major", "verbesserung", "aufwert" } },
+    { "mainspec", { "main.?spec", "haupt.?spec", word("ms"), word("need"), "bedarf" } },
+    { "greed", { "greed", "gier", "free", "kostenlos", word("fun"), "transmog", word("mog"), "twink",
+        word("alt"), "%f[%w_]rest" } },
+    { "other", { "auto.?pass", "^%s*pass%s*$", "verzicht" } },
+}
+
+--- Der Grund einer Vergabe wie reasonIdFor() des Servers: der Antworttext
+-- entscheidet; sagt er nichts Bekanntes, trennt das Offspec-Kennzeichen.
+-- @return einer der Schluessel von Council.REASON_LABEL
+function Council.ReasonFor(response, offspec)
+    local text = trim(response):lower()
+    if text ~= "" then
+        for _, entry in ipairs(REASON_PATTERNS) do
+            for _, pattern in ipairs(entry[2]) do
+                if text:find(pattern) then return entry[1] end
+            end
+        end
+    end
+    return offspec and "offspec" or "other"
+end
+
+--- Zaehlt eine Vergabe mit diesem Grund als erhaltenes Item (countsAsLoot)?
+function Council.CountsAsLoot(reason)
+    return COUNTING_REASONS[tostring(reason or "other")] == true
+end
+
+-- Kleinschreibung fuer Namen: ASCII, dazu die Grossbuchstaben aus Latin-1
+-- (UTF-8 C3 80 bis C3 9E, ausser dem Malzeichen C3 97), wie toLowerCase().
+-- Die Bytes per string.char: als Zeichen im Quelltext waeren sie kein
+-- gueltiges UTF-8.
+local LATIN1_LEAD = string.char(0xC3)
+local LATIN1_UPPER = LATIN1_LEAD .. "([" .. string.char(0x80) .. "-" .. string.char(0x9E) .. "])"
+local function lowerName(text)
+    return (tostring(text or ""):lower():gsub(LATIN1_UPPER, function(c)
+        if c:byte() == 0x97 then return nil end
+        return LATIN1_LEAD .. string.char(c:byte() + 32)
+    end))
+end
+
+--- Der Vergleichsschluessel eines Spielernamens wie characterKeyOf() des
+-- Servers: Realm ab dem ersten "-" weg, eine Version davor ("forever~")
+-- auch, klein geschrieben. "Gemli-Thunderstrike" -> "gemli".
+function Council.NameKey(name)
+    local text = trim(name)
+    local tilde = text:find("~", 1, true)
+    if tilde then text = text:sub(tilde + 1) end
+    local dash = text:find("-", 1, true)
+    if dash then text = text:sub(1, dash - 1) end
+    return lowerName(trim(text))
+end
+
+local function round(x) return math.floor(x + 0.5) end
+local function round3(x) return round(x * 1000) / 1000 end
+local function pct(x) return math.max(0, math.min(100, round((tonumber(x) or 0) * 100))) end
+
+--- Der Bedarf eines Raiders wie needScore() des Servers, in der Form der
+-- Council-Daten (0..100, gerundet wie raiderView()).
+-- @param row { daysSinceLoot (-1/nil = noch nie), lootCount, bis = { owned, total } }
+-- @param avg Durchschnitt lootCount der Kategorie
+-- @param weights Gewichte in Prozent (Council.Weights)
+-- @return need, parts
+function Council.NeedScore(row, avg, weights)
+    local days = tonumber(row.daysSinceLoot)
+    if not days or days < 0 then days = 30 end
+    local drought = math.min(1, days / 30)
+    local lootCount = num(row.lootCount)
+    local share = 0.5
+    if avg > 0 then share = math.max(0, math.min(1, (avg - lootCount) / math.max(1, avg))) end
+    local bis = type(row.bis) == "table" and row.bis or {}
+    local total, owned = num(bis.total), num(bis.owned)
+    local need = 0.5
+    if total > 0 then need = 1 - (owned / total) end
+    local w = weights or DEFAULT_WEIGHTS
+    local score = (num(w.drought) / 100) * drought + (num(w.share) / 100) * share + (num(w.need) / 100) * need
+    return pct(round3(score)), {
+        drought = pct(round3(drought)), share = pct(round3(share)), need = pct(round3(need)),
+    }
+end
+
+--- "Coilfang: Serpentshrine Cavern-25 Player" -> "Coilfang: Serpentshrine Cavern"
+local function cleanInstance(raw)
+    return (tostring(raw or ""):gsub("%-%d+ Player$", ""):gsub("%-%s*$", ""))
+end
+
+-- Dieselbe Vergabe aus beiden Addons (eine Gilde, die mit RCLootcouncil
+-- verteilt und Gargul nebenher laufen hat): gleicher Spieler, gleiches Item,
+-- andere Quelle, hoechstens so weit auseinander. RCLootcouncil gewinnt, es
+-- weiss Instanz, Boss und Antwort.
+local DUPLICATE_SECONDS = 300
+
+local function dedupe(awards)
+    local kept = {}
+    for _, award in ipairs(awards) do
+        local key = Council.NameKey(award.player) .. ":" .. tostring(award.itemId)
+        local twin
+        for _, other in ipairs(kept) do
+            if other.key == key and other.award.source ~= award.source
+                and math.abs(num(other.award.awardedAt) - num(award.awardedAt)) <= DUPLICATE_SECONDS then
+                twin = other
+                break
+            end
+        end
+        if not twin then
+            kept[#kept + 1] = { key = key, award = award }
+        elseif twin.award.source == "gargul" and award.source == "rclc" then
+            twin.award = award
+        end
+    end
+    local out = {}
+    for i, entry in ipairs(kept) do out[i] = entry.award end
+    return out
+end
+
+local function copyList(list)
+    local out = {}
+    for i, v in ipairs(type(list) == "table" and list or {}) do out[i] = v end
+    return out
+end
+
+local function copyRaider(raider)
+    local copy = {}
+    for k, v in pairs(raider) do copy[k] = v end
+    local bis = type(raider.bis) == "table" and raider.bis or {}
+    copy.bis = {}
+    for k, v in pairs(bis) do copy.bis[k] = v end
+    copy.bis.missing = copyList(bis.missing)
+    copy.items = copyList(raider.items)
+    copy.parts = {}
+    for k, v in pairs(type(raider.parts) == "table" and raider.parts or {}) do copy.parts[k] = v end
+    return copy
+end
+
+--- Die Raider einer Kategorie nach Namensschluessel (Name und key).
+local function raidersByName(category)
+    local map = {}
+    for _, raider in ipairs(category.raiders) do
+        if type(raider) == "table" then
+            for _, name in ipairs({ raider.character or "", raider.key or "" }) do
+                local key = Council.NameKey(name)
+                if key ~= "" and not map[key] then map[key] = raider end
+            end
+        end
+    end
+    return map
+end
+
+--- Eine Vergabe auf eine Raider-Kopie anwenden (Regeln wie rosterRow()).
+local function applyToRaider(raider, award)
+    local reason = award.reason
+    local counts = Council.CountsAsLoot(reason)
+    raider.provisional = raider.provisional or { awards = {}, counted = 0, other = 0 }
+    local entry = {
+        itemId = award.itemId, itemName = award.itemName or "", awardedAt = award.awardedAt,
+        boss = award.boss or "", reason = Council.REASON_LABEL[reason] or reason, counts = counts,
+    }
+    table.insert(raider.provisional.awards, entry)
+    if counts then
+        raider.provisional.counted = raider.provisional.counted + 1
+        raider.lootCount = num(raider.lootCount) + 1
+        raider.lootTotal = num(raider.lootTotal) + 1
+        if num(award.awardedAt) > num(raider.lastAwardAt) then raider.lastAwardAt = award.awardedAt end
+        -- Seit dieser Vergabe ist (fast) kein Tag vergangen; die Wartezeit der
+        -- anderen Raider steht ohnehin auf dem Stand des Syncs.
+        raider.daysSinceLoot = 0
+        table.insert(raider.items, 1, {
+            itemId = award.itemId, itemName = award.itemName or "", awardedAt = award.awardedAt,
+            boss = award.boss or "", reason = entry.reason, provisional = true,
+        })
+    else
+        raider.provisional.other = raider.provisional.other + 1
+        raider.otherCount = num(raider.otherCount) + 1
+    end
+    -- Ein fehlendes BiS-Teil hat er jetzt (der Server sieht es erst im
+    -- naechsten Log an ihm) - ausser es wurde entzaubert oder ging in die Bank.
+    if reason ~= "disenchant" and reason ~= "bank" then
+        local missing = raider.bis.missing
+        for i, id in ipairs(missing) do
+            if tonumber(id) == tonumber(award.itemId) then
+                table.remove(missing, i)
+                raider.bis.owned = num(raider.bis.owned) + 1
+                if num(raider.bis.total) > 0 then
+                    raider.bis.owned = math.min(raider.bis.owned, num(raider.bis.total))
+                end
+                entry.bis = true
+                break
+            end
+        end
+    end
+end
+
+--- Schnitt, Bedarf und Teile aller Raider einer Kategorie neu (scoreRows()).
+local function rescore(category, weights)
+    local sum, count = 0, 0
+    for _, raider in ipairs(category.raiders) do
+        if type(raider) == "table" then
+            sum = sum + num(raider.lootCount)
+            count = count + 1
+        end
+    end
+    local avg = count > 0 and sum / count or 0
+    category.avgLootCount = round(avg * 10) / 10
+    for _, raider in ipairs(category.raiders) do
+        if type(raider) == "table" then
+            local need, parts = Council.NeedScore(raider, avg, weights)
+            if need ~= num(raider.need) then raider.needBefore = num(raider.need) end
+            raider.need = need
+            raider.parts = parts
+        end
+    end
+end
+
+--- Die Kategorien, in denen eine Vergabe zaehlt. Zu welcher Kategorie eine
+-- Vergabe gehoert, weiss nur der Server (ueber das Raid-Event). Hier: nennt
+-- die Vergabe eine Instanz, die zu Kategorien passt (Raidvorlage), dann
+-- diese - sonst jede Kategorie, in der der Raider steht.
+local function targetCategories(data, award, byName)
+    local instance = cleanInstance(award.instance)
+    if instance ~= "" then
+        local matched = Council.MatchCategories(data, { names = { instance } })
+        if #matched > 0 then return matched end
+    end
+    local key = Council.NameKey(award.player)
+    local out = {}
+    for _, category in ipairs(data.categories) do
+        if byName[category][key] then out[#out + 1] = category end
+    end
+    return out
+end
+
+--- Die Council-Daten mit den Vergaben seit dem Sync, vorlaeufig.
+--
+-- Je Vergabe nach generatedAt (Collect-Zeilen: player, itemId, itemName,
+-- awardedAt, response, offspec, boss, instance, source), deren Spieler in
+-- einer der Ziel-Kategorien steht: Grund wie der Server; zaehlt sie, dann
+-- Items +1, letzter Loot = jetzt (Wartezeit 0), sonst "dazu Offspec/Bank" +1;
+-- ein fehlendes BiS-Teil ist abgehakt. Danach in jeder betroffenen Kategorie
+-- Schnitt und Bedarf ALLER Raider neu (der Schnitt aendert sich fuer alle).
+--
+-- Nicht nachgebaut (der Server weiss mehr): ob ein Item im Tier-/Raid-Filter
+-- der Kategorie liegt (es zaehlt immer), und Raider, die erst durch diese
+-- Vergabe in die Kategorie kaemen (sie fehlen, bis der Sync sie bringt).
+--
+-- @param data aus Load() - bleibt unveraendert
+-- @param awards Liste von Vergaben (beliebige Reihenfolge, bleiben unveraendert)
+-- @return data (dieselbe Tabelle, wenn nichts passt) oder eine Kopie mit
+--   provisional = { count, since, awards, unmatched } und je betroffener
+--   Kategorie provisional = Anzahl; geaenderte Raider tragen provisional =
+--   { awards, counted, other } bzw. needBefore.
+function Council.ApplyAwards(data, awards)
+    if type(data) ~= "table" or type(awards) ~= "table" or #awards == 0 then return data end
+    local since = num(data.generatedAt)
+    if since <= 0 then return data end
+
+    local fresh = {}
+    for _, award in ipairs(awards) do
+        if type(award) == "table" and num(award.awardedAt) > since and tonumber(award.itemId)
+            and Council.NameKey(award.player) ~= "" then
+            local copy = {}
+            for k, v in pairs(award) do copy[k] = v end
+            copy.itemId = tonumber(award.itemId)
+            copy.reason = Council.ReasonFor(award.response, award.offspec)
+            fresh[#fresh + 1] = copy
+        end
+    end
+    if #fresh == 0 then return data end
+    table.sort(fresh, function(a, b) return num(a.awardedAt) < num(b.awardedAt) end)
+    fresh = dedupe(fresh)
+
+    local byName = {}
+    for _, category in ipairs(Council.Categories(data)) do byName[category] = raidersByName(category) end
+
+    -- Erst nur feststellen, was wohin gehoert; kopiert wird nur Betroffenes.
+    local plan, applied, unmatched = {}, {}, 0
+    for _, award in ipairs(fresh) do
+        local key = Council.NameKey(award.player)
+        local hit = false
+        for _, category in ipairs(targetCategories(data, award, byName)) do
+            local raider = byName[category][key]
+            if raider then
+                plan[category] = plan[category] or {}
+                table.insert(plan[category], { raider = raider, award = award })
+                hit = true
+            end
+        end
+        if hit then applied[#applied + 1] = award else unmatched = unmatched + 1 end
+    end
+    if #applied == 0 then return data end
+
+    local out = {}
+    for k, v in pairs(data) do out[k] = v end
+    out.categories = {}
+    local weights = Council.Weights(data)
+    for i, category in ipairs(data.categories) do
+        local steps = plan[category]
+        if not steps then
+            out.categories[i] = category
+        else
+            local copy = {}
+            for k, v in pairs(category) do copy[k] = v end
+            local copies = {}
+            copy.raiders = {}
+            for j, raider in ipairs(category.raiders) do
+                if type(raider) == "table" then
+                    copies[raider] = copyRaider(raider)
+                    copy.raiders[j] = copies[raider]
+                else
+                    copy.raiders[j] = raider
+                end
+            end
+            for _, step in ipairs(steps) do applyToRaider(copies[step.raider], step.award) end
+            copy.provisional = #steps
+            rescore(copy, weights)
+            out.categories[i] = copy
+        end
+    end
+    out.provisional = { count = #applied, since = since, awards = applied, unmatched = unmatched }
+    return out
+end
+
+--- Hat sich an diesem Raider vorlaeufig etwas geaendert?
+-- @return "own" (eigene Vergaben), "avg" (nur sein Bedarf, weil sich der
+--   Schnitt verschoben hat), sonst nil
+function Council.ProvisionalKind(raider)
+    if type(raider) ~= "table" then return nil end
+    if raider.provisional then return "own" end
+    if raider.needBefore ~= nil then return "avg" end
+    return nil
+end
+
+Council.PROVISIONAL_COLOR = { 1.00, 0.55, 0.15 }
+
+--- Das Zeichen hinter der Bedarfszahl: ein orangenes "*" fuer eigene
+-- Vergaben seit dem Sync, ein graues, wenn sich nur der Schnitt verschoben
+-- hat; sonst "".
+function Council.ProvisionalMark(raider)
+    local kind = Council.ProvisionalKind(raider)
+    if kind == "own" then return Council.Color("*", unpack(Council.PROVISIONAL_COLOR)) end
+    if kind == "avg" then return Council.Color("*", 0.6, 0.6, 0.6) end
+    return ""
+end
+
+function Council.AwardsLabel(count)
+    count = int(count)
+    if count == 1 then return "1 Vergabe" end
+    return ("%d Vergaben"):format(count)
+end
+
+--- Fuer den Zeilen-Tooltip: "inkl. 2 Vergaben seit dem letzten Sync (vorlaeufig)".
+function Council.ProvisionalRaiderLine(raider)
+    if type(raider) ~= "table" or not raider.provisional then return nil end
+    return ("inkl. %s seit dem letzten Sync (vorläufig)"):format(Council.AwardsLabel(#raider.provisional.awards))
+end
+
+--- Fuer die Kopfzeile: "vorlaeufig: 2 Vergaben seit 05.10. 21:30", oder nil.
+-- @param category optional: zaehlt nur deren Vergaben
+function Council.ProvisionalHeader(data, category)
+    local info = type(data) == "table" and data.provisional
+    if not info then return nil end
+    local count = info.count
+    if type(category) == "table" then count = num(category.provisional) end
+    if num(count) <= 0 then return nil end
+    return ("vorläufig: %s seit %s"):format(Council.AwardsLabel(count), Council.FormatStamp(info.since))
 end

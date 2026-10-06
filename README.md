@@ -312,6 +312,19 @@ Naphfß (Resto) Bedarf 64 - 3 Items
 
 Auf WoW Forever hängt das an `TooltipDataProcessor`, auf TBC Anniversary an `OnTooltipSetItem` von `GameTooltip` und `ItemRefTooltip`. Der Abschnitt steht nie doppelt in einem Tooltip.
 
+### Vergaben seit dem letzten Sync
+
+Die Council-Daten sind der Stand des Servers beim letzten Sync (`generatedAt`). Was danach im Raid vergeben wird, steht aber schon in der Historie von RCLootCouncil bzw. Gargul — das Addon liest sie ohnehin für den Upload. Fenster und Item-Tooltip rechnen diese Vergaben deshalb **sofort und ohne Sync oder `/reload`** mit, als vorläufige Werte (ab 1.12.0):
+
+- **Welche Vergaben:** nur die mit Zeitstempel **nach** `generatedAt`, mit denselben Ausnahmen wie der Upload (Award-Reasons wie Bank/Entzaubern, solange *„Bank- und Entzauber-Items weglassen"* an ist; Garguls `||de||`). Dieselbe Vergabe aus RCLootCouncil **und** Gargul (gleicher Spieler, gleiches Item, höchstens 5 Minuten auseinander) zählt einmal. Der Spieler wird über den Namen ohne Realm gefunden, Gross-/Kleinschreibung egal.
+- **Wie gezählt wird — wie auf dem Server:** der Grund kommt aus dem Antworttext (dieselben Muster wie `lootReasons.js`: BiS, Mainspec, Upgrade, Kleines Upgrade und Unbekanntes **zählen**; Offspec, PvP, Greed, Entzaubert, Bank nicht). Eine zählende Vergabe: Items +1, letzter Loot = jetzt (Wartezeit 0). Eine nicht zählende: „dazu N Offspec/Bank" +1. Fehlt das Item dem Raider als BiS-Teil, ist es abgehakt (BiS +1, eine Kopie bei doppelten Ringen) — ausser es wurde entzaubert oder ging in die Bank. Danach werden **Schnitt und Bedarf aller Raider** der Kategorie neu gerechnet (`needScore` des Servers: Wartezeit/30 Tage, Anteil gegen den Schnitt, BiS-Lücke, Gewichte aus den Daten) und neu sortiert.
+- **Welche Kategorie:** nennt die Vergabe eine Instanz (RCLootCouncil; bei Gargul die eigene Zonen-Zeitleiste), zählt sie in den Kategorien, deren Raidvorlage diese Instanz hat; sonst in jeder Kategorie, in der der Raider steht.
+- **Sichtbar:** ein orangenes `*` hinter der Bedarfszahl bei eigenen Vergaben, ein graues, wenn sich nur der Schnitt verschoben hat. Der Zeilen-Tooltip sagt „inkl. N Vergabe(n) seit dem letzten Sync (vorläufig)" und listet sie (mit Grund, „zählt nicht", „BiS"); die Kopfzeile „vorläufig: N Vergaben seit 05.10. 21:30". Der Item-Tooltip zeigt die neuen Zahlen und lässt Raider weg, die das Teil gerade bekommen haben.
+- **Wann:** beim Öffnen des Fensters, beim Item-Tooltip (höchstens einmal pro Sekunde nachgesehen) und alle 3 Sekunden bei offenem Fenster. Nachgesehen wird nur, ob die Historien gewachsen sind; gerechnet nur dann. Ohne RCLootCouncil/Gargul ändert sich nichts.
+- **Nach dem nächsten Sync** sind diese Vergaben in den Zahlen des Servers; ihr Zeitstempel liegt dann vor dem neuen `generatedAt`, und sie fallen hier von selbst wieder heraus.
+
+Was der Server genauer weiss und das Spiel nicht: ob ein Item im Tier-/Raid-Filter der Kategorie liegt (hier zählt es immer), zu welchem Raid-Event (und damit welcher Kategorie) eine Vergabe gehört, ob jemand ein BiS-Teil wirklich trägt, und Raider, die erst durch diese Vergabe in die Kategorie kämen. Deshalb „vorläufig".
+
 ---
 
 ## Gildenbank-Ausgabe im Spiel
@@ -649,7 +662,7 @@ Zurück geht `POST { "done": [{ "id", "via": "manual" | "mail", "by": "Name-Real
 | `Options.lua` | das Fenster: Status, Raid-Abende zum Abwählen, Einstellungen |
 | `UI.lua` | Kopierbox hinter `/ehs export` |
 | `CouncilData.lua` | Platzhalter; das Sync-Tool überschreibt ihn mit den Council-Daten |
-| `Council.lua` | Council-Logik ohne Fenster: Daten prüfen, Item → Raider, denen es fehlt, Texte und Farben |
+| `Council.lua` | Council-Logik ohne Fenster: Daten prüfen, Item → Raider, denen es fehlt, Vergaben seit dem Sync vorläufig dazurechnen (Zählregel und Bedarfsformel des Servers), Texte und Farben |
 | `CouncilUI.lua` | Loot-Council-Fenster, Item-Tooltip, `/ehc` |
 | `GuildBankData.lua` | Platzhalter; das Sync-Tool überschreibt ihn mit der Gildenbank-Ausgabeliste |
 | `GuildBankHandouts.lua` | Ausgabe-Logik ohne Fenster: Daten prüfen, Banken dieses Charakters, Bestand und Fehlmenge, Abhaken (`guildBankDone`), API für die Post-Ausgabe |

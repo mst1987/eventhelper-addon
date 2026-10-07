@@ -2,7 +2,7 @@
 ## Title: EventHelper Sync
 ## Notes: Bündelt den vergebenen Loot aus RCLootcouncil und Gargul zu Raid-Sessions für den EventHelper-Import und zeigt den Loot-Council und die Gildenbank-Ausgabe im Spiel.
 ## Author: Pulse
-## Version: 1.12.0
+## Version: 1.13.0
 ## SavedVariables: EventHelperSyncDB
 ## OptionalDeps: RCLootCouncil, RCLootCouncil_Classic, Gargul
 ## X-Website: https://github.com/mst1987/eventhelper-addon

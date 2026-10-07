@@ -132,6 +132,7 @@ Ein normaler Wurf mit der Antwort „PvP/Bank" bleibt dabei drin — der ging ja
 | `/ehs export` | Export als JSON in einer Kopierbox (Weg ohne Sync-Tool) |
 | `/ehs council` oder `/ehc` | das [Loot-Council-Fenster](#loot-council-im-spiel) öffnen |
 | `/ehc <Name>` | Loot-Council: zur Kategorie mit diesem Namen wechseln |
+| `/ehs vorschlag` oder `/ehc vorschlag` | den [EventHelper-Vorschlag](#eventhelper-vorschlag-in-rclootcouncil) neben RCLootCouncil auf-/zumachen (auch `/ehs suggest`) |
 | `/ehs bank` oder `/ehb` | die [Gildenbank-Ausgabe](#gildenbank-ausgabe-im-spiel) öffnen |
 | `/ehs days <n>` | wie viele Tage zurück exportiert werden (Standard: 21) |
 | `/ehs debug` | Debug-Ausgaben umschalten |
@@ -331,6 +332,41 @@ Die Council-Daten sind der Stand des Servers beim letzten Sync (`generatedAt`). 
 - **Nach dem nächsten Sync** sind diese Vergaben in den Zahlen des Servers; ihr Zeitstempel liegt dann vor dem neuen `generatedAt`, und sie fallen hier von selbst wieder heraus.
 
 Was der Server genauer weiss und das Spiel nicht: ob ein Item im Tier-/Raid-Filter der Kategorie liegt (hier zählt es immer), zu welchem Raid-Event (und damit welcher Kategorie) eine Vergabe gehört, ob jemand ein BiS-Teil wirklich trägt, und Raider, die erst durch diese Vergabe in die Kategorie kämen. Deshalb „vorläufig".
+
+### EventHelper-Vorschlag in RCLootCouncil
+
+Läuft in **RCLootCouncil** eine Abstimmung (ab 1.13.0), öffnet sich rechts am Abstimmungsfenster ein schmales Fenster im Stil des Loot-Council-Fensters: für jedes Item der Sitzung, wer es nach den Council-Daten **und** den Antworten in RCLootCouncil am ehesten bekommen sollte. Vergeben wird weiter in RCLootCouncil — das Fenster schickt nichts an den Raid.
+
+```
+ ┌ EventHelper-Vorschlag          [TBC Montag (auto)] [x] ┐
+ │ Sitzung: 4 Items · Stand 21:48 · 1 Vergabe vorläufig *  │
+ │ ─────────────────────────────────────────────────────── │
+ │▌[i] Zhar'doom, Greatstaff of the Devourer      [Caster] │
+ │     Vorschlag: Gemli (BiS, Bedarf 82)                   │
+ │ [i] Slippers of the Seacaller                  [Heiler] │
+ │     Heiler-Item, Kategorie zählt nur Caster             │
+ │ ─────────────────────────────────────────────────────── │
+ │ (1) Gemli Shadow                                    82  │
+ │     Antwort BiS · BiS fehlt · +10 iLvl · letztes …  Bedarf│
+ │ (2) Zibbo Fire                                     64*  │
+ │ (3) Wlok Destro                                     71  │
+ │ (4) Naphfss Balance   (grau: BiS fehlt, keine Antwort)  │
+ │ Wlok hat mehr Bedarf als Zibbo, steht aber hinter       │
+ │ BiS-Antworten.                                          │
+ │ Reihenfolge: RCLC-Antwort, dann BiS-Lücke, dann Bedarf. │
+ └─────────────────────────────────────────────────────────┘
+```
+
+- **Oben** die aktive Council-Kategorie (wie im Loot-Council-Fenster, Klick wechselt, „(auto)" in der passenden Raid-Instanz), der Stand der Daten und wie viele Vergaben seit dem Sync schon vorläufig eingerechnet sind (`*`).
+- **Je Item eine Zeile:** Symbol, Name in Qualitätsfarbe, der Vorschlag (oder „Noch keine Antworten in RCLC", „Vergeben an …") und ein Schild **Caster**, **Heiler** oder **-**. Klick auf die Zeile wählt das Item — auch in RCLootCouncil; wechselt man dort das Item, folgt das Fenster. Mehr als fünf Items: Mausrad.
+- **Für das gewählte Item die Rangliste:** Platz, Name in Klassenfarbe mit Spezialisierung, warum („Antwort BiS · BiS fehlt · +10 iLvl · letztes Item vor 12 Tagen", „heute 1 Item *"), rechts der Bedarf in den Farben des Council-Fensters (`*` = vorläufig). Der Tooltip einer Zeile zeigt alles ungekürzt.
+- **Reihenfolge:** zuerst die Antwort in RCLootCouncil — BiS/Need/Mainspec vor Upgrade vor kleinem Upgrade vor Offspec/Greed/Transmog (grau); wer passt (auch Autopass), fehlt. In derselben Stufe zuerst, wem das Item als BiS fehlt, dann der Bedarf. Wer nicht in den Council-Daten steht, aber geantwortet hat, steht hinter den Council-Raidern derselben Stufe („nicht im Council", ohne Bedarf). Wem das Item als BiS fehlt, der aber noch nicht geantwortet hat, steht grau am Ende. Steht jemand mit mehr Bedarf weiter unten, sagt eine Zeile unter der Liste warum.
+- **Welche Antwort welche Stufe ist,** liest das Addon aus dem Text der Knöpfe (dieselbe Regel wie für die Vergabegründe des Servers: „BiS", „Need", „Mainspec" → 1, „Upgrade"/„Major" → 2, „Minor"/„Kleines Upgrade" → 3, „Offspec", „Greed", „Transmog" → 4, „Pass"/„Kein Interesse" → raus). Ein eigener Knopf mit anderem Text zählt nach seiner Position (erster Knopf = Stufe 1, …, ab dem vierten Stufe 4).
+- **Caster oder Heiler:** steht das Item auf der BiS-Liste eines Raiders der Kategorie, zählt dessen Rolle; sonst die Werte des Items (Zauberschaden/-treffer → Caster, Heilung deutlich über Schaden oder Mana-Regeneration/Willenskraft ohne Zauberschaden → Heiler). Marken ohne Werte bekommen „-" und trotzdem einen Vorschlag. Zeigt die Kategorie auf der Webseite nur Caster, gibt es für Heiler-Items keinen Vorschlag, sondern den Hinweis, in RCLootCouncil normal abzustimmen (umgekehrt genauso).
+
+Das Fenster hängt am Abstimmungsfenster und wandert mit; wird das zugemacht (oder im Kampf eingeklappt), geht es mit. Findet das Addon das Abstimmungsfenster nicht, steht es frei und lässt sich ziehen. `x` schliesst es bis zur nächsten Abstimmung; `/ehs vorschlag` (oder `/ehc vorschlag`) öffnet und schliesst es von Hand. Im Hauptfenster (`/ehs`) schaltet „EventHelper-Vorschlag bei RCLootCouncil-Abstimmung" das automatische Öffnen ab.
+
+Sehen kann es nur, wer in RCLootCouncil die Abstimmung sieht (Council-Mitglied). Getestet gegen **RCLootCouncil Classic 1.5.1** (TBC Anniversary); das Retail-RCLootCouncil hat dieselben Namen. Fehlt RCLootCouncil oder sieht seine Schnittstelle anders aus, passiert nichts.
 
 ---
 
@@ -671,6 +707,8 @@ Zurück geht `POST { "done": [{ "id", "via": "manual" | "mail", "by": "Name-Real
 | `CouncilData.lua` | Platzhalter; das Sync-Tool überschreibt ihn mit den Council-Daten |
 | `Council.lua` | Council-Logik ohne Fenster: Daten prüfen, Item → Raider, denen es fehlt, Vergaben seit dem Sync vorläufig dazurechnen (Zählregel und Bedarfsformel des Servers), Texte und Farben |
 | `CouncilUI.lua` | Loot-Council-Fenster, Item-Tooltip, `/ehc` |
+| `RCLCSuggest.lua` | EventHelper-Vorschlag ohne Fenster: Antwort-Stufen, Caster/Heiler/-, Rangliste und Texte je Item |
+| `RCLCSuggestUI.lua` | EventHelper-Vorschlag neben RCLootCouncils Abstimmung: Haken ins Abstimmungs-Modul, Andocken, `/ehs vorschlag` |
 | `GuildBankData.lua` | Platzhalter; das Sync-Tool überschreibt ihn mit der Gildenbank-Ausgabeliste |
 | `GuildBankHandouts.lua` | Ausgabe-Logik ohne Fenster: Daten prüfen, Banken dieses Charakters, Bestand und Fehlmenge, Abhaken (`guildBankDone`), API für die Post-Ausgabe |
 | `GuildBankMail.lua` | Ausgabe per Post: Briefkasten erkennen, Taschen zählen, Brief ausfüllen und Anhänge planen/anhängen, Fallback bei gesperrtem Anhängen, Abhaken bei `MAIL_SEND_SUCCESS` |

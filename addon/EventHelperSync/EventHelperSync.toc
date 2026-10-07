@@ -4,7 +4,7 @@
 ## Author: Pulse
 ## Version: 1.12.0
 ## SavedVariables: EventHelperSyncDB
-## OptionalDeps: RCLootCouncil, Gargul
+## OptionalDeps: RCLootCouncil, RCLootCouncil_Classic, Gargul
 ## X-Website: https://github.com/mst1987/eventhelper-addon
 
 Core.lua
@@ -21,6 +21,8 @@ UI.lua
 CouncilData.lua
 Council.lua
 CouncilUI.lua
+RCLCSuggest.lua
+RCLCSuggestUI.lua
 GuildBankData.lua
 GuildBankHandouts.lua
 GuildBankMail.lua

@@ -164,6 +164,7 @@ function EHS:SetCouncilCategory(id)
     autoId = nil
     offset = 0
     self:RefreshCouncil()
+    if self.RefreshSuggest then self:RefreshSuggest() end
 end
 
 -- ---------------------------------------------------------------------------
@@ -308,6 +309,8 @@ local function showCategoryTooltip(self)
         0.6, 0.6, 0.6, true)
     GameTooltip:Show()
 end
+-- Auch fuer den Kategorie-Knopf im EventHelper-Vorschlag (RCLCSuggestUI.lua).
+EHS.ShowCouncilCategoryTooltip = showCategoryTooltip
 
 --- Klick auf den Kategorie-Knopf: Menue, sonst weiterschalten.
 function EHS:PickCouncilCategory(owner, button)
@@ -761,6 +764,7 @@ function EHS:CouncilAutoSelect()
     autoId = #matches == 1 and matches[1].id or nil
     if autoId then self:Debug("Loot-Council: Kategorie passend zur Instanz:", matches[1].name) end
     self:RefreshCouncil()
+    if self.RefreshSuggest then self:RefreshSuggest() end
 end
 
 local autoStarted = false
@@ -816,6 +820,11 @@ SlashCmdList.EVENTHELPERCOUNCIL = function(msg)
     local text = strtrim(msg or "")
     if text == "" then
         EHS:ToggleCouncil()
+        return
+    end
+    -- /ehc vorschlag: der EventHelper-Vorschlag neben RCLootCouncil (RCLCSuggestUI.lua).
+    if strlower(text) == "vorschlag" and EHS.ToggleSuggest then
+        EHS:ToggleSuggest()
         return
     end
     -- /ehc <Name>: zur Kategorie wechseln, deren Name so anfaengt (oder es enthaelt).

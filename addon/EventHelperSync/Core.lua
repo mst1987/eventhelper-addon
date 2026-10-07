@@ -79,6 +79,9 @@ local DEFAULTS = {
     autoOpenHandouts = true,
     -- The second minimap button, just for the guild bank handouts (Minimap.lua).
     showBankMinimap = true,
+    -- Open the EventHelper suggestion next to RCLootCouncil's voting frame by
+    -- itself when a voting session starts (RCLCSuggestUI.lua).
+    rclcSuggest = true,
 }
 
 local function applyDefaults(target, defaults)
@@ -307,6 +310,8 @@ SlashCmdList.EVENTHELPERSYNC = function(msg)
         EHS:ShowExportFrame()
     elseif cmd == "council" or cmd == "lc" then
         EHS:ToggleCouncil()
+    elseif cmd == "vorschlag" or cmd == "suggest" then
+        EHS:ToggleSuggest()
     elseif cmd == "bank" or cmd == "ausgabe" then
         EHS:ToggleGuildBankUI()
     elseif cmd == "days" then
@@ -332,6 +337,7 @@ SlashCmdList.EVENTHELPERSYNC = function(msg)
         EHS:Print("  /ehs export     - Export als JSON zum Kopieren anzeigen")
         EHS:Print("  /ehs council    - Loot-Council: Bedarf und erhaltener Loot je Raider (auch /ehc)")
         EHS:Print("  /ehc <Name>     - Loot-Council: zur Kategorie mit diesem Namen wechseln")
+        EHS:Print("  /ehs vorschlag  - EventHelper-Vorschlag neben RCLootCouncil auf/zu (auch /ehc vorschlag)")
         EHS:Print("  /ehs bank       - Gildenbank-Ausgabe: was an wen raus muss, zum Abhaken (auch /ehb)")
         EHS:Print("  /ehs days <n>   - wie viele Tage zurück exportiert werden")
         EHS:Print("  /ehs debug      - Debug-Ausgaben umschalten")

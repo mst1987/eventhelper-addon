@@ -556,6 +556,12 @@ local function build()
         function(v) EHS.db.settings.autoOpenHandouts = v end)
     frame.autoHandouts:SetPoint("TOPLEFT", 26, settingsTop - 122)
 
+    frame.rclcSuggest = checkbox(frame,
+        "EventHelper-Vorschlag bei RCLootCouncil-Abstimmung", "",
+        function() return EHS.db.settings.rclcSuggest ~= false end,
+        function(v) EHS.db.settings.rclcSuggest = v end)
+    frame.rclcSuggest:SetPoint("TOPLEFT", 430, settingsTop - 122)
+
     frame.skipInfo = label(frame, "", "GameFontDisableSmall")
     frame.skipInfo:SetPoint("TOPLEFT", 26, settingsTop - 148)
     frame.skipInfo:SetWidth(WIDTH - 60)
@@ -678,6 +684,7 @@ function EHS:RefreshOptions()
     frame.bankMinimap.refresh()
     frame.skipAward.refresh()
     frame.autoHandouts.refresh()
+    frame.rclcSuggest.refresh()
 
     -- Wie viel der Schalter tatsächlich wegnimmt — sonst bleibt er eine
     -- Behauptung, und niemand weiss, ob er greift.

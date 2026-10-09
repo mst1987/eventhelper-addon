@@ -47,9 +47,36 @@ expectEqual(Suggest.StatRole({ ITEM_MOD_SPELL_DAMAGE_DONE_SHORT = 40, ITEM_MOD_S
 expectEqual(Suggest.StatRole({ ITEM_MOD_SPELL_POWER_SHORT = 50 }), "caster", "retail spell power")
 expectEqual(Suggest.StatRole({ ITEM_MOD_INTELLECT_SHORT = 12, ITEM_MOD_SPIRIT_SHORT = 10 }), "healer", "spirit, no spell damage")
 expectEqual(Suggest.StatRole({ ITEM_MOD_INTELLECT_SHORT = 12 }), "caster", "intellect only")
-expectEqual(Suggest.StatRole({ ITEM_MOD_STRENGTH_SHORT = 30, ITEM_MOD_STAMINA_SHORT = 20 }), nil, "plate: none")
+expectEqual(Suggest.StatRole({ ITEM_MOD_STRENGTH_SHORT = 30, ITEM_MOD_STAMINA_SHORT = 20 }), "physical", "plate dps: physical")
 expectEqual(Suggest.StatRole({}), nil, "token: no stats")
 expectEqual(Suggest.StatRole(nil), nil, "unknown item")
+-- Physical and tank items (#670)
+expectEqual(Suggest.StatRole({ ITEM_MOD_DEFENSE_SKILL_RATING_SHORT = 20, ITEM_MOD_STAMINA_SHORT = 30 }), "tank", "defense: tank")
+expectEqual(Suggest.StatRole({ ITEM_MOD_DODGE_RATING_SHORT = 15, ITEM_MOD_AGILITY_SHORT = 25 }), "tank", "dodge beats agility")
+expectEqual(Suggest.StatRole({ ITEM_MOD_PARRY_RATING_SHORT = 15 }), "tank", "parry")
+expectEqual(Suggest.StatRole({ ITEM_MOD_BLOCK_RATING_SHORT = 12, ITEM_MOD_STRENGTH_SHORT = 20 }), "tank", "block rating")
+expectEqual(Suggest.StatRole({ ITEM_MOD_DEFENSE_SKILL_RATING_SHORT = 18, ITEM_MOD_SPELL_DAMAGE_DONE_SHORT = 23,
+    ITEM_MOD_SPELL_HEALING_DONE_SHORT = 23 }), "tank", "protection paladin: defense with spell power")
+expectEqual(Suggest.StatRole({ ITEM_MOD_STAMINA_SHORT = 40 }), "tank", "stamina only")
+expectEqual(Suggest.StatRole({ ITEM_MOD_ATTACK_POWER_SHORT = 40, ITEM_MOD_AGILITY_SHORT = 20 }), "physical", "attack power, agility")
+expectEqual(Suggest.StatRole({ ITEM_MOD_AGILITY_SHORT = 20, ITEM_MOD_INTELLECT_SHORT = 14, ITEM_MOD_ATTACK_POWER_SHORT = 30 }),
+    "physical", "hunter mail with intellect")
+expectEqual(Suggest.StatRole({ ITEM_MOD_HIT_RATING_SHORT = 15, ITEM_MOD_CRIT_RATING_SHORT = 10 }), "physical", "melee hit and crit")
+expectEqual(Suggest.StatRole({ ITEM_MOD_EXPERTISE_RATING_SHORT = 10 }), "physical", "expertise")
+expectEqual(Suggest.StatRole({ ITEM_MOD_ARMOR_PENETRATION_RATING_SHORT = 70 }), "physical", "armor penetration")
+expectEqual(Suggest.StatRole({ ITEM_MOD_RANGED_ATTACK_POWER_SHORT = 24 }), "ranged", "ranged attack power only")
+expectEqual(Suggest.StatRole({ ITEM_MOD_INTELLECT_SHORT = 14, ITEM_MOD_CRIT_RATING_SHORT = 12 }), "caster",
+    "retail-style crit next to intellect is no physical item")
+expectEqual(Suggest.StatRole({ ITEM_MOD_HIT_SPELL_RATING_SHORT = 12, ITEM_MOD_STAMINA_SHORT = 12 }), "caster", "spell hit")
+expectEqual(Suggest.ROLE_TAG.physical, "Physisch", "tag of a physical item")
+expectEqual(Suggest.ROLE_TAG.ranged, "Fernkampf", "tag of a ranged item")
+-- a physical item fits a melee, ranged or tank category, not a caster one
+expectEqual(Suggest.BlockedTexts({ name = "Nahkampf", filter = { role = "melee" } }, "physical"), nil, "physical in melee")
+expectEqual(Suggest.BlockedTexts({ name = "Tanks", filter = { role = "tank" } }, "physical"), nil, "physical in tank")
+expectEqual(select(2, Suggest.BlockedTexts({ name = "Montag", filter = { role = "caster" } }, "physical")),
+    "Physisch-Item, Kategorie zählt nur Caster", "physical in a caster category")
+expectEqual(select(2, Suggest.BlockedTexts({ name = "Montag", filter = { role = "melee" } }, "tank")),
+    "Tank-Item, Kategorie zählt nur Nahkampf", "tank item in a melee category")
 
 -- The response tiers on their own
 local tiers = {
@@ -82,7 +109,7 @@ local function raiders(allRoles)
     return {
         r({ key = "gemli", character = "Gemli", classFile = "PRIEST", specLabel = "Shadow", need = 82,
             bis = { owned = 5, total = 16, missing = { 30000 } } }),
-        r({ key = "zibbo", character = "Zibbo", classFile = "MAGE", specLabel = "Fire", need = 64, lastAwardAt = G - 2 * DAY,
+        r({ key = "zibbo", character = "Zibbo", classFile = "MAGE", specLabel = "Fire", status = "trial", need = 64, lastAwardAt = G - 2 * DAY,
             daysSinceLoot = 2, bis = { owned = 6, total = 16, missing = { 30000, 30002 } } }),
         r({ key = "wlok", character = "Wlok", classFile = "WARLOCK", specLabel = "Destro", need = 71, lastAwardAt = 0,
             daysSinceLoot = -1, bis = { owned = 4, total = 16, missing = { 30001, 30002 } } }),
@@ -273,6 +300,8 @@ expectEqual(itemRows[1].hint:GetText(), "Vorschlag: Gemli (BiS, Bedarf 82)", "hi
 expectEqual(names(), "Gemli,Zibbo,Wlok,Naphfss", "ranking of the staff")
 local s = suggestions()
 expectEqual(s[1].name, "Gemli Shadow", "name + spec")
+expectEqual(s[2].name, "Zibbo Probe Fire", "roster status as a badge before the spec (council data v3)")
+expectEqual(s[2].data.status, "trial", "status on the row")
 expectEqual(s[1].reason, "Antwort BiS · BiS fehlt · +10 iLvl · letztes Item vor 12 Tagen", "reason line 1")
 expectEqual(s[1].need, "82", "need")
 expectEqual(s[2].reason, "Antwort BiS · BiS fehlt · +0 iLvl · letztes Item vor 2 Tagen", "reason line 2")

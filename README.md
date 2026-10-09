@@ -284,28 +284,29 @@ Geschrieben wird in **jeden** installierten Addon-Ordner, den die Suche findet �
 
 Ein Fehler beim Holen (Server nicht erreichbar, Server noch ohne diese Route, Ordner schreibgeschützt) hält den Upload nie an. Er steht im Verlauf und in der Kachel „Loot-Council" der Oberfläche.
 
-**Welche Kategorien, welche Filter?** Das stellt die Webseite ein, nicht das Sync-Tool (ab 1.11.0): geholt wird jede Raid-Kategorie, deren Lootsystem unter *Einstellungen → Kategorien* **Loot-Council** ist — jede genau so, wie die Loot-Council-Seite sie zeigt (Rolle, Tiers/Raids, BiS-Liste; ausgeplante Raider fehlen). Die Kachel „Loot-Council" sagt „N Kategorien · M Raider". Gibt es keine solche Kategorie, sagen das die Kachel und das Fenster im Spiel. Ein älterer Server (nur Version 1) bekommt weiter die alte Anfrage mit Kategorie/Rolle aus einer älteren Konfiguration; das Ergebnis wird als eine Kategorie geschrieben.
+**Welche Kategorien, welche Filter?** Das stellt die Webseite ein, nicht das Sync-Tool (ab 1.11.0): geholt wird jede Raid-Kategorie, deren Lootsystem unter *Einstellungen → Kategorien* **Loot-Council** ist — jede genau so, wie die Loot-Council-Seite sie zeigt (Rolle, Tiers/Raids, BiS-Liste; ausgeplante Raider fehlen). Die Kachel „Loot-Council" sagt „N Kategorien · M Raider". Gibt es keine solche Kategorie, sagen das die Kachel und das Fenster im Spiel. Ab 1.14.0 fragt das Sync-Tool Version 3 an (alle Rollen, Roster-Status, Gewichtung); ein Server ohne Version 3 bekommt `?v=2` nachgeschoben (dann ohne Abzeichen und Gewichtung, nur Caster/Heiler), ein noch älterer (nur Version 1) weiter die alte Anfrage mit Kategorie/Rolle aus einer älteren Konfiguration; das Ergebnis wird als eine Kategorie geschrieben.
 
 ### Das Fenster
 
 `/ehs council`, `/ehc`, Shift-Linksklick oder Mittelklick auf den Minimap-Knopf, oder der Knopf „Loot-Council" im Hauptfenster:
 
 ```
- ┌ Loot-Council [SSC/TK Mittwoch (auto)] ────────────────── [Alle][Caster][Heiler] [x] ┐
- │ Stand: 05.10. 21:30, vor 2 Std.                                                      │
- │ SSC/TK Mittwoch · nur Caster · T5 · BiS T5 · 24 Raider                           [?] │
- │ ──────────────────────────────────────────────────────────────────────────────────── │
- │ Neuling             ████████████▓▓▓▓▓▓▓▓▒▒  Bedarf 95   0 Items  BiS -        noch nie │
- │ Gemli Shadow        ██████████▓▓▓▓▓▒        Bedarf 82   2 Items  BiS 9/16 vor 12 Tagen │
- │ Naphfß Resto        ████████▓▓▓▓▒           Bedarf 64   3 Items  BiS 4/16   vor 3 Std. │
- │ …                                                                   (Mausrad scrollt) │
- └──────────────────────────────────────────────────────────────────────────────────────┘
-      █ Wartezeit (50 %)   ▓ Loot-Anteil (40 %)   ▒ BiS-Lücke (10 %)
+ ┌ Loot-Council [SSC/TK Mittwoch (auto)] ──────────────────────────────────────────────────── [x] ┐
+ │ [Alle][Caster][Heiler][Tank][Nahkampf][Fernkampf]                                               │
+ │ Stand: 05.10. 21:30, vor 2 Std.                                                                 │
+ │ SSC/TK Mittwoch · T5 · BiS T5 · 24 Raider                                                   [?] │
+ │ ─────────────────────────────────────────────────────────────────────────────────────────────── │
+ │ Neuling Probe Arkan  ████████████▓▓▓▓▓▓▓▒▒░  Bedarf 95   0 Items · 0 Pkt    BiS -       noch nie │
+ │ Gemli Shadow         ██████████▓▓▓▓▒░░░░    Bedarf 82   3 Items · 5,5 Pkt  BiS 9/16 vor 12 Tagen│
+ │ Messer Probe Kampf   ████████▓▓▓▓▒░         Bedarf 64   2 Items · 1,5 Pkt  BiS 4/17  vor 3 Std. │
+ │ …                                                                              (Mausrad scrollt) │
+ └─────────────────────────────────────────────────────────────────────────────────────────────────┘
+      █ Wartezeit (45 %)   ▓ Loot-Anteil (30 %)   ▒ BiS-Lücke (10 %)   ░ Zugehörigkeit (15 %)
 ```
 
-Eine kompakte Zeile pro Raider, nach Bedarf sortiert: Name in Klassenfarbe mit Spezialisierung, ein **Balken aus drei Teilen** — jeder Teil ist *Gewicht × Wert*, zusammen ergeben sie den Bedarf —, die Bedarfszahl, wie viele zählende Items er schon hat, sein BiS-Stand und wann er zuletzt etwas bekam. Mehr steht nicht in der Zeile; der **Tooltip** einer Zeile zeigt die drei Teile mit Erklärung, die erhaltenen Items (neueste zuerst, mit Datum, Item-Link, Boss und Grund) und wie viele BiS-Teile noch offen sind. Das `?` erklärt die Farben. Escape schliesst das Fenster, die Position wird gespeichert.
+Eine kompakte Zeile pro Raider, nach Bedarf sortiert: Name in Klassenfarbe, das **Abzeichen „Probe" bzw. „Ersatz"** aus dem Roster der Kategorie (Stamm bekommt keins), die Spezialisierung, ein **Balken aus den Teilen des Bedarfs** — jeder Teil ist *Gewicht × Wert*, zusammen ergeben sie den Bedarf; mit der Gewichtung der Kategorie (Council-Daten Version 3) vier Teile mit **Zugehörigkeit**, sonst drei —, die Bedarfszahl, wie viele zählende Items er schon hat **und wie viele Punkte die zählen** („3 Items · 5,5 Pkt": Trinkets und BiS-Waffen zählen mehr, häufige Drops weniger, so wie auf der Webseite eingestellt), sein BiS-Stand und wann er zuletzt etwas bekam. Mehr steht nicht in der Zeile; der **Tooltip** einer Zeile zeigt den Roster-Status, die Teile mit Erklärung, „Dabei seit", die erhaltenen Items (neueste zuerst, mit Datum, Item-Link, Boss, Grund und Punkten) und wie viele BiS-Teile noch offen sind. Das `?` erklärt die Farben. Escape schliesst das Fenster, die Position wird gespeichert.
 
-**Kategorie wählen:** der Knopf neben dem Titel (auf WoW Forever ein Menü, sonst schaltet Links-/Rechtsklick weiter) oder `/ehc <Name>` (Anfang des Namens genügt, `/ehc kara`). Die Wahl wird gemerkt. Betritt man eine **Raid-Instanz**, zu der genau eine Kategorie passt (Instanzname/Zone gegen die Instanzen der Raidvorlage der Kategorie), gilt diese von selbst — der Knopf zeigt dann „(auto)"; passen keine oder mehrere, bleibt die eigene Wahl. Ohne Wahl gilt die erste Kategorie. Alle/Caster/Heiler filtern innerhalb der Kategorie; zeigt die Webseite für eine Kategorie nur Caster, bleibt „Heiler" leer und sagt warum. `/ehs status` listet die Kategorien.
+**Kategorie wählen:** der Knopf neben dem Titel (auf WoW Forever ein Menü, sonst schaltet Links-/Rechtsklick weiter) oder `/ehc <Name>` (Anfang des Namens genügt, `/ehc kara`). Die Wahl wird gemerkt. Betritt man eine **Raid-Instanz**, zu der genau eine Kategorie passt (Instanzname/Zone gegen die Instanzen der Raidvorlage der Kategorie), gilt diese von selbst — der Knopf zeigt dann „(auto)"; passen keine oder mehrere, bleibt die eigene Wahl. Ohne Wahl gilt die erste Kategorie. Die **Rollen-Knöpfe** in der zweiten Zeile — Alle | Caster | Heiler | Tank | Nahkampf | Fernkampf (ab 1.14.0; Jäger sind Fernkampf) — filtern innerhalb der Kategorie; zeigt die Webseite für eine Kategorie nur Caster, bleiben die anderen leer und sagen warum. Tanks, Nahkampf und Fernkampf kommen nur mit Council-Daten Version 3 (Server ab #670). `/ehs status` listet die Kategorien.
 
 ### Im Item-Tooltip
 
@@ -326,8 +327,9 @@ Die Council-Daten sind der Stand des Servers beim letzten Sync (`generatedAt`). 
 
 - **Welche Vergaben:** nur die mit Zeitstempel **nach** `generatedAt`, mit denselben Ausnahmen wie der Upload (Award-Reasons wie Bank/Entzaubern, solange *„Bank- und Entzauber-Items weglassen"* an ist; Garguls `||de||`). Dieselbe Vergabe aus RCLootCouncil **und** Gargul (gleicher Spieler, gleiches Item, höchstens 5 Minuten auseinander) zählt einmal. Der Spieler wird über den Namen ohne Realm gefunden, Gross-/Kleinschreibung egal.
 - **Wie gezählt wird — wie auf dem Server:** der Grund kommt aus dem Antworttext (dieselben Muster wie `lootReasons.js`: BiS, Mainspec, Upgrade, Kleines Upgrade und Unbekanntes **zählen**; Offspec, PvP, Greed, Entzaubert, Bank nicht). Eine zählende Vergabe: Items +1, letzter Loot = jetzt (Wartezeit 0). Eine nicht zählende: „dazu N Offspec/Bank" +1. Fehlt das Item dem Raider als BiS-Teil, ist es abgehakt (BiS +1, eine Kopie bei doppelten Ringen) — ausser es wurde entzaubert oder ging in die Bank. Danach werden **Schnitt und Bedarf aller Raider** der Kategorie neu gerechnet (`needScore` des Servers: Wartezeit/30 Tage, Anteil gegen den Schnitt, BiS-Lücke, Gewichte aus den Daten) und neu sortiert.
+- **Mit der Gewichtung der Kategorie (Council-Daten Version 3, ab 1.14.0) genau wie der Server:** eine zählende Vergabe zählt mit dem **Gewicht ihrer Item-Klasse** — eine Ausnahme der Kategorie vor allem, dann „BiS-Waffe", wenn die Waffe auf der BiS-Liste des Empfängers steht, sonst die Klasse des Items aus den Daten (Trinket, Waffe, Set, häufig), sonst „normal". Die Punkte wachsen um das Gewicht. Die **Wartezeit** wird nur teilweise zurückgestellt: vor der Vergabe wächst sie um die Tage seit der letzten (höchstens 30), dann wird sie mit `max(0, 1 − Gewicht)` malgenommen — ein Trinket (2) stellt ganz zurück, ein häufiger Drop (0,5) halbiert sie; danach kommen die ganzen Tage seit der Vergabe dazu. **Alle Raider** der Kategorie werden zum jetzigen Zeitpunkt gerechnet (Tage seit dem letzten Item, Zugehörigkeit aus „Dabei seit"), der Anteil gegen den Schnitt der Punkte, die Teile mit den genauen Anteilen der Webseite. Ohne neue Vergabe bleibt alles beim Stand des Servers. Ein Test rechnet das gegen Daten aus dem echten Server-Code nach (`addon-test/fixtures/council-v3-server.json`).
 - **Welche Kategorie:** nennt die Vergabe eine Instanz (RCLootCouncil; bei Gargul die eigene Zonen-Zeitleiste), zählt sie in den Kategorien, deren Raidvorlage diese Instanz hat; sonst in jeder Kategorie, in der der Raider steht.
-- **Sichtbar:** ein orangenes `*` hinter der Bedarfszahl bei eigenen Vergaben, ein graues, wenn sich nur der Schnitt verschoben hat. Der Zeilen-Tooltip sagt „inkl. N Vergabe(n) seit dem letzten Sync (vorläufig)" und listet sie (mit Grund, „zählt nicht", „BiS"); die Kopfzeile „vorläufig: N Vergaben seit 05.10. 21:30". Der Item-Tooltip zeigt die neuen Zahlen und lässt Raider weg, die das Teil gerade bekommen haben.
+- **Sichtbar:** ein orangenes `*` hinter der Bedarfszahl bei eigenen Vergaben, ein graues, wenn sich nur der Schnitt (mit Gewichtung auch: die Tage) verschoben hat. Der Zeilen-Tooltip sagt „inkl. N Vergabe(n) seit dem letzten Sync (vorläufig)" und listet sie (mit Grund, „zählt nicht", „BiS"); die Kopfzeile „vorläufig: N Vergaben seit 05.10. 21:30". Der Item-Tooltip zeigt die neuen Zahlen und lässt Raider weg, die das Teil gerade bekommen haben.
 - **Wann:** beim Öffnen des Fensters, beim Item-Tooltip (höchstens einmal pro Sekunde nachgesehen) und alle 3 Sekunden bei offenem Fenster. Nachgesehen wird nur, ob die Historien gewachsen sind; gerechnet nur dann. Ohne RCLootCouncil/Gargul ändert sich nichts.
 - **Nach dem nächsten Sync** sind diese Vergaben in den Zahlen des Servers; ihr Zeitstempel liegt dann vor dem neuen `generatedAt`, und sie fallen hier von selbst wieder heraus.
 
@@ -358,11 +360,11 @@ Läuft in **RCLootCouncil** eine Abstimmung (ab 1.13.0), öffnet sich rechts am 
 ```
 
 - **Oben** die aktive Council-Kategorie (wie im Loot-Council-Fenster, Klick wechselt, „(auto)" in der passenden Raid-Instanz), der Stand der Daten und wie viele Vergaben seit dem Sync schon vorläufig eingerechnet sind (`*`).
-- **Je Item eine Zeile:** Symbol, Name in Qualitätsfarbe, der Vorschlag (oder „Noch keine Antworten in RCLC", „Vergeben an …") und ein Schild **Caster**, **Heiler** oder **-**. Klick auf die Zeile wählt das Item — auch in RCLootCouncil; wechselt man dort das Item, folgt das Fenster. Mehr als fünf Items: Mausrad.
-- **Für das gewählte Item die Rangliste:** Platz, Name in Klassenfarbe mit Spezialisierung, warum („Antwort BiS · BiS fehlt · +10 iLvl · letztes Item vor 12 Tagen", „heute 1 Item *"), rechts der Bedarf in den Farben des Council-Fensters (`*` = vorläufig). Der Tooltip einer Zeile zeigt alles ungekürzt.
+- **Je Item eine Zeile:** Symbol, Name in Qualitätsfarbe, der Vorschlag (oder „Noch keine Antworten in RCLC", „Vergeben an …") und ein Schild **Caster**, **Heiler**, **Tank**, **Nahkampf**, **Fernkampf**, **Physisch** (ab 1.14.0) oder **-**. Klick auf die Zeile wählt das Item — auch in RCLootCouncil; wechselt man dort das Item, folgt das Fenster. Mehr als fünf Items: Mausrad.
+- **Für das gewählte Item die Rangliste:** Platz, Name in Klassenfarbe mit Abzeichen **Probe**/**Ersatz** (Roster-Status, Council-Daten Version 3) und Spezialisierung, warum („Antwort BiS · BiS fehlt · +10 iLvl · letztes Item vor 12 Tagen", „heute 1 Item *"), rechts der Bedarf in den Farben des Council-Fensters (`*` = vorläufig). Der Tooltip einer Zeile zeigt alles ungekürzt.
 - **Reihenfolge:** zuerst die Antwort in RCLootCouncil — BiS/Need/Mainspec vor Upgrade vor kleinem Upgrade vor Offspec/Greed/Transmog (grau); wer passt (auch Autopass), fehlt. In derselben Stufe zuerst, wem das Item als BiS fehlt, dann der Bedarf. Wer nicht in den Council-Daten steht, aber geantwortet hat, steht hinter den Council-Raidern derselben Stufe („nicht im Council", ohne Bedarf). Wem das Item als BiS fehlt, der aber noch nicht geantwortet hat, steht grau am Ende. Steht jemand mit mehr Bedarf weiter unten, sagt eine Zeile unter der Liste warum.
 - **Welche Antwort welche Stufe ist,** liest das Addon aus dem Text der Knöpfe (dieselbe Regel wie für die Vergabegründe des Servers: „BiS", „Need", „Mainspec" → 1, „Upgrade"/„Major" → 2, „Minor"/„Kleines Upgrade" → 3, „Offspec", „Greed", „Transmog" → 4, „Pass"/„Kein Interesse" → raus). Ein eigener Knopf mit anderem Text zählt nach seiner Position (erster Knopf = Stufe 1, …, ab dem vierten Stufe 4).
-- **Caster oder Heiler:** steht das Item auf der BiS-Liste eines Raiders der Kategorie, zählt dessen Rolle; sonst die Werte des Items (Zauberschaden/-treffer → Caster, Heilung deutlich über Schaden oder Mana-Regeneration/Willenskraft ohne Zauberschaden → Heiler). Marken ohne Werte bekommen „-" und trotzdem einen Vorschlag. Zeigt die Kategorie auf der Webseite nur Caster, gibt es für Heiler-Items keinen Vorschlag, sondern den Hinweis, in RCLootCouncil normal abzustimmen (umgekehrt genauso).
+- **Für welche Rolle:** steht das Item auf der BiS-Liste eines Raiders der Kategorie, zählt dessen Rolle (Caster vor Heiler vor Tank vor Nahkampf vor Fernkampf, falls mehrere es wollen); sonst die Werte des Items, in dieser Reihenfolge: Verteidigung/Ausweichen/Parieren/Blockwertung → **Tank** (auch mit Zaubermacht, Schutz-Paladin); Zaubertreffer/-krit/-tempo/Durchschlag → Caster; Heilung deutlich über Schaden → Heiler, sonst Zauberschaden → Caster; Angriffskraft, Beweglichkeit, Stärke, Waffenkunde, Rüstungsdurchschlag, Treffer/Krit für Nah-/Fernkampf → **Physisch** (nur Fernkampf-Angriffskraft → **Fernkampf**; Treffer/Krit ohne Zusatz nur, wenn keine Intelligenz/Willenskraft dabei ist); Mana-Regeneration/Willenskraft → Heiler; nur Intelligenz → Caster; fast nur Ausdauer → Tank. Marken ohne Werte bekommen „-" und trotzdem einen Vorschlag. Zeigt die Kategorie auf der Webseite nur eine Rolle, gibt es für Items einer anderen Rolle keinen Vorschlag, sondern den Hinweis, in RCLootCouncil normal abzustimmen; ein **physisches** Item passt zu Nahkampf, Fernkampf und Tank.
 
 Das Fenster hängt am Abstimmungsfenster und wandert mit; wird das zugemacht (oder im Kampf eingeklappt), geht es mit. Findet das Addon das Abstimmungsfenster nicht, steht es frei und lässt sich ziehen. `x` schliesst es bis zur nächsten Abstimmung; `/ehs vorschlag` (oder `/ehc vorschlag`) öffnet und schliesst es von Hand. Im Hauptfenster (`/ehs`) schaltet „EventHelper-Vorschlag bei RCLootCouncil-Abstimmung" das automatische Öffnen ab.
 
@@ -532,7 +534,7 @@ npm test          # Lua-Specs des Addons (fengari) + Latin-1-Prüfung, danach fl
 
 Der Lua-Parser (`sync/lib/luaParser.js`) führt die SavedVariables **nicht** als Code aus, sondern liest sie als Daten — in dem Verzeichnis schreibt jedes beliebige Addon.
 
-`addon-test/flavors/` (zweiter Teil von `npm test`) lädt alle Dateien der `.toc` vorab gegen eine eigene nachgebaute WoW-API (`flavors/mock/wow.lua`) — einmal Classic-artig (TBC Anniversary: `GetItemInfo`, `UIDropDownMenu`, `OnTooltipSetItem`) und einmal Retail-artig (WoW Forever: nur `C_Item`/`C_AddOns`, `TooltipDataProcessor`, `MenuUtil`, unbekannte Ereignisse werfen, ohne die Classic-Vorlagen). Die Council-Daten dafür schreibt der echte Serializer aus `sync/lib/council.js`. Vorher prüft `latin1.js`, dass jeder String im Addon nur Zeichen enthält, die die Spielschrift darstellen kann (kein `→`, `–`, `…`, keine typografischen Anführungszeichen). Der Ordner liegt bewusst neben `addon/EventHelperSync`, nicht darin — er kommt nicht ins Release-Zip.
+`addon-test/flavors/` (zweiter Teil von `npm test`) lädt alle Dateien der `.toc` vorab gegen eine eigene nachgebaute WoW-API (`flavors/mock/wow.lua`) — einmal Classic-artig (TBC Anniversary: `GetItemInfo`, `UIDropDownMenu`, `OnTooltipSetItem`) und einmal Retail-artig (WoW Forever: nur `C_Item`/`C_AddOns`, `TooltipDataProcessor`, `MenuUtil`, unbekannte Ereignisse werfen, ohne die Classic-Vorlagen). Die Council-Daten dafür schreibt der echte Serializer aus `sync/lib/council.js`. Für Version 3 kommen sie sogar vom echten Server-Code: `addon-test/fixtures/council-v3-server.json` hat `councilRoster()` + `councilSyncPayloadV3()` des EventHelper mit nachgebauten Daten erzeugt — samt einer Vergabe nach dem Sync und den Zahlen, die der Server mit ihr rechnet; `flavors/spec/council-v3.spec.lua` prüft, dass das Addon beides genau trifft. Neu erzeugen: `addon-test/fixtures/council-v3-server.gen.test.js` nach `test/web/loot/` des Server-Repos kopieren und dort `COUNCIL_V3_FIXTURE=<Pfad zur json> npx jest test/web/loot/council-v3-server.gen.test.js` laufen lassen (die Datei danach wieder löschen). Vorher prüft `latin1.js`, dass jeder String im Addon nur Zeichen enthält, die die Spielschrift darstellen kann (kein `→`, `–`, `…`, keine typografischen Anführungszeichen). Der Ordner liegt bewusst neben `addon/EventHelperSync`, nicht darin — er kommt nicht ins Release-Zip.
 
 > Ist der Addon-Ordner im Spiel per Junction mit diesem Repo verbunden, überschreibt das Sync-Tool die eingecheckten Platzhalter `CouncilData.lua` und `GuildBankData.lua`. Damit `git status` sauber bleibt: `git update-index --skip-worktree addon/EventHelperSync/CouncilData.lua addon/EventHelperSync/GuildBankData.lua`.
 
@@ -602,7 +604,54 @@ Das Sync-Tool lädt den Scan per `POST /api/ingest/guildbank` (dasselbe Token) h
 
 ### Das Council-Format
 
-Für die Gegenrichtung sprechen Server, Sync-Tool und Addon `eventhelper-council` **Version 2**. Serverseitig liefert es `GET /api/ingest/council?v=2` (ohne `category`) im Repo `d:/programming/eventhelper` (`docs/loot-import.md`, Hülle `{ data }`, Fehler `{ error: { code, message } }`, Token wie beim Upload). Wird es geändert, muss die Version auf **beiden** Seiten mitwachsen — das Sync-Tool lehnt eine höhere Version ab, statt sie halb zu schreiben, und das Addon zeigt dann einen Hinweis statt halber Daten.
+Für die Gegenrichtung sprechen Server, Sync-Tool und Addon `eventhelper-council` **Version 3** (ab 1.14.0; davor Version 2). Serverseitig liefert es `GET /api/ingest/council?v=3` (ohne `category`) im Repo `d:/programming/eventhelper` (`docs/loot-import.md`, „Council-Daten v3", Hülle `{ data }`, Fehler `{ error: { code, message } }`, Token wie beim Upload). Wird es geändert, muss die Version auf **beiden** Seiten mitwachsen — das Sync-Tool lehnt eine höhere Version ab, statt sie halb zu schreiben, und das Addon zeigt dann einen Hinweis statt halber Daten.
+
+**Version 3** ist Version 2 (unten) mit diesen Ergänzungen:
+
+```jsonc
+{
+  "format": "eventhelper-council",
+  "version": 3,
+  "generatedAt": 1791397800,
+  "weights": { … },                     // = die weights der ersten Kategorie, nur der Bequemlichkeit halber
+  "categories": [{
+    "id": "c1", "name": "SSC/TK Mittwoch", "lootSystem": "lootcouncil", "filter": { "role": "", … }, "instances": [ … ],
+    "avgLootCount": 1.5,
+    "avgLootPoints": 2.3,
+    // Die Gewichtung der Kategorie (ihre eigene, sonst die des Servers):
+    "weights": {
+      "drought": 33, "share": 29, "need": 14, "tenure": 24,   // in %, gerundet: Balken und Legende
+      "shares": { "drought": 0.3333333333333333, "share": 0.2857142857142857, "need": 0.14285714285714285, "tenure": 0.23809523809523808 },
+      "droughtDays": 30,                // Deckel der Wartezeit
+      "tenureDays": 60,                 // ab so vielen Tagen ist die Zugehörigkeit voll
+      "scope": "category"               // "global" = die des Servers
+    },
+    "itemWeights": {
+      "classes": { "trinket": 3, "bisWeapon": 2, "weapon": 1.5, "set": 1, "normal": 1, "frequent": 0.5 },
+      "overrides": { "30099": 2.5 }     // Ausnahmen je Item-ID
+    },
+    "itemClasses": { "30626": "trinket", "30082": "weapon", "30245": "set", "30021": "frequent" },   // "normal" fehlt
+    "raiders": [{
+      "key": "messer", "character": "Messer", "classFile": "ROGUE", "specLabel": "Kampf-Schurke",
+      "role": "melee",                  // "caster" | "healer" | "tank" | "melee" | "ranged"
+      "need": 44, "parts": { "drought": 34, "share": 36, "need": 100, "tenure": 33 },
+      …,                                // die übrigen Felder von Version 2, items[] dazu mit "weight", "weightClass"
+      "status": "trial",                // "core" | "trial" | "bench" | "" (Kategorie ohne Roster)
+      "lootPoints": 1.5,
+      "droughtDays": 10.1,              // die Wartezeit, mit der der Server gerechnet hat (eine Nachkommastelle)
+      "droughtBase": 9.083333,          // der Zähler direkt nach der neuesten zählenden Vergabe (30 ohne Vergabe)
+      "joinedAt": 1789669800,           // „dabei seit", 0 = unbekannt
+      "tenureDays": 20,
+      "bisWeapons": [30082, 32027, 29949]   // Waffen auf seiner BiS-Liste: für ihn "bisWeapon"
+    }]
+  }]
+}
+```
+
+- `itemClasses` sind die Drops der Instanzen der Raidvorlage der Kategorie, **ohne** den Teil, der vom Empfänger abhängt (eine Waffe steht als `weapon` da) und ohne Ausnahmen. Das Addon nimmt: Ausnahme > `bisWeapon` (Waffe in `bisWeapons` des Empfängers) > `itemClasses` > `normal` — die Reihenfolge von `itemWeights.js` des Servers.
+- Eine Vergabe nach `generatedAt` rechnet das Addon damit genau wie der Server: Punkte `+ Gewicht`; Wartezeit `D = min(30, droughtBase + Tage seit lastAwardAt)` (ohne Vergabe 30), `D × max(0, 1 − Gewicht)`, danach `+ ganze Tage seit der Vergabe`, gedeckelt, eine Nachkommastelle; Anteil `(Schnitt − Punkte) / max(1, Schnitt)` über die Punkte aller Raider der Kategorie; Zugehörigkeit `min(1, ganze Tage seit joinedAt / tenureDays)`; Bedarf `Σ shares × Teil`.
+- **Ältere Server:** antwortet einer auf `?v=3` mit Version 1 (er kennt den Wert nicht) oder 404, fragt das Sync-Tool `?v=2` nach, dann die alte Anfrage. Es schreibt immer Version 3: eine ältere Antwort mit `fromVersion` (1 oder 2), die neuen Raider-Felder mit gleichbedeutenden Vorgaben (`status: ""`, `lootPoints` = `lootCount`, `parts.tenure: 0`, `droughtDays` = Tage seit dem letzten Item, gedeckelt, `joinedAt: 0`, `tenureDays: 0`, `bisWeapons: []`) und **ohne** `weights`/`itemWeights`/`itemClasses` je Kategorie — eine solche Kategorie rechnet das Addon wie bisher (drei Teile, ein Item = 1), ohne Abzeichen. Das Addon liest Version 1, 2 und 3.
+- Unbekannte Item-Klassen, kaputte Ausnahmen und unbekannte Status lässt das Sync-Tool weg; Zeichen ausserhalb Latin-1 (`–` in einer Spezialisierung) werden wie überall zu ASCII bzw. `?`.
 
 Version 2 ist eine Liste von Kategorien (nur die mit Lootsystem Loot-Council, sonst `[]`), jede mit den Filtern der Webseite und einer Raider-Liste in der Form von Version 1 (plus `key`):
 
@@ -624,7 +673,7 @@ Version 2 ist eine Liste von Kategorien (nur die mit Lootsystem Loot-Council, so
 }
 ```
 
-Antwortet ein älterer Server auf `?v=2` mit Version 1 (oder 404), stellt das Sync-Tool die alte Anfrage `?category=&role=` (aus der Konfiguration) und schreibt das Ergebnis als eine Kategorie in der Form von Version 2 (`fromVersion = 1`). Das Addon versteht beides, auch eine Version-1-Datei eines älteren Sync-Tools. Version 1:
+Antwortet ein älterer Server auf `?v=2` mit Version 1 (oder 404), stellt das Sync-Tool die alte Anfrage `?category=&role=` (aus der Konfiguration) und schreibt das Ergebnis als eine Kategorie in der Form von Version 3 (`fromVersion = 1`). Das Addon versteht alles, auch eine Version-1- oder Version-2-Datei eines älteren Sync-Tools. Version 1 (`role` dort nur `"caster"` | `"healer"`):
 
 ```jsonc
 {
@@ -655,10 +704,10 @@ Antwortet ein älterer Server auf `?v=2` mit Version 1 (oder 404), stellt das Sy
 Das Sync-Tool schreibt daraus `CouncilData.lua` — dieselbe Struktur als Lua-Tabelle, Arrays als Sequenzen:
 
 ```lua
--- Generated by EventHelper Sync 1.11.0 at 2026-10-05T19:30:00.000Z. Do not edit; it is overwritten.
+-- Generated by EventHelper Sync 1.14.0 at 2026-10-05T19:30:00.000Z. Do not edit; it is overwritten.
 EventHelperSync_Council = {
   format = "eventhelper-council",
-  version = 2,
+  version = 3,
   categories = { ... },
   ...
 }
@@ -705,9 +754,9 @@ Zurück geht `POST { "done": [{ "id", "via": "manual" | "mail", "by": "Name-Real
 | `Options.lua` | das Fenster: Status, Raid-Abende zum Abwählen, Einstellungen |
 | `UI.lua` | Kopierbox hinter `/ehs export` |
 | `CouncilData.lua` | Platzhalter; das Sync-Tool überschreibt ihn mit den Council-Daten |
-| `Council.lua` | Council-Logik ohne Fenster: Daten prüfen, Item → Raider, denen es fehlt, Vergaben seit dem Sync vorläufig dazurechnen (Zählregel und Bedarfsformel des Servers), Texte und Farben |
+| `Council.lua` | Council-Logik ohne Fenster: Daten prüfen, Item → Raider, denen es fehlt, Vergaben seit dem Sync vorläufig dazurechnen (Zählregel und Bedarfsformel des Servers; mit Gewichtung der Kategorie Item-Klassen, Teil-Rückstellung der Wartezeit, Zugehörigkeit), Rollen, Roster-Abzeichen, Texte und Farben |
 | `CouncilUI.lua` | Loot-Council-Fenster, Item-Tooltip, `/ehc` |
-| `RCLCSuggest.lua` | EventHelper-Vorschlag ohne Fenster: Antwort-Stufen, Caster/Heiler/-, Rangliste und Texte je Item |
+| `RCLCSuggest.lua` | EventHelper-Vorschlag ohne Fenster: Antwort-Stufen, Rolle des Items (Caster/Heiler/Tank/Nahkampf/Fernkampf/Physisch/-), Rangliste und Texte je Item |
 | `RCLCSuggestUI.lua` | EventHelper-Vorschlag neben RCLootCouncils Abstimmung: Haken ins Abstimmungs-Modul, Andocken, `/ehs vorschlag` |
 | `GuildBankData.lua` | Platzhalter; das Sync-Tool überschreibt ihn mit der Gildenbank-Ausgabeliste |
 | `GuildBankHandouts.lua` | Ausgabe-Logik ohne Fenster: Daten prüfen, Banken dieses Charakters, Bestand und Fehlmenge, Abhaken (`guildBankDone`), API für die Post-Ausgabe |

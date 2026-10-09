@@ -194,11 +194,18 @@ end
 local TAG_STYLE = {
     Caster = { text = { 0.79, 0.72, 1.00 }, bg = { 0.54, 0.49, 1.00, 0.18 } },
     Heiler = { text = { 0.60, 0.60, 0.60 }, bg = { 1, 1, 1, 0.06 } },
+    Tank = { text = { 0.78, 0.66, 0.50 }, bg = { 0.78, 0.61, 0.43, 0.16 } },
+    Nahkampf = { text = { 1.00, 0.70, 0.45 }, bg = { 1.00, 0.55, 0.20, 0.14 } },
+    Fernkampf = { text = { 0.67, 0.83, 0.45 }, bg = { 0.67, 0.83, 0.45, 0.14 } },
+    Physisch = { text = { 0.90, 0.75, 0.55 }, bg = { 1, 1, 1, 0.06 } },
 }
 local TAG_NONE = { text = { 0.50, 0.50, 0.50 }, bg = { 1, 1, 1, 0.04 } }
 
 local function nameLabel(row)
     local name = Council.Color(row.name or "?", Council.ClassColor(row.classFile))
+    -- Probe/Ersatz im Roster (Council-Daten Version 3), vor der Spezialisierung.
+    local badge = Council.StatusBadge(row)
+    if badge ~= "" then name = name .. " " .. badge end
     if row.specLabel and row.specLabel ~= "" then
         name = name .. " " .. Council.Color(row.specLabel, 0.6, 0.6, 0.6)
     end
@@ -251,16 +258,17 @@ local function buildItemRow(parent, index)
 
     row.name = w.text(row, "GameFontHighlightSmall")
     row.name:SetPoint("TOPLEFT", 30, -3)
-    row.name:SetWidth(WIDTH - 100)
+    row.name:SetWidth(WIDTH - 110)
     if row.name.SetWordWrap then row.name:SetWordWrap(false) end
 
     row.hint = w.text(row, "GameFontDisableSmall")
     row.hint:SetPoint("TOPLEFT", 30, -16)
-    row.hint:SetWidth(WIDTH - 100)
+    row.hint:SetWidth(WIDTH - 110)
     if row.hint.SetWordWrap then row.hint:SetWordWrap(false) end
 
     row.tag = CreateFrame("Frame", nil, row)
-    row.tag:SetSize(44, 14)
+    -- Breit genug fuer "Fernkampf" (die laengste Rolle).
+    row.tag:SetSize(62, 14)
     row.tag:SetPoint("RIGHT", -4, 0)
     row.tag.bg = row.tag:CreateTexture(nil, "BACKGROUND")
     row.tag.bg:SetAllPoints()

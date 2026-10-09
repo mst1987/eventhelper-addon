@@ -17,12 +17,17 @@
  *
  * Das Format `eventhelper-council` ist mit dem Server (Repo
  * d:/programming/eventhelper, Route GET /api/ingest/council, docs/loot-import.md)
- * abgestimmt. Version 2 (`?v=2`) liefert jede Raid-Kategorie, deren Lootsystem
- * Loot-Council ist, mit den Filtern der Webseite (`categories: [...]`).
- * Version 1 (eine Kategorie, Filter vom Sync-Tool) sprechen ältere Server noch;
- * sie wird hier in die Form von Version 2 gebracht, damit das Addon nur eine
- * Form kennen muss. Ändert sich das Format, wächst die Version auf beiden
- * Seiten mit; eine höhere lehnt dieses Tool ab, statt sie halb zu schreiben.
+ * abgestimmt. Version 3 (`?v=3`, ab 1.14.0) ist Version 2 mit allen fünf
+ * Rollen, Roster-Status, Loot-Punkten, Zugehörigkeit und je Kategorie ihrer
+ * Gewichtung samt Item-Klassen. Version 2 (`?v=2`) liefert jede Raid-Kategorie,
+ * deren Lootsystem Loot-Council ist, mit den Filtern der Webseite
+ * (`categories: [...]`). Version 1 (eine Kategorie, Filter vom Sync-Tool)
+ * sprechen ältere Server noch. Ältere Antworten werden hier in die Form von
+ * Version 3 gebracht (fehlende Raider-Felder mit Vorgaben, `fromVersion` sagt
+ * woher; eine Kategorie ohne `weights` rechnet das Addon wie bisher), damit
+ * das Addon nur eine Form kennen muss. Ändert sich das Format, wächst die
+ * Version auf beiden Seiten mit; eine höhere lehnt dieses Tool ab, statt sie
+ * halb zu schreiben.
  */
 const fs = require("fs");
 const path = require("path");
@@ -30,7 +35,7 @@ const wowPaths = require("./wowPaths");
 const { getJson, UploadError, SYNC_VERSION } = require("./uploader");
 
 const COUNCIL_FORMAT = "eventhelper-council";
-const COUNCIL_VERSION = 2;
+const COUNCIL_VERSION = 3;
 const COUNCIL_FILE = "CouncilData.lua";
 // Die globale Variable, die das Addon liest (Council.lua).
 const COUNCIL_GLOBAL = "EventHelperSync_Council";
@@ -165,7 +170,7 @@ function buildCouncilFile(payload, { syncVersion = SYNC_VERSION, now = new Date(
 
 /**
  * Prüfen, ob der Server das liefert, was das Addon versteht: Version 1 (eine
- * Raider-Liste) oder Version 2 (eine Liste von Kategorien mit je einer
+ * Raider-Liste) oder Version 2/3 (eine Liste von Kategorien mit je einer
  * Raider-Liste).
  * @returns {object} der Payload selbst
  */
@@ -199,8 +204,71 @@ function validateCouncil(payload) {
         if (!category || typeof category !== "object" || !Array.isArray(category.raiders)) {
             throw new CouncilError("Eine Kategorie der Council-Daten hat keine Raider-Liste.");
         }
+        // Version 3: die Gewichtung der Kategorie, wenn da, als Tabellen.
+        for (const key of ["weights", "itemWeights", "itemClasses"]) {
+            if (category[key] !== undefined && category[key] !== null && !isPlainObject(category[key])) {
+                throw new CouncilError(`Eine Kategorie der Council-Daten hat ein kaputtes Feld "${key}".`);
+            }
+        }
     }
     return payload;
+}
+
+const isPlainObject = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+const finite = (v) => typeof v === "number" && Number.isFinite(v);
+const num = (v) => (finite(Number(v)) ? Number(v) : 0);
+
+// Die Klassen, die itemWeights.js des Servers kennt (ohne "override", das
+// steht als eigene Liste in itemWeights.overrides).
+const ITEM_CLASSES = ["trinket", "bisWeapon", "weapon", "set", "normal", "frequent"];
+const ROSTER_STATUS = new Set(["core", "trial", "bench"]);
+// Der Deckel der Wartezeit in Tagen (DROUGHT_DAYS des Servers).
+const DROUGHT_DAYS = 30;
+
+/**
+ * Ein Raider in der Form von Version 3. Was eine ältere Antwort nicht hat,
+ * bekommt den Wert, der dasselbe bedeutet: kein Status, Punkte = Items,
+ * keine Zugehörigkeit, Wartezeit = Tage seit dem letzten Item (gedeckelt).
+ * `droughtBase` gibt es nur vom Server (Version 3).
+ */
+function raiderV3(raider) {
+    if (!isPlainObject(raider)) return raider;
+    const parts = isPlainObject(raider.parts) ? raider.parts : {};
+    const days = finite(raider.daysSinceLoot) ? raider.daysSinceLoot : -1;
+    return {
+        ...raider,
+        parts: { ...parts, tenure: num(parts.tenure) },
+        status: ROSTER_STATUS.has(raider.status) ? raider.status : "",
+        lootPoints: finite(raider.lootPoints) ? raider.lootPoints : num(raider.lootCount),
+        droughtDays: finite(raider.droughtDays) ? raider.droughtDays : (days < 0 ? DROUGHT_DAYS : Math.min(DROUGHT_DAYS, days)),
+        joinedAt: num(raider.joinedAt),
+        tenureDays: num(raider.tenureDays),
+        bisWeapons: Array.isArray(raider.bisWeapons) ? raider.bisWeapons.map(Number).filter((n) => n > 0) : [],
+    };
+}
+
+/** itemWeights einer Kategorie: Zahlen je bekannter Klasse, Ausnahmen je Item-ID. */
+function itemWeightsV3(raw) {
+    if (!isPlainObject(raw)) return undefined;
+    const classes = {};
+    for (const id of ITEM_CLASSES) {
+        if (isPlainObject(raw.classes) && finite(raw.classes[id])) classes[id] = raw.classes[id];
+    }
+    const overrides = {};
+    for (const [id, weight] of Object.entries(isPlainObject(raw.overrides) ? raw.overrides : {})) {
+        if (Number(id) > 0 && finite(weight)) overrides[String(Number(id))] = weight;
+    }
+    return { classes, overrides };
+}
+
+/** itemClasses einer Kategorie: nur Item-IDs mit einer bekannten Klasse. */
+function itemClassesV3(raw) {
+    if (!isPlainObject(raw)) return undefined;
+    const out = {};
+    for (const [id, cls] of Object.entries(raw)) {
+        if (Number(id) > 0 && ITEM_CLASSES.includes(cls)) out[String(Number(id))] = cls;
+    }
+    return out;
 }
 
 // Bildzeichen (Emoji samt Hautton, Variantenwähler, Verbinder) — in Namen von
@@ -226,7 +294,7 @@ function cleanCategoryName(name, id = "") {
 }
 
 /**
- * Eine Antwort von Version 1 (ältere Server) in die Form von Version 2: eine
+ * Eine Antwort von Version 1 (ältere Server) in die Form von Version 2/3: eine
  * einzige Kategorie mit dem Filter, den das Sync-Tool mitgeschickt hat.
  */
 function wrapV1(payload) {
@@ -257,27 +325,53 @@ function wrapV1(payload) {
     };
 }
 
-/** Version 2 für die Datei aufbereiten: Namen spielfest, id als String. */
-function normalizeV2(payload) {
-    return {
+/**
+ * Version 2 oder 3 (oder eine verpackte 1) für die Datei aufbereiten: immer
+ * Version 3, Namen spielfest, id als String, fehlende Raider-Felder mit
+ * Vorgaben (raiderV3). `fromVersion` sagt, woher eine ältere Antwort kam; die
+ * Gewichtung je Kategorie (weights, itemWeights, itemClasses) gibt es nur von
+ * Version 3 — fehlt sie, rechnet das Addon wie bisher.
+ */
+function normalizeCouncil(payload) {
+    const fromVersion = payload.fromVersion || (payload.version < COUNCIL_VERSION ? payload.version : undefined);
+    const out = {
         ...payload,
+        version: COUNCIL_VERSION,
         categories: payload.categories.map((category) => {
             const id = category.id !== undefined && category.id !== null ? String(category.id) : "";
-            return { ...category, id, name: cleanCategoryName(category.name, id) };
+            const next = {
+                ...category,
+                id,
+                name: cleanCategoryName(category.name, id),
+                raiders: category.raiders.map(raiderV3),
+            };
+            if (isPlainObject(category.weights)) next.weights = category.weights;
+            else delete next.weights;
+            const itemWeights = itemWeightsV3(category.itemWeights);
+            if (itemWeights) next.itemWeights = itemWeights;
+            else delete next.itemWeights;
+            const itemClasses = itemClassesV3(category.itemClasses);
+            if (itemClasses) next.itemClasses = itemClasses;
+            else delete next.itemClasses;
+            return next;
         }),
     };
+    if (fromVersion) out.fromVersion = fromVersion;
+    else delete out.fromVersion;
+    return out;
 }
 
 /**
  * Den Payload vom Server holen (noch ungeprüft).
- * @param {{ v2?: boolean, category?: string, role?: string }} [options]
- *   v2: alle Loot-Council-Kategorien (Version 2), sonst die alte Anfrage
- *   (Version 1) mit Kategorie und Rolle.
+ * @param {{ v?: number, v2?: boolean, category?: string, role?: string }} [options]
+ *   v: alle Loot-Council-Kategorien in dieser Version (3 oder 2; `v2: true`
+ *   heisst 2), sonst die alte Anfrage (Version 1) mit Kategorie und Rolle.
  */
-async function fetchCouncil(config, { v2 = false, category = "", role = "" } = {}) {
+async function fetchCouncil(config, { v = 0, v2 = false, category = "", role = "" } = {}) {
     const params = new URLSearchParams();
-    if (v2) {
-        params.set("v", "2");
+    const version = v || (v2 ? 2 : 0);
+    if (version) {
+        params.set("v", String(version));
     } else {
         if (category) params.set("category", String(category));
         if (role) params.set("role", String(role));
@@ -297,29 +391,39 @@ async function fetchCouncil(config, { v2 = false, category = "", role = "" } = {
     }
 }
 
+/** fetchCouncil + validateCouncil; ein 404 (zu alter Server) ergibt null. */
+async function fetchValid(config, options) {
+    try {
+        return validateCouncil(await fetchCouncil(config, options));
+    } catch (e) {
+        if (e instanceof CouncilError && e.status === 404) return null;
+        throw e;
+    }
+}
+
 /**
- * Die Council-Daten in der Form von Version 2 holen. Erst `?v=2`; ein älterer
- * Server antwortet darauf mit Version 1 (oder 404) — dann die alte Anfrage
- * mit Kategorie und Rolle aus der Konfiguration, verpackt als eine Kategorie.
- * @returns {Promise<object>} geprüft, Version 2
+ * Die Council-Daten in der Form von Version 3 holen. Erst `?v=3`; ein Server
+ * ohne Version 3 antwortet darauf mit Version 1 (er kennt den Wert nicht) oder
+ * 404 — dann `?v=2`, verpackt als Version 3 ohne Gewichtung. Kennt er auch
+ * die nicht: die alte Anfrage mit Kategorie und Rolle aus der Konfiguration,
+ * verpackt als eine Kategorie.
+ * @returns {Promise<object>} geprüft, Version 3
  */
 async function loadCouncil(config) {
-    let first = null;
-    try {
-        first = validateCouncil(await fetchCouncil(config, { v2: true }));
-    } catch (e) {
-        if (!(e instanceof CouncilError && e.status === 404)) throw e;
-    }
-    if (first && first.version >= 2) return normalizeV2(first);
+    const first = await fetchValid(config, { v: 3 });
+    if (first && first.version >= 2) return normalizeCouncil(first);
+    const second = await fetchValid(config, { v: 2 });
+    if (second && second.version >= 2) return normalizeCouncil(second);
 
     const category = config.councilCategory || "";
     const role = config.councilRole || "";
-    // Ohne gespeicherte Kategorie/Rolle ist die erste Antwort schon die richtige.
-    const v1 = first && !category && !role
-        ? first
+    const answer = second || first;
+    // Ohne gespeicherte Kategorie/Rolle ist die Antwort schon die richtige.
+    const v1 = answer && !category && !role
+        ? answer
         : validateCouncil(await fetchCouncil(config, { category, role }));
-    if (v1.version >= 2) return normalizeV2(v1);
-    return normalizeV2(wrapV1(v1));
+    if (v1.version >= 2) return normalizeCouncil(v1);
+    return normalizeCouncil(wrapV1(v1));
 }
 
 /** Wie viele verschiedene Raider in allen Kategorien zusammen stehen. */
@@ -399,6 +503,6 @@ function writeToAddonDirs(config, fileName, text, { roots } = {}) {
 }
 
 module.exports = {
-    syncCouncil, fetchCouncil, loadCouncil, validateCouncil, wrapV1, cleanCategoryName, countRaiders,
+    syncCouncil, fetchCouncil, loadCouncil, validateCouncil, wrapV1, normalizeCouncil, cleanCategoryName, countRaiders,
     buildCouncilFile, toLua, luaString, toLatin1, writeAtomic, writeToAddonDirs, CouncilError, COUNCIL_FORMAT, COUNCIL_VERSION, COUNCIL_FILE, COUNCIL_GLOBAL,
 };

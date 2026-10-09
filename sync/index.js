@@ -211,7 +211,8 @@ async function cmdCouncil() {
     }
     const categories = result.payload.categories || [];
     log(`${categories.length === 1 ? "1 Kategorie" : `${categories.length} Kategorien`}, ${result.raiders} Raider`
-        + `${result.payload.fromVersion === 1 ? " (älterer Server: Version 1, Kategorie aus der Konfiguration)" : ""}.`);
+        + `${result.payload.fromVersion === 1 ? " (älterer Server: Version 1, Kategorie aus der Konfiguration)" : ""}`
+        + `${result.payload.fromVersion === 2 ? " (älterer Server: Version 2, nur Caster/Heiler, ohne Gewichtung und Roster-Status)" : ""}.`);
     for (const category of categories) {
         const filter = category.filter || {};
         log(`  ${category.name}: ${(category.raiders || []).length} Raider`

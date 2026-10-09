@@ -16,9 +16,10 @@ Wer nicht im Council steht, aber geantwortet hat, kommt hinter die
 Council-Raider derselben Stufe. Wem das Item als BiS fehlt, der aber noch
 nicht geantwortet hat, steht grau am Ende.
 
-Ob ein Item ein Caster- oder Heiler-Item ist: steht es auf der BiS-Liste
-eines Raiders der Kategorie, zaehlt dessen Rolle; sonst entscheiden die
-Werte des Items (GetItemStats); Marken/Tokens ohne Werte bleiben "-".
+Fuer welche Rolle ein Item ist (Caster, Heiler, Tank, Nahkampf, Fernkampf):
+steht es auf der BiS-Liste eines Raiders der Kategorie, zaehlt dessen Rolle;
+sonst entscheiden die Werte des Items (GetItemStats: Tank-Werte, Zauber-
+werte, physische Werte -> "Physisch"); Marken/Tokens ohne Werte bleiben "-".
 Zeigt die Kategorie auf der Webseite nur eine Rolle, gibt es fuer Items der
 anderen Rolle keinen Vorschlag.
 
@@ -98,65 +99,131 @@ end
 -- Caster- oder Heiler-Item?
 -- ---------------------------------------------------------------------------
 
---- Die Rolle nach den Werten des Items (GetItemStats: { ITEM_MOD_..._SHORT = n }).
--- TBC: Zauberschaden und Heilung stehen getrennt (Heiler-Items: viel Heilung,
--- wenig Schaden), Retail: Zaubermacht. Trefferwertung, Krit und Tempo fuer
--- Zauber oder Durchschlag heissen Caster; Mana-Regeneration oder Willenskraft
--- ohne Zauberschaden heissen Heiler; nur Intelligenz heisst Caster.
--- @return "caster" | "healer" | nil (keine Werte, oder kein Zauber-Item)
-function Suggest.StatRole(stats)
-    if type(stats) ~= "table" then return nil end
-    local s = { heal = 0, dmg = 0, power = 0, regen = 0, spirit = 0, int = 0, casterOnly = 0 }
+-- Welche Werte wofuer stehen (Schluessel ohne ITEM_MOD_ und _SHORT, in
+-- Grossbuchstaben). Die Reihenfolge der Pruefung zaehlt: der erste Treffer
+-- ordnet den Wert ein ("HIT_SPELL_RATING" ist Zauber, nicht Nahkampf).
+local STAT_RULES = {
+    { "SPELL_HEALING_DONE", "heal" },
+    { "SPELL_DAMAGE_DONE", "dmg" },
+    { "SPELL_POWER", "power" },
+    { "MANA_REGENERATION", "regen" },
+    { "POWER_REGEN0", "regen" },
+    { "SPIRIT", "spirit" },
+    { "INTELLECT", "int" },
+    { "SPELL_RATING", "casterOnly" },
+    { "SPELL_PENETRATION", "casterOnly" },
+    -- Tank: Verteidigung, Ausweichen, Parieren, Blocken.
+    { "DEFENSE_SKILL_RATING", "tank" },
+    { "DODGE_RATING", "tank" },
+    { "PARRY_RATING", "tank" },
+    { "BLOCK_RATING", "tank" },
+    { "BLOCK_VALUE", "blockValue" },
+    { "STAMINA", "stamina" },
+    -- Physisch: Angriffskraft, Beweglichkeit, Staerke, Waffenkunde,
+    -- Ruestungsdurchschlag, Treffer/Krit/Tempo fuer Nah- oder Fernkampf.
+    { "RANGED_ATTACK_POWER", "ranged" },
+    { "HIT_RANGED_RATING", "ranged" },
+    { "CRIT_RANGED_RATING", "ranged" },
+    { "HASTE_RANGED_RATING", "ranged" },
+    { "ATTACK_POWER", "physical" },
+    { "AGILITY", "physical" },
+    { "STRENGTH", "physical" },
+    { "EXPERTISE_RATING", "physical" },
+    { "ARMOR_PENETRATION_RATING", "physical" },
+    { "MELEE_RATING", "physical" },
+    -- Ohne Zusatz (TBC: Nah- und Fernkampf; Retail: fuer alle): physisch nur,
+    -- wenn nichts auf ein Zauber-Item deutet.
+    { "HIT_RATING", "generic" },
+    { "CRIT_RATING", "generic" },
+    { "HASTE_RATING", "generic" },
+}
+
+local function statSums(stats)
+    local s = {
+        heal = 0, dmg = 0, power = 0, regen = 0, spirit = 0, int = 0, casterOnly = 0,
+        tank = 0, blockValue = 0, stamina = 0, physical = 0, ranged = 0, generic = 0,
+    }
     for key, value in pairs(stats) do
         local k = tostring(key):upper():gsub("_SHORT$", "")
         local v = num(value)
         if v > 0 then
-            if k:find("SPELL_HEALING_DONE", 1, true) then
-                s.heal = s.heal + v
-            elseif k:find("SPELL_DAMAGE_DONE", 1, true) then
-                s.dmg = s.dmg + v
-            elseif k:find("SPELL_POWER", 1, true) then
-                s.power = s.power + v
-            elseif k:find("MANA_REGENERATION", 1, true) or k:find("POWER_REGEN0", 1, true) then
-                s.regen = s.regen + v
-            elseif k:find("SPIRIT", 1, true) then
-                s.spirit = s.spirit + v
-            elseif k:find("INTELLECT", 1, true) then
-                s.int = s.int + v
-            elseif k:find("SPELL_RATING", 1, true) or k:find("SPELL_PENETRATION", 1, true) then
-                s.casterOnly = s.casterOnly + v
+            for _, rule in ipairs(STAT_RULES) do
+                if k:find(rule[1], 1, true) then
+                    s[rule[2]] = s[rule[2]] + v
+                    break
+                end
             end
         end
     end
+    return s
+end
+
+--- Die Rolle nach den Werten des Items (GetItemStats: { ITEM_MOD_..._SHORT = n }).
+-- In dieser Reihenfolge:
+--   * Verteidigung, Ausweichen, Parieren oder Blockwertung: "tank" (auch mit
+--     Zaubermacht - die Items eines Schutz-Paladins tragen beides),
+--   * Treffer/Krit/Tempo fuer Zauber oder Durchschlag: "caster",
+--   * TBC: Zauberschaden und Heilung stehen getrennt (Heiler-Items: viel
+--     Heilung, wenig Schaden), Retail: Zaubermacht -> "healer" / "caster",
+--   * Angriffskraft, Beweglichkeit, Staerke, Waffenkunde, Ruestungsdurchschlag,
+--     Treffer/Krit fuer Nah-/Fernkampf (ohne Zusatz nur ohne Zauberwerte):
+--     "physical" - nur Fernkampf-Werte: "ranged",
+--   * Mana-Regeneration oder Willenskraft: "healer"; nur Intelligenz: "caster",
+--   * fast nur Ausdauer (oder Blockwert): "tank".
+-- @return "caster" | "healer" | "tank" | "physical" | "ranged" | nil
+function Suggest.StatRole(stats)
+    if type(stats) ~= "table" then return nil end
+    local s = statSums(stats)
+    if s.tank > 0 then return "tank" end
     if s.casterOnly > 0 then return "caster" end
     local damage = math.max(s.dmg, s.power)
     if s.heal > 0 and s.heal >= damage * 1.5 then return "healer" end
     if damage > 0 then return "caster" end
+    local spellish = s.int + s.spirit + s.regen
+    local physical = s.physical + (spellish == 0 and s.generic or 0)
+    if physical > 0 then return "physical" end
+    if s.ranged > 0 then return "ranged" end
     if s.regen > 0 or s.spirit > 0 then return "healer" end
     if s.int > 0 then return "caster" end
+    if s.stamina > 0 or s.blockValue > 0 then return "tank" end
     return nil
 end
+
+-- Welche Rolle die BiS-Liste eines Raiders einem Item gibt, wenn mehrere
+-- Rollen es wollen: diese Reihenfolge entscheidet.
+local BIS_ROLE_ORDER = { "caster", "healer", "tank", "melee", "ranged" }
 
 --- Die Rolle eines Items in einer Kategorie.
 -- @param category die aktive Kategorie (oder nil)
 -- @param stats die Werte aus GetItemStats (oder nil)
--- @return "caster" | "healer" | nil, Quelle "bis" | "stats" | nil
+-- @return Rolle (eine der fuenf Council-Rollen, aus den Werten auch
+--   "physical"), Quelle "bis" | "stats" | nil
 function Suggest.ItemRole(category, itemId, stats)
     if type(category) == "table" and tonumber(itemId) then
         local roles = {}
         for _, entry in ipairs(Council.ForItem(category, itemId)) do
             local role = entry.raider and entry.raider.role
-            if role == "caster" or role == "healer" then roles[role] = true end
+            if role then roles[role] = true end
         end
-        if roles.caster then return "caster", "bis" end
-        if roles.healer then return "healer", "bis" end
+        for _, role in ipairs(BIS_ROLE_ORDER) do
+            if roles[role] then return role, "bis" end
+        end
     end
     local role = Suggest.StatRole(stats)
     if role then return role, "stats" end
     return nil, nil
 end
 
-Suggest.ROLE_TAG = { caster = "Caster", healer = "Heiler" }
+Suggest.ROLE_TAG = {
+    caster = "Caster", healer = "Heiler", tank = "Tank", melee = "Nahkampf", ranged = "Fernkampf",
+    physical = "Physisch",
+}
+
+-- Fuer welche Rollen einer Kategorie ein Item dieser Rolle taugt. Ein
+-- physisches Item (nur nach Werten) passt zu Nahkampf, Fernkampf und Tanks.
+local FITS = {
+    physical = { melee = true, ranged = true, tank = true },
+}
 
 --- Zeigt die Kategorie nur eine andere Rolle als die des Items? Dann der
 --- Text fuer die Liste und der kurze fuer die Item-Zeile, sonst nil.
@@ -165,6 +232,7 @@ function Suggest.BlockedTexts(category, role)
     local only = Suggest.ROLE_TAG[filter.role]
     local own = Suggest.ROLE_TAG[role]
     if not only or not own or filter.role == role then return nil, nil end
+    if FITS[role] and FITS[role][filter.role] then return nil, nil end
     local long = ("%s-Item: Die Kategorie \"%s\" zeigt auf der Webseite nur %s. Kein Vorschlag, in RCLootCouncil "
         .. "normal abstimmen."):format(own, category.name or "", only)
     local short = ("%s-Item, Kategorie zählt nur %s"):format(own, only)
@@ -348,6 +416,8 @@ function Suggest.Build(item, category, now)
             name = raider and raider.character or Suggest.ShortName(candidate.name),
             classFile = raider and raider.classFile ~= "" and raider.classFile or candidate.class,
             specLabel = raider and raider.specLabel or "",
+            -- Probe/Ersatz im Roster (Version 3), als Abzeichen am Namen.
+            status = raider and raider.status or nil,
             need = raider and int(raider.need) or nil,
             mark = raider and Council.ProvisionalMark(raider) or "",
             raider = raider,

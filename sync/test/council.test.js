@@ -82,6 +82,48 @@ function payloadV2(over = {}) {
     };
 }
 
+/** Version 3, wie sie der Server mit ?v=3 liefert (#670): alle Rollen, Status,
+ * Punkte, Zugehörigkeit und die Gewichtung der Kategorie. */
+function payloadV3(over = {}) {
+    const gemli = payload().raiders[0];
+    const weights = {
+        drought: 40, share: 30, need: 10, tenure: 20,
+        shares: { drought: 0.4, share: 0.3, need: 0.1, tenure: 0.2 }, droughtDays: 30, tenureDays: 90, scope: "global",
+    };
+    return {
+        format: "eventhelper-council",
+        version: 3,
+        generatedAt: 1791234567,
+        weights,
+        categories: [{
+            id: "c1",
+            name: "SSC/TK – Mittwoch 🐉",
+            lootSystem: "lootcouncil",
+            filter: { role: "", tiers: [], contents: [], bisTier: "t5", bisTierDerived: true, version: "tbc" },
+            instances: [{ id: "ssc", name: "Höhle des Schlangenschreins", short: "SSC", zoneNames: [] }],
+            avgLootCount: 2,
+            avgLootPoints: 2.5,
+            weights,
+            itemWeights: { classes: { trinket: 2, bisWeapon: 2, weapon: 1.5, set: 1, normal: 1, frequent: 0.5 }, overrides: { 30099: 2.5 } },
+            itemClasses: { 30626: "trinket", 30103: "weapon", 30245: "set", 30021: "frequent" },
+            raiders: [
+                {
+                    key: "gemli", ...gemli, parts: { ...gemli.parts, tenure: 50 }, status: "trial", lootPoints: 2.5,
+                    droughtDays: 12, droughtBase: 0, joinedAt: 1789000000, tenureDays: 25, bisWeapons: [30103],
+                    items: [{ ...gemli.items[0], weight: 1, weightClass: "normal" }],
+                },
+                {
+                    key: "schild", character: "Schild", classFile: "PALADIN", specLabel: "Schutz – Tank", role: "tank", need: 40,
+                    parts: { drought: 20, share: 50, need: 50, tenure: 100 }, lootCount: 1, lootTotal: 1, otherCount: 0,
+                    lastAwardAt: 1791000000, daysSinceLoot: 3, bis: { tier: "t5", source: "wowsims", owned: 0, total: 0, missing: [] },
+                    items: [], status: "", lootPoints: 1.5, droughtDays: 3, droughtBase: 0, joinedAt: 0, tenureDays: 0, bisWeapons: [],
+                },
+            ],
+        }],
+        ...over,
+    };
+}
+
 /** Den erzeugten Lua-Text wieder einlesen — mit demselben Parser, der die
  * SavedVariables liest (Daten, kein Code). */
 function readBack(text) {
@@ -229,9 +271,19 @@ describe("validateCouncil", () => {
         expect(validateCouncil(payloadV2({ categories: [] })).categories).toEqual([]);
     });
 
+    it("nimmt Version 3 an und lehnt eine kaputte Gewichtung ab", () => {
+        const p3 = payloadV3();
+        expect(validateCouncil(p3)).toBe(p3);
+        const broken = (key, value) => payloadV3({ categories: [{ ...payloadV3().categories[0], [key]: value }] });
+        expect(() => validateCouncil(broken("weights", 5))).toThrow(/kaputtes Feld "weights"/);
+        expect(() => validateCouncil(broken("itemWeights", []))).toThrow(/itemWeights/);
+        expect(() => validateCouncil(broken("itemClasses", "x"))).toThrow(/itemClasses/);
+        expect(validateCouncil(broken("itemClasses", null))).toBeTruthy();
+    });
+
     it("lehnt eine höhere Version mit klarer Meldung ab", () => {
-        expect(() => validateCouncil(payloadV2({ version: 3 })))
-            .toThrow(/Version 3, dieses Sync-Tool kennt nur Version 2.*aktualisieren/);
+        expect(() => validateCouncil(payloadV2({ version: 4 })))
+            .toThrow(/Version 4, dieses Sync-Tool kennt nur Version 3.*aktualisieren/);
     });
 
     it("lehnt Version 2 ohne Kategorien oder mit einer Kategorie ohne Raider ab", () => {
@@ -322,19 +374,69 @@ describe("loadCouncil", () => {
         delete global.fetch;
     });
 
-    it("Version 2: alle Kategorien, Namen spielfest, ids als Text", async () => {
-        mockFetch(200, { data: payloadV2() });
+    it("Version 3: eine Anfrage, Gewichtung je Kategorie bleibt, Namen spielfest", async () => {
+        mockFetch(200, { data: payloadV3() });
         const data = await loadCouncil({ ...CONFIG, councilCategory: "123", councilRole: "healer" });
         expect(global.fetch).toHaveBeenCalledTimes(1);
-        expect(global.fetch.mock.calls[0][0]).toMatch(/council\?v=2$/);
-        expect(data.version).toBe(2);
+        expect(global.fetch.mock.calls[0][0]).toMatch(/council\?v=3$/);
+        expect(data.version).toBe(3);
+        expect(data.fromVersion).toBeUndefined();
+        const [c1] = data.categories;
+        expect(c1.name).toBe("SSC/TK - Mittwoch");
+        expect(c1.weights.shares).toEqual({ drought: 0.4, share: 0.3, need: 0.1, tenure: 0.2 });
+        expect(c1.itemWeights).toEqual({
+            classes: { trinket: 2, bisWeapon: 2, weapon: 1.5, set: 1, normal: 1, frequent: 0.5 }, overrides: { 30099: 2.5 },
+        });
+        expect(c1.itemClasses).toEqual({ 30626: "trinket", 30103: "weapon", 30245: "set", 30021: "frequent" });
+        expect(c1.raiders.map((r) => [r.key, r.role, r.status, r.lootPoints, r.parts.tenure])).toEqual([
+            ["gemli", "caster", "trial", 2.5, 50], ["schild", "tank", "", 1.5, 100],
+        ]);
+        expect(c1.raiders[0]).toMatchObject({ droughtDays: 12, droughtBase: 0, joinedAt: 1789000000, tenureDays: 25, bisWeapons: [30103] });
+    });
+
+    it("Version 3: unbekannte Klassen, kaputte Ausnahmen und Status fallen heraus", async () => {
+        const base = payloadV3().categories[0];
+        mockFetch(200, { data: payloadV3({ categories: [{
+            ...base,
+            itemWeights: { classes: { trinket: 2, legendary: 9, set: "x" }, overrides: { 30099: 2.5, abc: 1, 5: "y" } },
+            itemClasses: { 30626: "trinket", 30627: "override", x: "set" },
+            raiders: [{ ...base.raiders[0], status: "pause", bisWeapons: [30103, "x", 0] }],
+        }] }) });
+        const [c1] = (await loadCouncil(CONFIG)).categories;
+        expect(c1.itemWeights).toEqual({ classes: { trinket: 2 }, overrides: { 30099: 2.5 } });
+        expect(c1.itemClasses).toEqual({ 30626: "trinket" });
+        expect(c1.raiders[0]).toMatchObject({ status: "", bisWeapons: [30103] });
+    });
+
+    it("Server mit Version 2: ?v=3 bekommt Version 1, dann ?v=2 - als Version 3 ohne Gewichtung", async () => {
+        mockFetchSeq([200, { data: payload() }], [200, { data: payloadV2() }]);
+        const data = await loadCouncil({ ...CONFIG, councilCategory: "123", councilRole: "healer" });
+        expect(global.fetch).toHaveBeenCalledTimes(2);
+        expect(global.fetch.mock.calls[0][0]).toMatch(/council\?v=3$/);
+        expect(global.fetch.mock.calls[1][0]).toMatch(/council\?v=2$/);
+        expect(data).toMatchObject({ version: 3, fromVersion: 2, weights: { drought: 50, share: 40, need: 10 } });
         expect(data.categories.map((c) => [c.id, c.name])).toEqual([
             ["1234567890", "SSC/TK Mittwoch"], ["987", "Kara Sonntag"],
         ]);
         expect(data.categories[0].filter.role).toBe("caster");
         expect(data.categories[0].instances[0].short).toBe("SSC");
-        expect(data.fromVersion).toBeUndefined();
+        expect(data.categories[0]).not.toHaveProperty("weights");
+        expect(data.categories[0]).not.toHaveProperty("itemWeights");
+        expect(data.categories[0]).not.toHaveProperty("itemClasses");
+        // Fehlende Raider-Felder: dieselbe Bedeutung wie in Version 2.
+        expect(data.categories[0].raiders[0]).toMatchObject({
+            status: "", lootPoints: 2, droughtDays: 12, joinedAt: 0, tenureDays: 0, bisWeapons: [], parts: { tenure: 0 },
+        });
+        expect(data.categories[0].raiders[0]).not.toHaveProperty("droughtBase");
+        expect(data.categories[1].raiders[1]).toMatchObject({ lootPoints: 0, droughtDays: 30 });
         expect(countRaiders(data)).toBe(2);
+    });
+
+    it("Version 2 auf ?v=3 (ein Zwischenstand) wird genauso verpackt", async () => {
+        mockFetch(200, { data: payloadV2() });
+        const data = await loadCouncil(CONFIG);
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+        expect(data).toMatchObject({ version: 3, fromVersion: 2 });
     });
 
     it("Version 2 ohne Loot-Council-Kategorie: leere Liste", async () => {
@@ -344,12 +446,16 @@ describe("loadCouncil", () => {
         expect(countRaiders(data)).toBe(0);
     });
 
-    it("älterer Server (Version 1 auf ?v=2): fragt mit Kategorie und Rolle nach und verpackt", async () => {
-        mockFetchSeq([200, { data: payload({ filter: { category: "1" } }) }], [200, { data: payload() }]);
+    it("älterer Server (Version 1 auf ?v=3 und ?v=2): fragt mit Kategorie und Rolle nach und verpackt", async () => {
+        mockFetchSeq(
+            [200, { data: payload({ filter: { category: "1" } }) }],
+            [200, { data: payload({ filter: { category: "1" } }) }],
+            [200, { data: payload() }],
+        );
         const data = await loadCouncil({ ...CONFIG, councilCategory: "123", councilRole: "caster" });
-        expect(global.fetch).toHaveBeenCalledTimes(2);
-        expect(global.fetch.mock.calls[1][0]).toMatch(/council\?category=123&role=caster$/);
-        expect(data).toMatchObject({ format: "eventhelper-council", version: 2, fromVersion: 1, generatedAt: 1791234567 });
+        expect(global.fetch).toHaveBeenCalledTimes(3);
+        expect(global.fetch.mock.calls[2][0]).toMatch(/council\?category=123&role=caster$/);
+        expect(data).toMatchObject({ format: "eventhelper-council", version: 3, fromVersion: 1, generatedAt: 1791234567 });
         expect(data.categories).toHaveLength(1);
         expect(data.categories[0]).toMatchObject({
             id: "123", name: "SSC/TK Mittwoch", lootSystem: "lootcouncil", instances: [], avgLootCount: 3.4,
@@ -361,14 +467,15 @@ describe("loadCouncil", () => {
     it("älterer Server ohne gespeicherte Kategorie: die erste Antwort reicht", async () => {
         mockFetch(200, { data: payload({ filter: {} }) });
         const data = await loadCouncil(CONFIG);
-        expect(global.fetch).toHaveBeenCalledTimes(1);
+        expect(global.fetch).toHaveBeenCalledTimes(2);
         expect(data.categories[0]).toMatchObject({ id: "", name: "Alle Raids" });
+        expect(data.categories[0].raiders[0]).toMatchObject({ lootPoints: 2, status: "" });
     });
 
-    it("404 auf ?v=2: die alte Anfrage", async () => {
-        mockFetchSeq([404, { error: { message: "Not found" } }], [200, { data: payload() }]);
+    it("404 auf ?v=3 und ?v=2: die alte Anfrage", async () => {
+        mockFetchSeq([404, { error: { message: "Not found" } }], [404, { error: { message: "Not found" } }], [200, { data: payload() }]);
         const data = await loadCouncil({ ...CONFIG, councilCategory: "123" });
-        expect(global.fetch.mock.calls[1][0]).toMatch(/council\?category=123$/);
+        expect(global.fetch.mock.calls[2][0]).toMatch(/council\?category=123$/);
         expect(data.categories[0].id).toBe("123");
     });
 
@@ -377,9 +484,9 @@ describe("loadCouncil", () => {
         await expect(loadCouncil(CONFIG)).rejects.toThrow(/kennt noch keine Council-Daten/);
     });
 
-    it("lehnt Version 3 ab, ohne die alte Anfrage zu versuchen", async () => {
-        mockFetch(200, { data: payloadV2({ version: 3 }) });
-        await expect(loadCouncil(CONFIG)).rejects.toThrow(/Version 3/);
+    it("lehnt Version 4 ab, ohne die alte Anfrage zu versuchen", async () => {
+        mockFetch(200, { data: payloadV2({ version: 4 }) });
+        await expect(loadCouncil(CONFIG)).rejects.toThrow(/Version 4/);
         expect(global.fetch).toHaveBeenCalledTimes(1);
     });
 
@@ -456,7 +563,7 @@ describe("Addon-Ordner finden und beschreiben", () => {
             const file = path.join(wow, flavor, "Interface", "AddOns", "EventHelperSync", COUNCIL_FILE);
             const text = fs.readFileSync(file, "utf8");
             const back = readBack(text);
-            expect(back.version).toBe(2);
+            expect(back.version).toBe(3);
             expect(back.categories.map((c) => c.name)).toEqual(["SSC/TK Mittwoch", "Kara Sonntag"]);
             expect(back.categories[0].id).toBe("1234567890");
             expect(back.categories[0].filter.tiers).toEqual(["t5"]);
@@ -480,8 +587,8 @@ describe("Addon-Ordner finden und beschreiben", () => {
     });
 
     it("schreibt nichts, wenn der Server eine neuere Version liefert", async () => {
-        mockFetch(200, { data: payloadV2({ version: 3 }) });
-        await expect(syncCouncil(CONFIG, { roots: [wow] })).rejects.toThrow(/Version 3/);
+        mockFetch(200, { data: payloadV2({ version: 4 }) });
+        await expect(syncCouncil(CONFIG, { roots: [wow] })).rejects.toThrow(/Version 4/);
         const dir = path.join(wow, "_anniversary_", "Interface", "AddOns", "EventHelperSync");
         expect(fs.readdirSync(dir)).toEqual([]);
     });
@@ -492,21 +599,40 @@ describe("Addon-Ordner finden und beschreiben", () => {
         expect(result).toMatchObject({ categories: 0, raiders: 0 });
         const file = path.join(wow, "_anniversary_", "Interface", "AddOns", "EventHelperSync", COUNCIL_FILE);
         const back = readBack(fs.readFileSync(file, "utf8"));
-        expect(back.version).toBe(2);
+        expect(back.version).toBe(3);
         // Eine leere Lua-Tabelle liest der Parser als leeres Objekt oder Array.
         expect(Object.keys(back.categories)).toHaveLength(0);
     });
 
-    it("älterer Server: Kategorie und Rolle aus der Konfiguration, geschrieben als Version 2", async () => {
+    it("älterer Server: Kategorie und Rolle aus der Konfiguration, geschrieben als Version 3", async () => {
         mockFetch(200, { data: payload() });
         const result = await syncCouncil({ ...CONFIG, councilCategory: "123", councilRole: "caster" }, { roots: [wow] });
-        expect(global.fetch.mock.calls[0][0]).toMatch(/council\?v=2$/);
-        expect(global.fetch.mock.calls[1][0]).toMatch(/council\?category=123&role=caster$/);
+        expect(global.fetch.mock.calls[0][0]).toMatch(/council\?v=3$/);
+        expect(global.fetch.mock.calls[1][0]).toMatch(/council\?v=2$/);
+        expect(global.fetch.mock.calls[2][0]).toMatch(/council\?category=123&role=caster$/);
         expect(result).toMatchObject({ categories: 1, raiders: 1 });
         const file = path.join(wow, "_anniversary_", "Interface", "AddOns", "EventHelperSync", COUNCIL_FILE);
         const back = readBack(fs.readFileSync(file, "utf8"));
-        expect(back).toMatchObject({ version: 2, fromVersion: 1 });
+        expect(back).toMatchObject({ version: 3, fromVersion: 1 });
         expect(back.categories[0].raiders[0].character).toBe("Gemli");
+    });
+
+    it("Version 3: Gewichtung, Item-Klassen (Item-IDs als Schlüssel) und Status kommen im Lua an", async () => {
+        mockFetch(200, { data: payloadV3() });
+        await syncCouncil(CONFIG, { roots: [wow] });
+        const file = path.join(wow, "_anniversary_", "Interface", "AddOns", "EventHelperSync", COUNCIL_FILE);
+        const text = fs.readFileSync(file, "utf8");
+        expect(text).toContain('["30626"] = "trinket"');
+        expect(text).toContain('["30099"] = 2.5');
+        const back = readBack(text);
+        expect(back).toMatchObject({ version: 3 });
+        expect(back.categories[0]).toMatchObject({
+            name: "SSC/TK - Mittwoch",
+            weights: { tenure: 20, shares: { tenure: 0.2 }, tenureDays: 90 },
+            itemWeights: { classes: { frequent: 0.5 } },
+        });
+        expect(back.categories[0].raiders[1]).toMatchObject({ role: "tank", specLabel: "Schutz - Tank", status: "" });
+        expect([...text].every((ch) => ch.codePointAt(0) <= 0xff)).toBe(true);
     });
 
     it("writeAtomic räumt die Zwischendatei auf, wenn das Ziel nicht beschreibbar ist", () => {

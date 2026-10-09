@@ -5,8 +5,10 @@ Was der Raidleiter beim Verteilen wissen will, ohne den Browser aufzumachen:
 wer wie dringend etwas braucht, und wer was schon hat.
 
   * Das Fenster (/ehs council, /ehc, Shift-Klick oder Mittelklick auf den
-    Minimap-Knopf): eine kompakte Zeile pro Raider - Name, ein Balken fuer den
-    Bedarf aus drei Teilen, Zahl der Items, BiS-Stand, letzter Loot. Alles
+    Minimap-Knopf): eine kompakte Zeile pro Raider - Name (mit Probe/Ersatz),
+    Rollen-Knoepfe Alle/Caster/Heiler/Tank/Nahkampf/Fernkampf, ein Balken fuer den
+    Bedarf aus drei Teilen (mit Gewichtung der Kategorie vier), Zahl der Items
+    (und Punkte), BiS-Stand, letzter Loot. Alles
     Weitere steht im Tooltip der Zeile.
   * Der Item-Tooltip: auf jedem Item-Tooltip (Loot-Fenster, RCLootcouncil,
     Taschen, Links) stehen die Raider, denen genau dieses Item als BiS fehlt.
@@ -35,28 +37,36 @@ local rows = {}
 local offset = 0
 local list = {}
 
-local WIDTH = 540
+local WIDTH = 600
 local CATEGORY_WIDTH = 210
 local ROW_HEIGHT = 22
 local VISIBLE_ROWS = 14
-local LIST_TOP = -70
+local LIST_TOP = -88
 local BAR_WIDTH = 100
 
--- Spalten: x-Position und Breite innerhalb einer Zeile.
+-- Spalten: x-Position und Breite innerhalb einer Zeile (Zeile = WIDTH - 24).
+-- "Items" ist breit genug fuer "12 Items · 25,5 Pkt" (Version 3).
 local COL = {
-    name = { 4, 140 },
-    bar = { 148, BAR_WIDTH },
-    need = { 254, 60 },
-    items = { 318, 50 },
-    bis = { 370, 56 },
-    last = { 428, 84 },
+    name = { 4, 150 },
+    bar = { 158, BAR_WIDTH },
+    need = { 264, 60 },
+    items = { 328, 104 },
+    bis = { 436, 54 },
+    last = { 492, 80 },
 }
 
+-- Rollen-Knoepfe in einer eigenen Zeile unter dem Titel (sechs passen neben
+-- Kategorie-Knopf und "x" nicht mehr in die Titelzeile). Breiten nach Text.
 local ROLE_BUTTONS = {
-    { role = "", label = "Alle" },
-    { role = "caster", label = "Caster" },
-    { role = "healer", label = "Heiler" },
+    { role = "", label = "Alle", width = 40 },
+    { role = "caster", label = "Caster", width = 52 },
+    { role = "healer", label = "Heiler", width = 50 },
+    { role = "tank", label = "Tank", width = 44 },
+    { role = "melee", label = "Nahkampf", width = 66 },
+    { role = "ranged", label = "Fernkampf", width = 70 },
 }
+local ROLE_GAP = 4
+EHS.CouncilLayout = { WIDTH = WIDTH, ROLE_BUTTONS = ROLE_BUTTONS, ROLE_GAP = ROLE_GAP, COL = COL }
 
 local function now()
     return time()
@@ -131,7 +141,7 @@ function EHS:CouncilData(force)
     live.checkedAt = current
     local signature = historySignature()
     if live.base == data and live.data and live.signature == signature then return live.data, status end
-    local ok, adjusted = pcall(Council.ApplyAwards, data, awardsSince(data.generatedAt))
+    local ok, adjusted = pcall(Council.ApplyAwards, data, awardsSince(data.generatedAt), current)
     if not ok then
         self:Debug("Loot-Council, Vergaben seit dem Sync:", tostring(adjusted))
         adjusted = data
@@ -214,15 +224,25 @@ EHS.Widgets = { text = text, solid = solid, textButton = textButton }
 
 local MAX_TOOLTIP_ITEMS = 10
 
+-- Die Kategorie, deren Raider das Fenster gerade zeigt (fuer die Tooltips).
+local shownCategory
+
+local STATUS_TEXT = { trial = "Probe (Roster)", bench = "Ersatz (Roster)" }
+
 local function showRowTooltip(row)
     local raider = row.raider
     if not raider then return end
     local data = Council.Load()
-    local weights = Council.Weights(data)
+    local category = shownCategory
+    local weights = Council.WeightsFor(data, category)
+    local weighted = Council.IsWeighted(category)
     local parts = type(raider.parts) == "table" and raider.parts or {}
 
     GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
     GameTooltip:AddLine(Council.NameLabel(raider))
+    if STATUS_TEXT[raider.status] then
+        GameTooltip:AddLine(STATUS_TEXT[raider.status], unpack(Council.STATUS_COLOR[raider.status]))
+    end
     GameTooltip:AddDoubleLine("Bedarf", ("%d von 100"):format(math.floor((tonumber(raider.need) or 0) + 0.5))
         .. Council.ProvisionalMark(raider), 1, 0.82, 0, Council.NeedColor(raider.need))
 
@@ -237,27 +257,34 @@ local function showRowTooltip(row)
             local right = award.reason or ""
             if not award.counts then right = right .. " (zählt nicht)" end
             if award.bis then right = right .. ", BiS" end
+            if award.weight then right = right .. ", " .. Council.PointsLabel(award.weight) end
             GameTooltip:AddDoubleLine("  " .. Council.FormatStamp(award.awardedAt) .. " " .. name, right,
                 1, 1, 1, 0.6, 0.6, 0.6)
         end
     elseif Council.ProvisionalKind(raider) == "avg" then
-        GameTooltip:AddLine(("Vorläufig: vorher Bedarf %d, der Schnitt hat sich durch Vergaben seit dem letzten Sync verschoben.")
-            :format(math.floor((tonumber(raider.needBefore) or 0) + 0.5)), 0.6, 0.6, 0.6, true)
+        local why = weighted and "Schnitt und Tage haben sich seit dem letzten Sync verschoben."
+            or "der Schnitt hat sich durch Vergaben seit dem letzten Sync verschoben."
+        GameTooltip:AddLine(("Vorläufig: vorher Bedarf %d, %s")
+            :format(math.floor((tonumber(raider.needBefore) or 0) + 0.5), why), 0.6, 0.6, 0.6, true)
     end
 
-    for _, key in ipairs(Council.PARTS) do
+    for _, key in ipairs(Council.PartsOf(category)) do
         local r, g, b = unpack(Council.PART_COLOR[key])
         GameTooltip:AddDoubleLine(
-            ("%s (%d%%)"):format(Council.PART_LABEL[key], math.floor(weights[key] + 0.5)),
+            ("%s (%d%%)"):format(Council.PART_LABEL[key], math.floor((tonumber(weights[key]) or 0) + 0.5)),
             ("%d/100"):format(math.floor((tonumber(parts[key]) or 0) + 0.5)),
             r, g, b, 1, 1, 1)
         GameTooltip:AddLine("  " .. Council.PART_HINT[key], 0.6, 0.6, 0.6, true)
+    end
+    if weighted and (tonumber(raider.joinedAt) or 0) > 0 then
+        GameTooltip:AddDoubleLine("Dabei seit", ("%s (%d Tage)"):format(date("%d.%m.%Y", raider.joinedAt),
+            math.floor((tonumber(raider.tenureDays) or 0) + 0.5)), 0.6, 0.6, 0.6, 1, 1, 1)
     end
 
     GameTooltip:AddLine(" ")
     local items = type(raider.items) == "table" and raider.items or {}
     local other = tonumber(raider.otherCount) or 0
-    GameTooltip:AddLine(("Erhalten: %s%s"):format(Council.ItemsLabel(raider.lootCount),
+    GameTooltip:AddLine(("Erhalten: %s%s"):format(Council.LootLabel(raider, weighted),
         other > 0 and (", dazu %d Offspec/Bank"):format(other) or ""), 1, 0.82, 0)
     if #items == 0 then
         GameTooltip:AddLine("  noch kein zählendes Item", 0.6, 0.6, 0.6)
@@ -268,6 +295,9 @@ local function showRowTooltip(row)
         local right = item.boss or ""
         if item.reason and item.reason ~= "" then
             right = right ~= "" and (right .. " - " .. item.reason) or item.reason
+        end
+        if weighted and tonumber(item.weight) then
+            right = right .. " · " .. Council.PointsLabel(item.weight)
         end
         local stamp = Council.FormatStamp(item.awardedAt):sub(1, 6)
         if item.provisional then stamp = Council.Color(stamp .. "*", unpack(Council.PROVISIONAL_COLOR)) end
@@ -361,13 +391,14 @@ local function buildRow(parent, index)
     row.name:SetWidth(COL.name[2])
     if row.name.SetWordWrap then row.name:SetWordWrap(false) end
 
-    -- Der Balken: dunkler Grund, darauf die drei Teile nebeneinander.
+    -- Der Balken: dunkler Grund, darauf die Teile nebeneinander (drei, mit
+    -- Gewichtung der Kategorie vier; ein Teil ohne Breite ist unsichtbar).
     row.barBg = solid(row, "ARTWORK", 0.15, 0.15, 0.15, 1)
     row.barBg:SetPoint("LEFT", COL.bar[1], 0)
     row.barBg:SetSize(BAR_WIDTH, 8)
     row.segments = {}
     local previous
-    for _, key in ipairs(Council.PARTS) do
+    for _, key in ipairs(Council.PARTS_V3) do
         local seg = solid(row, "OVERLAY", unpack(Council.PART_COLOR[key]))
         seg:SetHeight(8)
         if previous then
@@ -458,13 +489,14 @@ local function build()
     frame.category:SetScript("OnEnter", showCategoryTooltip)
     frame.category:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    -- Rollen-Umschalter: Alle / Caster / Heiler.
+    -- Rollen-Umschalter: Alle | Caster | Heiler | Tank | Nahkampf | Fernkampf,
+    -- eine eigene Zeile unter dem Titel, links buendig.
     frame.roleButtons = {}
-    local anchor = frame.close
-    for i = #ROLE_BUTTONS, 1, -1 do
-        local def = ROLE_BUTTONS[i]
-        local button = textButton(frame, def.label, 52)
-        button:SetPoint("RIGHT", anchor, "LEFT", -4, 0)
+    local x = 12
+    for _, def in ipairs(ROLE_BUTTONS) do
+        local button = textButton(frame, def.label, def.width)
+        button:SetPoint("TOPLEFT", x, -30)
+        x = x + def.width + ROLE_GAP
         button:SetScript("OnClick", function()
             EHS.db.settings.councilRole = def.role
             offset = 0
@@ -472,30 +504,38 @@ local function build()
         end)
         button.role = def.role
         frame.roleButtons[#frame.roleButtons + 1] = button
-        anchor = button
     end
 
     frame.header = text(frame, "GameFontHighlightSmall")
-    frame.header:SetPoint("TOPLEFT", 12, -32)
+    frame.header:SetPoint("TOPLEFT", 12, -54)
     frame.header:SetWidth(WIDTH - 50)
 
     frame.filter = text(frame, "GameFontDisableSmall")
-    frame.filter:SetPoint("TOPLEFT", 12, -48)
+    frame.filter:SetPoint("TOPLEFT", 12, -68)
     frame.filter:SetWidth(WIDTH - 50)
 
     -- Ein "?" statt einer Legende: die Farben erklaert der Tooltip.
     frame.help = textButton(frame, "?", 18)
-    frame.help:SetPoint("TOPRIGHT", -8, -40)
+    frame.help:SetPoint("TOPRIGHT", -8, -60)
     frame.help:SetScript("OnEnter", function(self)
-        local weights = Council.Weights(Council.Load())
+        local data = Council.Load()
+        local weights = Council.WeightsFor(data, shownCategory)
+        local keys = Council.PartsOf(shownCategory)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Bedarf 0-100")
-        for _, key in ipairs(Council.PARTS) do
+        for _, key in ipairs(keys) do
             local r, g, b = unpack(Council.PART_COLOR[key])
-            GameTooltip:AddDoubleLine(Council.PART_LABEL[key], ("%d%%"):format(math.floor(weights[key] + 0.5)), r, g, b, 1, 1, 1)
+            GameTooltip:AddDoubleLine(Council.PART_LABEL[key], ("%d%%"):format(math.floor((tonumber(weights[key]) or 0) + 0.5)),
+                r, g, b, 1, 1, 1)
         end
         GameTooltip:AddLine(" ")
-        GameTooltip:AddLine("Der Balken zeigt die drei Teile, gewichtet. Über eine Zeile fahren zeigt Details und erhaltene Items.", 1, 1, 1, true)
+        GameTooltip:AddLine(("Der Balken zeigt die %s Teile, gewichtet. Über eine Zeile fahren zeigt Details und erhaltene Items.")
+            :format(#keys == 4 and "vier" or "drei"), 1, 1, 1, true)
+        if Council.IsWeighted(shownCategory) then
+            GameTooltip:AddLine("Items zählen mit ihrem Gewicht (Pkt): Trinkets und BiS-Waffen mehr, häufige Drops weniger "
+                .. "- eingestellt auf der Webseite (Loot-Council, Gewichtung).", 1, 1, 1, true)
+        end
+        GameTooltip:AddLine("Probe/Ersatz: Status im Roster der Kategorie.", 0.45, 0.78, 1.00, true)
         GameTooltip:AddLine("Auf Item-Tooltips steht, wem das Item als BiS fehlt (in der gewählten Kategorie).", 1, 1, 1, true)
         GameTooltip:AddLine("* = vorläufig: Vergaben aus RCLootCouncil/Gargul seit dem letzten Sync sind schon mitgerechnet "
             .. "(orange: eigene Vergaben, grau: nur der Schnitt hat sich verschoben).", 1, 0.55, 0.15, true)
@@ -568,6 +608,7 @@ function EHS:RefreshCouncil()
 
     local category, how
     if data then category, how = Council.ActiveCategory(data, manualId(), autoId) end
+    shownCategory = category
 
     if not data then
         list = {}
@@ -603,7 +644,9 @@ function EHS:RefreshCouncil()
 
     local maxOffset = math.max(0, #list - VISIBLE_ROWS)
     if offset > maxOffset then offset = maxOffset end
-    local weights = Council.Weights(data)
+    local weights = Council.WeightsFor(data, category)
+    local keys = Council.PartsOf(category)
+    local weighted = Council.IsWeighted(category)
     local current = now()
 
     for i = 1, VISIBLE_ROWS do
@@ -614,11 +657,11 @@ function EHS:RefreshCouncil()
             row:Hide()
         else
             row.name:SetText(Council.NameLabel(raider))
-            local widths = Council.Segments(raider, weights, BAR_WIDTH)
-            for _, key in ipairs(Council.PARTS) do
+            local widths = Council.Segments(raider, weights, BAR_WIDTH, keys)
+            for _, key in ipairs(Council.PARTS_V3) do
                 local seg = row.segments[key]
                 -- Eine Textur mit Breite 0 zeigt der Client trotzdem an: dann 1 px, aber unsichtbar.
-                if widths[key] >= 0.5 then
+                if (widths[key] or 0) >= 0.5 then
                     seg:SetWidth(widths[key])
                     seg:SetAlpha(1)
                 else
@@ -629,7 +672,7 @@ function EHS:RefreshCouncil()
             local need = math.floor((tonumber(raider.need) or 0) + 0.5)
             row.need:SetText(Council.Color(("Bedarf %d"):format(need), Council.NeedColor(need))
                 .. Council.ProvisionalMark(raider))
-            row.items:SetText(Council.ItemsLabel(raider.lootCount))
+            row.items:SetText(Council.LootLabel(raider, weighted))
             row.bis:SetText(Council.BisLabel(raider))
             row.last:SetText(Council.FormatAge(raider.lastAwardAt, current))
             row:Show()

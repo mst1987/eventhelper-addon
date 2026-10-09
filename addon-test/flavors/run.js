@@ -19,10 +19,11 @@ const fs = require("fs");
 const path = require("path");
 const { lua, lauxlib, lualib, to_luastring, to_jsstring } = require("fengari");
 const { checkLua, checkToc } = require("./latin1");
-const { buildCouncilFile } = require("../../sync/lib/council");
+const { buildCouncilFile, normalizeCouncil, toLua } = require("../../sync/lib/council");
 const { buildHandoutsFile } = require("../../sync/lib/guildbankHandouts");
 
 const ADDON_NAME = "EventHelperSync";
+const SERVER_V3 = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "fixtures", "council-v3-server.json"), "utf8"));
 const ADDON_DIR = path.join(__dirname, "..", "..", "addon", ADDON_NAME);
 const FLAVORS = ["anniversary", "forever"];
 
@@ -242,6 +243,8 @@ function newState(flavor, fixtures) {
     setGlobalString(L, "__TOC_VERSION", tocVersion());
     setGlobalString(L, "__COUNCIL_FIXTURE", fixtures.council);
     setGlobalString(L, "__COUNCIL_FIXTURE_V1", fixtures.councilV1);
+    setGlobalString(L, "__COUNCIL_FIXTURE_V3", fixtures.councilV3);
+    setGlobalString(L, "__COUNCIL_V3_CROSS", fixtures.councilV3Cross);
     setGlobalString(L, "__HANDOUTS_FIXTURE", fixtures.handouts);
     runChunk(L, fs.readFileSync(path.join(__dirname, "mock", "wow.lua"), "utf8"), "mock/wow.lua");
     lua.lua_newtable(L);
@@ -277,6 +280,12 @@ function main() {
         council: buildCouncilFile(fixturePayloadV2(), { syncVersion: "test", now: new Date(0) }),
         // ... and what one up to 1.10.0 wrote (version 1, one category).
         councilV1: buildCouncilFile(fixturePayload(), { syncVersion: "test", now: new Date(0) }),
+        // Version 3 straight from the EventHelper server (#670): its real
+        // councilRoster() + councilSyncPayloadV3() with mocked data, written
+        // by this sync tool; plus the award after the sync and what the server
+        // computed with it (../fixtures/council-v3-server.json, generator next to it).
+        councilV3: buildCouncilFile(normalizeCouncil(SERVER_V3.payload), { syncVersion: "test", now: new Date(0) }),
+        councilV3Cross: `return ${toLua({ award: SERVER_V3.award, now: SERVER_V3.now, expected: SERVER_V3.expected })}`,
         handouts: buildHandoutsFile(handoutsPayload(), { syncVersion: "test", now: new Date(0) }),
     };
     const specDir = path.join(__dirname, "spec");

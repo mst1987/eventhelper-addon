@@ -167,6 +167,6 @@ local help = table.concat(WoWMock.prints, "\n")
 expect(help:find("/ehs council", 1, true), "help lists /ehs council")
 
 -- A newer data version is refused with a hint, not half read.
-EventHelperSync_Council = { format = "eventhelper-council", version = 3, categories = {} }
+EventHelperSync_Council = { format = "eventhelper-council", version = 4, categories = {} }
 EHS:ShowCouncil()
 expect(council.header:GetText():find("neuer als dieses Addon", 1, true), "newer version hint")

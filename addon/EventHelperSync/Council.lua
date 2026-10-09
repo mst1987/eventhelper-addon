@@ -8,11 +8,18 @@ Ordner (Format "eventhelper-council", siehe README). Nach dem naechsten
 
 Version 2: jede Raid-Kategorie, deren Lootsystem auf der Webseite
 Loot-Council ist, mit den Filtern der Loot-Council-Seite (categories = {...}).
-Version 1 (ein aelteres Sync-Tool) hat nur eine Raider-Liste; Load() macht
-daraus eine einzige Kategorie, der Rest der Datei kennt nur Kategorien.
+Version 3 (ab 1.14.0): dazu alle fuenf Rollen (caster, healer, tank, melee,
+ranged), der Roster-Status (Probe/Ersatz), Loot-Punkte, Zugehoerigkeit und je
+Kategorie ihre Gewichtung (weights, itemWeights, itemClasses) - damit rechnet
+ApplyAwards() eine Vergabe nach dem Sync genau wie der Server. Ein Sync-Tool
+schreibt aeltere Antworten als Version 3 ohne Gewichtung (fromVersion); eine
+Kategorie ohne weights rechnet wie bisher mit drei Teilen. Version 1 (ein
+aelteres Sync-Tool) hat nur eine Raider-Liste; Load() macht daraus eine
+einzige Kategorie, der Rest der Datei kennt nur Kategorien.
 
 Pro Raider: Bedarf 0..100 aus drei Teilen (Wartezeit seit dem letzten
-zaehlenden Item, Anteil am Loot im Vergleich zum Schnitt, fehlende BiS-Teile),
+zaehlenden Item, Anteil am Loot im Vergleich zum Schnitt, fehlende BiS-Teile;
+mit Gewichtung ein vierter: Zugehoerigkeit),
 die Items, die er schon bekommen hat, und die Item-IDs der BiS-Teile, die ihm
 noch fehlen. Daraus macht diese Datei:
 
@@ -32,24 +39,39 @@ local Council = {}
 EHS.Council = Council
 
 Council.FORMAT = "eventhelper-council"
-Council.VERSION = 2
+Council.VERSION = 3
 
 -- Die drei Teile des Bedarfs, in der Reihenfolge der Anzeige. Die Gewichte
 -- liefert der Server mit (weights); das hier ist nur der Rueckfall.
 Council.PARTS = { "drought", "share", "need" }
+-- Mit der Gewichtung einer Kategorie (Version 3): dazu die Zugehoerigkeit.
+Council.PARTS_V3 = { "drought", "share", "need", "tenure" }
 local DEFAULT_WEIGHTS = { drought = 50, share = 40, need = 10 }
 
-Council.PART_LABEL = { drought = "Wartezeit", share = "Loot-Anteil", need = "BiS-Lücke" }
+Council.PART_LABEL = { drought = "Wartezeit", share = "Loot-Anteil", need = "BiS-Lücke", tenure = "Zugehörigkeit" }
 Council.PART_HINT = {
     drought = "Wie lange sein letztes zählendes Item her ist.",
     share = "Wie wenig er im Vergleich zum Schnitt bekommen hat.",
     need = "Wie viel seiner BiS-Liste noch fehlt.",
+    tenure = "Wie lange er schon zum Raid gehört.",
 }
 Council.PART_COLOR = {
     drought = { 0.90, 0.60, 0.20 },
     share = { 0.30, 0.62, 0.95 },
     need = { 0.62, 0.42, 0.90 },
+    tenure = { 0.35, 0.78, 0.50 },
 }
+
+-- Die Rollen des Councils (Version 3; Version 1/2 kennen nur caster/healer).
+Council.ROLES = { "caster", "healer", "tank", "melee", "ranged" }
+
+-- Die Gewichte der Item-Klassen, wenn die Daten keine nennen (die Vorgaben
+-- des Servers, councilWeightsStore.js DEFAULTS).
+Council.DEFAULT_CLASS_WEIGHTS = { trinket = 2, bisWeapon = 2, weapon = 1.5, set = 1, normal = 1, frequent = 0.5 }
+-- Deckel der Wartezeit und Saettigung der Zugehoerigkeit in Tagen (Rueckfall).
+local DROUGHT_DAYS = 30
+local TENURE_DAYS = 90
+local DAY = 86400
 
 -- Klassenfarben, falls der Client keine RAID_CLASS_COLORS hat.
 local CLASS_COLORS = {
@@ -93,7 +115,7 @@ end
 
 local function normalizeCategory(raw, index)
     local id = raw.id ~= nil and tostring(raw.id) or tostring(index)
-    return {
+    local category = {
         id = id,
         name = Council.CleanName(raw.name, id),
         lootSystem = raw.lootSystem,
@@ -102,15 +124,26 @@ local function normalizeCategory(raw, index)
         avgLootCount = raw.avgLootCount,
         raiders = raw.raiders,
     }
+    -- Version 3: die Gewichtung der Kategorie. Nur mit `weights.shares` gilt
+    -- sie als da (sonst rechnet die Kategorie wie Version 2).
+    if type(raw.weights) == "table" and type(raw.weights.shares) == "table" then
+        category.weights = raw.weights
+        category.itemWeights = type(raw.itemWeights) == "table" and raw.itemWeights or {}
+        category.itemClasses = type(raw.itemClasses) == "table" and raw.itemClasses or {}
+        category.avgLootPoints = raw.avgLootPoints
+    end
+    return category
 end
 
 -- Load() baut die Kategorien einmal je Datentabelle (die aendert sich nur
 -- mit einem /reload) - und dieselbe Tabelle haelt die Caches darunter.
 local loadedCache = setmetatable({}, { __mode = "k" })
 
---- Die Council-Daten, sofern brauchbar, immer in der Form von Version 2:
--- { format, version = 2, generatedAt, weights, categories = { {id, name,
--- filter, instances, avgLootCount, raiders}, ... }, fromVersion }.
+--- Die Council-Daten, sofern brauchbar, immer in der Form von Version 3:
+-- { format, version = 3, generatedAt, weights, categories = { {id, name,
+-- filter, instances, avgLootCount, raiders [, weights, itemWeights,
+-- itemClasses, avgLootPoints]}, ... }, fromVersion }. Gelesen werden
+-- Version 1, 2 und 3.
 -- @param raw optional, sonst die globale Variable aus CouncilData.lua
 -- @return data|nil, status  status: "ok" | "none" | "format" | "version"
 function Council.Load(raw)
@@ -262,6 +295,29 @@ function Council.Weights(data)
     return weights
 end
 
+--- Hat die Kategorie ihre eigene Gewichtung (Version 3)?
+function Council.IsWeighted(category)
+    return type(category) == "table" and type(category.weights) == "table"
+        and type(category.weights.shares) == "table"
+end
+
+--- Die Teile des Bedarfs einer Kategorie: mit Gewichtung vier, sonst drei.
+function Council.PartsOf(category)
+    return Council.IsWeighted(category) and Council.PARTS_V3 or Council.PARTS
+end
+
+--- Die Gewichte in Prozent fuer Balken und Legende: die der Kategorie
+--- (Version 3), sonst die der Daten (Council.Weights).
+function Council.WeightsFor(data, category)
+    if not Council.IsWeighted(category) then return Council.Weights(data) end
+    local given, shares = category.weights, category.weights.shares
+    local weights = {}
+    for _, key in ipairs(Council.PARTS_V3) do
+        weights[key] = tonumber(given[key]) or (num(shares[key]) * 100)
+    end
+    return weights
+end
+
 local function byNeed(a, b)
     local na, nb = num(a.need), num(b.need)
     if na ~= nb then return na > nb end
@@ -364,12 +420,13 @@ end
 -- Zahlen und Texte
 -- ---------------------------------------------------------------------------
 
---- Breiten der drei Balken-Abschnitte: Gewicht x Teil, zusammen = Bedarf.
--- @return { drought = px, share = px, need = px }
-function Council.Segments(raider, weights, width)
+--- Breiten der Balken-Abschnitte: Gewicht x Teil, zusammen = Bedarf.
+-- @param keys die Teile (Council.PartsOf), sonst die drei von Version 2
+-- @return { drought = px, share = px, need = px [, tenure = px] }
+function Council.Segments(raider, weights, width, keys)
     local parts = type(raider) == "table" and type(raider.parts) == "table" and raider.parts or {}
     local out = {}
-    for _, key in ipairs(Council.PARTS) do
+    for _, key in ipairs(keys or Council.PARTS) do
         local part = math.max(0, math.min(100, num(parts[key])))
         out[key] = width * (num(weights[key]) / 100) * (part / 100)
     end
@@ -401,7 +458,42 @@ function Council.Header(data, now)
     return ("Stand: %s, %s"):format(Council.FormatStamp(at), Council.FormatAge(at, now))
 end
 
-Council.ROLE_LABEL = { caster = "Caster", healer = "Heiler" }
+Council.ROLE_LABEL = { caster = "Caster", healer = "Heiler", tank = "Tank", melee = "Nahkampf", ranged = "Fernkampf" }
+
+-- Der Roster-Status als Abzeichen (Version 3). Stamm bekommt keins: Stamm und
+-- Probe sind beide Kandidaten, Probe ist nur ein Hinweis; Ersatz steht nur da,
+-- wenn die Webseite ihn mitschickt.
+Council.STATUS_LABEL = { trial = "Probe", bench = "Ersatz" }
+Council.STATUS_COLOR = { trial = { 0.45, 0.78, 1.00 }, bench = { 0.70, 0.70, 0.70 } }
+
+--- "Probe"/"Ersatz" in seiner Farbe, sonst "".
+function Council.StatusBadge(raider)
+    local status = type(raider) == "table" and raider.status or nil
+    local label = Council.STATUS_LABEL[status]
+    if not label then return "" end
+    return Council.Color(label, unpack(Council.STATUS_COLOR[status]))
+end
+
+--- "3,5 Pkt" (deutsches Komma, ganze Zahlen ohne Nachkommastelle).
+function Council.PointsLabel(points)
+    local value = math.floor(num(points) * 10 + 0.5) / 10
+    local textValue
+    if value == math.floor(value) then
+        textValue = ("%d"):format(value)
+    else
+        textValue = (("%.1f"):format(value):gsub("%.", ","))
+    end
+    return textValue .. " Pkt"
+end
+
+--- Die Spalte "Items": mit Gewichtung "2 Items · 3,5 Pkt", sonst "2 Items".
+function Council.LootLabel(raider, weighted)
+    local label = Council.ItemsLabel(type(raider) == "table" and raider.lootCount or 0)
+    if weighted and type(raider) == "table" and raider.lootPoints ~= nil then
+        label = label .. " · " .. Council.PointsLabel(raider.lootPoints)
+    end
+    return label
+end
 
 --- Filterzeile einer Kategorie: Name, Rolle (falls die Webseite schon
 -- gefiltert hat), Tiers, BiS-Stufe.
@@ -477,9 +569,12 @@ function Council.Color(text, r, g, b)
     return ("|cff%02x%02x%02x%s|r"):format(hex(r), hex(g), hex(b), tostring(text))
 end
 
---- "Gemli" in Klassenfarbe, dahinter die Spezialisierung in grau.
+--- "Gemli" in Klassenfarbe, dahinter das Status-Abzeichen (Probe/Ersatz) und
+--- die Spezialisierung in grau (die wird bei Platzmangel zuerst abgeschnitten).
 function Council.NameLabel(raider)
     local name = Council.Color(raider.character or "?", Council.ClassColor(raider.classFile))
+    local badge = Council.StatusBadge(raider)
+    if badge ~= "" then name = name .. " " .. badge end
     if raider.specLabel and raider.specLabel ~= "" then
         name = name .. " " .. Council.Color(raider.specLabel, 0.6, 0.6, 0.6)
     end
@@ -490,6 +585,8 @@ end
 function Council.TooltipLine(raider)
     local name = Council.Color(raider.character or "?", Council.ClassColor(raider.classFile))
     if raider.specLabel and raider.specLabel ~= "" then name = name .. " (" .. raider.specLabel .. ")" end
+    local badge = Council.StatusBadge(raider)
+    if badge ~= "" then name = name .. " " .. badge end
     return ("%s %s%s - %s"):format(name,
         Council.Color(("Bedarf %d"):format(int(raider.need)), Council.NeedColor(raider.need)),
         Council.ProvisionalMark(raider), Council.ItemsLabel(raider.lootCount))
@@ -631,6 +728,118 @@ function Council.NeedScore(row, avg, weights)
     }
 end
 
+-- ---------------------------------------------------------------------------
+-- Mit der Gewichtung einer Kategorie (Version 3)
+-- ---------------------------------------------------------------------------
+--
+-- Nachgebaut aus dem EventHelper:
+--   src/services/loot/itemWeights.js  itemClass(), itemWeight()
+--   src/web/loot/lootCouncil.js       droughtDays()/droughtCounter(), needScore()
+--   src/web/loot/councilSync.js       raiderViewV3() (droughtBase, Rundung)
+
+local function round1(x) return math.floor(x * 10 + 0.5) / 10 end
+
+local function idKey(itemId)
+    local id = tonumber(itemId)
+    if not id then return "" end
+    return ("%d"):format(id)
+end
+
+local function inList(list, itemId)
+    local id = tonumber(itemId)
+    if type(list) ~= "table" or not id then return false end
+    for _, v in ipairs(list) do
+        if tonumber(v) == id then return true end
+    end
+    return false
+end
+
+--- Die Klasse eines Items fuer diesen Raider, wie itemClass() des Servers:
+--- eine Ausnahme der Kategorie (itemWeights.overrides) vor allem; eine Waffe
+--- auf seiner BiS-Liste (bisWeapons) ist "bisWeapon"; sonst die Klasse aus
+--- itemClasses der Kategorie; ein unbekanntes Item ist "normal".
+-- @return Klasse ("override" | "frequent" | "trinket" | "bisWeapon" | "weapon" | "set" | "normal")
+function Council.ItemClass(category, raider, itemId)
+    local key = idKey(itemId)
+    local itemWeights = type(category) == "table" and type(category.itemWeights) == "table" and category.itemWeights or {}
+    local overrides = type(itemWeights.overrides) == "table" and itemWeights.overrides or {}
+    if key ~= "" and tonumber(overrides[key]) then return "override" end
+    local classes = type(category) == "table" and type(category.itemClasses) == "table" and category.itemClasses or {}
+    local cls = classes[key] or "normal"
+    if cls == "weapon" and type(raider) == "table" and inList(raider.bisWeapons, itemId) then cls = "bisWeapon" end
+    return cls
+end
+
+--- Das Gewicht einer Vergabe an diesen Raider (itemWeight() des Servers).
+-- @return weight, class
+function Council.ItemWeight(category, raider, itemId)
+    local cls = Council.ItemClass(category, raider, itemId)
+    local itemWeights = type(category) == "table" and type(category.itemWeights) == "table" and category.itemWeights or {}
+    if cls == "override" then return tonumber(itemWeights.overrides[idKey(itemId)]), cls end
+    local classes = type(itemWeights.classes) == "table" and itemWeights.classes or {}
+    local weight = tonumber(classes[cls])
+    if weight == nil then weight = Council.DEFAULT_CLASS_WEIGHTS[cls] or 1 end
+    return weight, cls
+end
+
+local function droughtCap(category)
+    return tonumber(category.weights.droughtDays) or DROUGHT_DAYS
+end
+
+--- Der Zaehler der Wartezeit direkt nach der neuesten zaehlenden Vergabe
+--- (droughtBase vom Server; aeltere Daten: aus droughtDays und den Tagen seit).
+local function droughtBaseOf(raider)
+    local base = tonumber(raider.droughtBase)
+    if base then return base end
+    local days = tonumber(raider.daysSinceLoot) or -1
+    return math.max(0, num(raider.droughtDays) - math.max(0, days))
+end
+
+--- Eine zaehlende Vergabe in Punkte und Wartezeit einrechnen, wie
+--- droughtCounter() des Servers: vor ihr waechst der Zaehler um die Tage seit
+--- der letzten Vergabe (gedeckelt; ohne Vergabe ist er voll), dann wird er
+--- mit max(0, 1 - Gewicht) malgenommen. Vor dem Setzen von lastAwardAt rufen.
+-- @return weight, class
+local function weighAward(category, raider, award)
+    local weight, cls = Council.ItemWeight(category, raider, award.itemId)
+    raider.lootPoints = round1(num(raider.lootPoints) + weight)
+    local cap = droughtCap(category)
+    local at, last = num(award.awardedAt), num(raider.lastAwardAt)
+    local before = cap
+    if last > 0 then before = math.min(cap, droughtBaseOf(raider) + (at - last) / DAY) end
+    raider.droughtBase = before * math.max(0, 1 - weight)
+    return weight, cls
+end
+
+--- Der Bedarf eines Raiders wie needScore() des Servers mit der Gewichtung
+--- der Kategorie, in der Form der Council-Daten (0..100, wie raiderViewV3()).
+-- @param row { droughtDays, lootPoints, tenureDays, bis = { owned, total } }
+-- @param avgPoints Durchschnitt der Loot-Punkte der Kategorie
+-- @param weights category.weights ({ shares, droughtDays, tenureDays })
+-- @return need, parts (mit tenure)
+function Council.NeedScoreV3(row, avgPoints, weights)
+    local shares = type(weights) == "table" and type(weights.shares) == "table" and weights.shares or {}
+    local cap = tonumber(weights and weights.droughtDays) or DROUGHT_DAYS
+    local saturation = tonumber(weights and weights.tenureDays) or TENURE_DAYS
+    local days = tonumber(row.droughtDays) or cap
+    local drought = math.min(1, days / cap)
+    local points = num(row.lootPoints)
+    local share = 0.5
+    if avgPoints > 0 then share = math.max(0, math.min(1, (avgPoints - points) / math.max(1, avgPoints))) end
+    local bis = type(row.bis) == "table" and row.bis or {}
+    local total, owned = num(bis.total), num(bis.owned)
+    local need = 0.5
+    if total > 0 then need = 1 - (owned / total) end
+    local tenure = math.min(1, math.max(0, num(row.tenureDays)) / math.max(1, saturation))
+    -- Dieselbe Reihenfolge wie der Server, damit die Summe bitgleich ist.
+    local score = num(shares.drought) * drought + num(shares.share) * share + num(shares.need) * need
+        + num(shares.tenure) * tenure
+    return pct(round3(score)), {
+        drought = pct(round3(drought)), share = pct(round3(share)), need = pct(round3(need)),
+        tenure = pct(round3(tenure)),
+    }
+end
+
 --- "Coilfang: Serpentshrine Cavern-25 Player" -> "Coilfang: Serpentshrine Cavern"
 local function cleanInstance(raw)
     return (tostring(raw or ""):gsub("%-%d+ Player$", ""):gsub("%-%s*$", ""))
@@ -699,7 +908,9 @@ local function raidersByName(category)
 end
 
 --- Eine Vergabe auf eine Raider-Kopie anwenden (Regeln wie rosterRow()).
-local function applyToRaider(raider, award)
+-- Mit Gewichtung (Version 3) zaehlt sie mit ihrem Gewicht in Punkten und
+-- Wartezeit (weighAward), sonst wie bisher als ein Item.
+local function applyToRaider(category, raider, award)
     local reason = award.reason
     local counts = Council.CountsAsLoot(reason)
     raider.provisional = raider.provisional or { awards = {}, counted = 0, other = 0 }
@@ -709,6 +920,9 @@ local function applyToRaider(raider, award)
     }
     table.insert(raider.provisional.awards, entry)
     if counts then
+        if Council.IsWeighted(category) then
+            entry.weight, entry.weightClass = weighAward(category, raider, award)
+        end
         raider.provisional.counted = raider.provisional.counted + 1
         raider.lootCount = num(raider.lootCount) + 1
         raider.lootTotal = num(raider.lootTotal) + 1
@@ -719,6 +933,7 @@ local function applyToRaider(raider, award)
         table.insert(raider.items, 1, {
             itemId = award.itemId, itemName = award.itemName or "", awardedAt = award.awardedAt,
             boss = award.boss or "", reason = entry.reason, provisional = true,
+            weight = entry.weight, weightClass = entry.weightClass,
         })
     else
         raider.provisional.other = raider.provisional.other + 1
@@ -742,8 +957,45 @@ local function applyToRaider(raider, award)
     end
 end
 
+--- Mit Gewichtung: Wartezeit, Tage seit dem letzten Item und Zugehoerigkeit
+--- aller Raider zum Zeitpunkt `now`, dann Schnitt der Punkte und Bedarf neu -
+--- wie der Server es zu diesem Zeitpunkt rechnen wuerde (rosterRow(),
+--- droughtDays(), tenureDays(), scoreRows()).
+local function rescoreWeighted(category, now)
+    local cap = droughtCap(category)
+    local sum, count = 0, 0
+    for _, raider in ipairs(category.raiders) do
+        if type(raider) == "table" then
+            local last = num(raider.lastAwardAt)
+            if last > 0 then
+                local days = math.floor((now - last) / DAY)
+                raider.daysSinceLoot = days
+                raider.droughtDays = round1(math.min(cap, droughtBaseOf(raider) + days))
+            else
+                raider.daysSinceLoot = -1
+                raider.droughtDays = cap
+            end
+            local joined = num(raider.joinedAt)
+            raider.tenureDays = joined > 0 and math.max(0, math.floor((now - joined) / DAY)) or 0
+            sum = sum + num(raider.lootPoints)
+            count = count + 1
+        end
+    end
+    local avg = count > 0 and sum / count or 0
+    category.avgLootPoints = round1(avg)
+    for _, raider in ipairs(category.raiders) do
+        if type(raider) == "table" then
+            local need, parts = Council.NeedScoreV3(raider, avg, category.weights)
+            if need ~= num(raider.need) then raider.needBefore = num(raider.need) end
+            raider.need = need
+            raider.parts = parts
+        end
+    end
+end
+
 --- Schnitt, Bedarf und Teile aller Raider einer Kategorie neu (scoreRows()).
-local function rescore(category, weights)
+local function rescore(category, weights, now)
+    if Council.IsWeighted(category) then return rescoreWeighted(category, now) end
     local sum, count = 0, 0
     for _, raider in ipairs(category.raiders) do
         if type(raider) == "table" then
@@ -794,13 +1046,20 @@ end
 -- der Kategorie liegt (es zaehlt immer), und Raider, die erst durch diese
 -- Vergabe in die Kategorie kaemen (sie fehlen, bis der Sync sie bringt).
 --
+-- Mit Gewichtung der Kategorie (Version 3) wie der Server: die Vergabe zaehlt
+-- mit dem Gewicht ihrer Item-Klasse in Punkten und Wartezeit (Teil-
+-- Rueckstellung), und alle Raider der Kategorie werden zum Zeitpunkt `now`
+-- gerechnet (Tage seit dem letzten Item, Zugehoerigkeit).
+--
 -- @param data aus Load() - bleibt unveraendert
 -- @param awards Liste von Vergaben (beliebige Reihenfolge, bleiben unveraendert)
+-- @param now optional (time()): Zeitpunkt der Neuberechnung mit Gewichtung;
+--   ohne: generatedAt bzw. die neueste Vergabe, wenn die spaeter liegt
 -- @return data (dieselbe Tabelle, wenn nichts passt) oder eine Kopie mit
 --   provisional = { count, since, awards, unmatched } und je betroffener
 --   Kategorie provisional = Anzahl; geaenderte Raider tragen provisional =
 --   { awards, counted, other } bzw. needBefore.
-function Council.ApplyAwards(data, awards)
+function Council.ApplyAwards(data, awards, now)
     if type(data) ~= "table" or type(awards) ~= "table" or #awards == 0 then return data end
     local since = num(data.generatedAt)
     if since <= 0 then return data end
@@ -844,6 +1103,8 @@ function Council.ApplyAwards(data, awards)
     for k, v in pairs(data) do out[k] = v end
     out.categories = {}
     local weights = Council.Weights(data)
+    -- Der Zeitpunkt der Neuberechnung: nie vor der neuesten Vergabe.
+    local at = math.max(num(now), since, num(applied[#applied].awardedAt))
     for i, category in ipairs(data.categories) do
         local steps = plan[category]
         if not steps then
@@ -861,14 +1122,29 @@ function Council.ApplyAwards(data, awards)
                     copy.raiders[j] = raider
                 end
             end
-            for _, step in ipairs(steps) do applyToRaider(copies[step.raider], step.award) end
+            for _, step in ipairs(steps) do applyToRaider(copy, copies[step.raider], step.award) end
             copy.provisional = #steps
-            rescore(copy, weights)
+            rescore(copy, weights, at)
             out.categories[i] = copy
         end
     end
     out.provisional = { count = #applied, since = since, awards = applied, unmatched = unmatched }
     return out
+end
+
+--- Eine Kategorie zum Zeitpunkt `now` neu gerechnet, ohne neue Vergaben (eine
+--- Kopie; die Daten bleiben unveraendert). Mit Gewichtung genau die Rechnung
+--- von ApplyAwards() - mit now = generatedAt ergibt sie die Zahlen des Servers.
+function Council.Recompute(category, now, data)
+    if type(category) ~= "table" or type(category.raiders) ~= "table" then return category end
+    local copy = {}
+    for k, v in pairs(category) do copy[k] = v end
+    copy.raiders = {}
+    for i, raider in ipairs(category.raiders) do
+        copy.raiders[i] = type(raider) == "table" and copyRaider(raider) or raider
+    end
+    rescore(copy, Council.Weights(data), num(now))
+    return copy
 end
 
 --- Hat sich an diesem Raider vorlaeufig etwas geaendert?

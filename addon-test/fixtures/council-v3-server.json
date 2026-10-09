@@ -1,0 +1,687 @@
+{
+  "_about": "Generated from the EventHelper server's real councilRoster() + councilSyncPayloadV3() (#670) with mocked data sources; generator: addon-test/fixtures/council-v3-server.gen.test.js.",
+  "payload": {
+    "format": "eventhelper-council",
+    "version": 3,
+    "generatedAt": 1791397800,
+    "weights": {
+      "drought": 33,
+      "share": 29,
+      "need": 14,
+      "tenure": 24,
+      "shares": {
+        "drought": 0.3333333333333333,
+        "share": 0.2857142857142857,
+        "need": 0.14285714285714285,
+        "tenure": 0.23809523809523808
+      },
+      "droughtDays": 30,
+      "tenureDays": 60,
+      "scope": "category"
+    },
+    "categories": [
+      {
+        "id": "c1",
+        "name": "SSC/TK Mittwoch",
+        "lootSystem": "lootcouncil",
+        "filter": {
+          "role": "",
+          "tiers": [],
+          "contents": [],
+          "bisTier": "t5",
+          "bisTierDerived": true,
+          "version": "tbc"
+        },
+        "instances": [
+          {
+            "id": "ssc",
+            "name": "Höhle des Schlangenschreins",
+            "short": "SSC",
+            "zoneNames": []
+          },
+          {
+            "id": "tk",
+            "name": "Festung der Stürme — Das Auge",
+            "short": "TK",
+            "zoneNames": []
+          }
+        ],
+        "avgLootCount": 1.5,
+        "avgLootPoints": 2.3,
+        "weights": {
+          "drought": 33,
+          "share": 29,
+          "need": 14,
+          "tenure": 24,
+          "shares": {
+            "drought": 0.3333333333333333,
+            "share": 0.2857142857142857,
+            "need": 0.14285714285714285,
+            "tenure": 0.23809523809523808
+          },
+          "droughtDays": 30,
+          "tenureDays": 60,
+          "scope": "category"
+        },
+        "itemWeights": {
+          "classes": {
+            "trinket": 3,
+            "bisWeapon": 2,
+            "weapon": 1.5,
+            "set": 1,
+            "normal": 1,
+            "frequent": 0.5
+          },
+          "overrides": {
+            "30099": 2.5
+          }
+        },
+        "itemClasses": {
+          "29924": "weapon",
+          "29948": "weapon",
+          "29949": "weapon",
+          "29962": "weapon",
+          "29981": "weapon",
+          "29982": "weapon",
+          "29988": "weapon",
+          "29993": "weapon",
+          "29996": "weapon",
+          "30020": "frequent",
+          "30021": "frequent",
+          "30022": "frequent",
+          "30023": "frequent",
+          "30024": "frequent",
+          "30025": "frequent",
+          "30026": "frequent",
+          "30027": "frequent",
+          "30028": "frequent",
+          "30029": "frequent",
+          "30030": "frequent",
+          "30058": "weapon",
+          "30080": "weapon",
+          "30082": "weapon",
+          "30090": "weapon",
+          "30095": "weapon",
+          "30103": "weapon",
+          "30105": "weapon",
+          "30108": "weapon",
+          "30236": "set",
+          "30237": "set",
+          "30238": "set",
+          "30239": "set",
+          "30240": "set",
+          "30241": "set",
+          "30242": "set",
+          "30243": "set",
+          "30244": "set",
+          "30245": "set",
+          "30246": "set",
+          "30247": "set",
+          "30248": "set",
+          "30249": "set",
+          "30250": "set",
+          "30311": "weapon",
+          "30312": "weapon",
+          "30313": "weapon",
+          "30316": "weapon",
+          "30317": "weapon",
+          "30318": "weapon",
+          "30449": "trinket",
+          "30450": "trinket",
+          "30619": "trinket",
+          "30620": "frequent",
+          "30626": "trinket",
+          "30627": "trinket",
+          "30629": "trinket",
+          "30665": "trinket",
+          "30720": "trinket",
+          "32944": "weapon"
+        },
+        "raiders": [
+          {
+            "key": "neu",
+            "character": "Neu",
+            "classFile": "MAGE",
+            "specLabel": "Arkan-Magier",
+            "role": "caster",
+            "need": 77,
+            "parts": {
+              "drought": 100,
+              "share": 100,
+              "need": 100,
+              "tenure": 5
+            },
+            "lootCount": 0,
+            "lootTotal": 0,
+            "otherCount": 0,
+            "lastAwardAt": 0,
+            "daysSinceLoot": -1,
+            "bis": {
+              "tier": "t5",
+              "source": "wowsims",
+              "owned": 0,
+              "total": 16,
+              "missing": [
+                30206,
+                30015,
+                30210,
+                29992,
+                30196,
+                29918,
+                29987,
+                30038,
+                30207,
+                30067,
+                29287,
+                29302,
+                30720,
+                29370,
+                29988,
+                28783
+              ]
+            },
+            "items": [],
+            "status": "trial",
+            "lootPoints": 0,
+            "droughtDays": 30,
+            "droughtBase": 30,
+            "joinedAt": 1791138600,
+            "tenureDays": 3,
+            "bisWeapons": [
+              29988,
+              28783
+            ]
+          },
+          {
+            "key": "schild",
+            "character": "Schild",
+            "classFile": "PALADIN",
+            "specLabel": "Schutz-Paladin",
+            "role": "tank",
+            "need": 55,
+            "parts": {
+              "drought": 20,
+              "share": 36,
+              "need": 100,
+              "tenure": 100
+            },
+            "lootCount": 1,
+            "lootTotal": 1,
+            "otherCount": 0,
+            "lastAwardAt": 1790875800,
+            "daysSinceLoot": 6,
+            "bis": {
+              "tier": "t5",
+              "source": "wowsims",
+              "owned": 0,
+              "total": 17,
+              "missing": [
+                30125,
+                30007,
+                29070,
+                29925,
+                29066,
+                32515,
+                30124,
+                30096,
+                30126,
+                32267,
+                30083,
+                28407,
+                29370,
+                28789,
+                30095,
+                28825,
+                27917
+              ]
+            },
+            "items": [
+              {
+                "itemId": 30103,
+                "itemName": "Item 30103",
+                "awardedAt": 1790875800,
+                "boss": "Illidan",
+                "reason": "Mainspec",
+                "event": "SSC/TK Mittwoch",
+                "weight": 1.5,
+                "weightClass": "weapon"
+              }
+            ],
+            "status": "core",
+            "lootPoints": 1.5,
+            "droughtDays": 6,
+            "droughtBase": 0,
+            "joinedAt": 1774117800,
+            "tenureDays": 200,
+            "bisWeapons": [
+              30095
+            ]
+          },
+          {
+            "key": "gemli",
+            "character": "Gemli",
+            "classFile": "PRIEST",
+            "specLabel": "Schattenpriester",
+            "role": "caster",
+            "need": 48,
+            "parts": {
+              "drought": 30,
+              "share": 0,
+              "need": 100,
+              "tenure": 100
+            },
+            "lootCount": 3,
+            "lootTotal": 3,
+            "otherCount": 0,
+            "lastAwardAt": 1791131400,
+            "daysSinceLoot": 3,
+            "bis": {
+              "tier": "t5",
+              "source": "wowsims",
+              "owned": 0,
+              "total": 17,
+              "missing": [
+                30161,
+                30666,
+                30163,
+                29992,
+                30107,
+                24692,
+                28780,
+                30038,
+                29972,
+                21870,
+                30109,
+                29922,
+                38290,
+                29370,
+                28770,
+                29272,
+                29982
+              ]
+            },
+            "items": [
+              {
+                "itemId": 30021,
+                "itemName": "Item 30021",
+                "awardedAt": 1791131400,
+                "boss": "Illidan",
+                "reason": "Mainspec",
+                "event": "SSC/TK Mittwoch",
+                "weight": 0.5,
+                "weightClass": "frequent"
+              },
+              {
+                "itemId": 30626,
+                "itemName": "Item 30626",
+                "awardedAt": 1790083800,
+                "boss": "Illidan",
+                "reason": "Mainspec",
+                "event": "SSC/TK Mittwoch",
+                "weight": 3,
+                "weightClass": "trinket"
+              },
+              {
+                "itemId": 29982,
+                "itemName": "Item 29982",
+                "awardedAt": 1787952600,
+                "boss": "Illidan",
+                "reason": "Mainspec",
+                "event": "SSC/TK Mittwoch",
+                "weight": 2,
+                "weightClass": "bisWeapon"
+              }
+            ],
+            "status": "core",
+            "lootPoints": 5.5,
+            "droughtDays": 9.1,
+            "droughtBase": 6.0625,
+            "joinedAt": 1781029800,
+            "tenureDays": 120,
+            "bisWeapons": [
+              28770,
+              29982
+            ]
+          },
+          {
+            "key": "messer",
+            "character": "Messer",
+            "classFile": "ROGUE",
+            "specLabel": "Kampf-Schurke",
+            "role": "melee",
+            "need": 44,
+            "parts": {
+              "drought": 34,
+              "share": 36,
+              "need": 100,
+              "tenure": 33
+            },
+            "lootCount": 2,
+            "lootTotal": 2,
+            "otherCount": 0,
+            "lastAwardAt": 1791239400,
+            "daysSinceLoot": 1,
+            "bis": {
+              "tier": "t5",
+              "source": "wowsims",
+              "owned": 0,
+              "total": 17,
+              "missing": [
+                30146,
+                29381,
+                30149,
+                28672,
+                30101,
+                29966,
+                30145,
+                30106,
+                30148,
+                28545,
+                30052,
+                29997,
+                28830,
+                30450,
+                30082,
+                32027,
+                29949
+              ]
+            },
+            "items": [
+              {
+                "itemId": 30022,
+                "itemName": "Item 30022",
+                "awardedAt": 1791239400,
+                "boss": "Illidan",
+                "reason": "Mainspec",
+                "event": "SSC/TK Mittwoch",
+                "weight": 0.5,
+                "weightClass": "frequent"
+              },
+              {
+                "itemId": 30101,
+                "itemName": "Item 30101",
+                "awardedAt": 1789669800,
+                "boss": "Illidan",
+                "reason": "Mainspec",
+                "event": "SSC/TK Mittwoch",
+                "weight": 1,
+                "weightClass": "normal"
+              }
+            ],
+            "status": "trial",
+            "lootPoints": 1.5,
+            "droughtDays": 10.1,
+            "droughtBase": 9.083333,
+            "joinedAt": 1789669800,
+            "tenureDays": 20,
+            "bisWeapons": [
+              30082,
+              32027,
+              29949
+            ]
+          },
+          {
+            "key": "pfeil",
+            "character": "Pfeil",
+            "classFile": "HUNTER",
+            "specLabel": "Tierherrschafts-Jäger",
+            "role": "ranged",
+            "need": 41,
+            "parts": {
+              "drought": 33,
+              "share": 14,
+              "need": 100,
+              "tenure": 48
+            },
+            "lootCount": 1,
+            "lootTotal": 1,
+            "otherCount": 1,
+            "lastAwardAt": 1790494200,
+            "daysSinceLoot": 10,
+            "bis": {
+              "tier": "t5",
+              "source": "wowsims",
+              "owned": 0,
+              "total": 16,
+              "missing": [
+                30141,
+                29381,
+                30143,
+                29994,
+                30139,
+                29966,
+                30140,
+                30040,
+                29995,
+                30104,
+                29997,
+                30052,
+                29383,
+                28830,
+                29993,
+                30105
+              ]
+            },
+            "items": [
+              {
+                "itemId": 30105,
+                "itemName": "Item 30105",
+                "awardedAt": 1790494200,
+                "boss": "Illidan",
+                "reason": "Mainspec",
+                "event": "SSC/TK Mittwoch",
+                "weight": 2,
+                "weightClass": "bisWeapon"
+              }
+            ],
+            "status": "core",
+            "lootPoints": 2,
+            "droughtDays": 10,
+            "droughtBase": 0,
+            "joinedAt": 1788877800,
+            "tenureDays": 29,
+            "bisWeapons": [
+              29993,
+              30105
+            ]
+          },
+          {
+            "key": "heila",
+            "character": "Heila",
+            "classFile": "PRIEST",
+            "specLabel": "Heilig-Priester",
+            "role": "healer",
+            "need": 41,
+            "parts": {
+              "drought": 27,
+              "share": 0,
+              "need": 100,
+              "tenure": 73
+            },
+            "lootCount": 2,
+            "lootTotal": 2,
+            "otherCount": 0,
+            "lastAwardAt": 1790681400,
+            "daysSinceLoot": 8,
+            "bis": {
+              "tier": "t5",
+              "source": "wowhead",
+              "owned": 0,
+              "total": 17,
+              "missing": [
+                30152,
+                30018,
+                30154,
+                29989,
+                30150,
+                32980,
+                30151,
+                30036,
+                30153,
+                30100,
+                30110,
+                29290,
+                29376,
+                28823,
+                30108,
+                29923,
+                30080
+              ]
+            },
+            "items": [
+              {
+                "itemId": 30099,
+                "itemName": "Item 30099",
+                "awardedAt": 1790681400,
+                "boss": "Illidan",
+                "reason": "Mainspec",
+                "event": "SSC/TK Mittwoch",
+                "weight": 2.5,
+                "weightClass": "override"
+              },
+              {
+                "itemId": 30245,
+                "itemName": "Item 30245",
+                "awardedAt": 1789237800,
+                "boss": "Illidan",
+                "reason": "Mainspec",
+                "event": "SSC/TK Mittwoch",
+                "weight": 1,
+                "weightClass": "set"
+              }
+            ],
+            "status": "core",
+            "lootPoints": 3.5,
+            "droughtDays": 8,
+            "droughtBase": 0,
+            "joinedAt": 1787527800,
+            "tenureDays": 44,
+            "bisWeapons": [
+              30108,
+              30080
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "award": {
+    "player": "Messer-Thunderstrike",
+    "itemId": 30082,
+    "itemName": "Talon of Azshara",
+    "awardedAt": 1791405017,
+    "response": "BiS",
+    "source": "rclc",
+    "boss": "Morogrim Tidewalker",
+    "instance": ""
+  },
+  "now": 1791506820,
+  "expected": {
+    "avgLootPoints": 2.7,
+    "avgLootCount": 1.7,
+    "raiders": [
+      {
+        "key": "neu",
+        "need": 78,
+        "parts": {
+          "drought": 100,
+          "share": 100,
+          "need": 100,
+          "tenure": 7
+        },
+        "lootCount": 0,
+        "lootPoints": 0,
+        "droughtDays": 30,
+        "daysSinceLoot": -1,
+        "tenureDays": 4,
+        "bisOwned": 0,
+        "lastAwardAt": 0
+      },
+      {
+        "key": "schild",
+        "need": 58,
+        "parts": {
+          "drought": 23,
+          "share": 44,
+          "need": 100,
+          "tenure": 100
+        },
+        "lootCount": 1,
+        "lootPoints": 1.5,
+        "droughtDays": 7,
+        "daysSinceLoot": 7,
+        "tenureDays": 201,
+        "bisOwned": 0,
+        "lastAwardAt": 1790875800
+      },
+      {
+        "key": "gemli",
+        "need": 49,
+        "parts": {
+          "drought": 34,
+          "share": 0,
+          "need": 100,
+          "tenure": 100
+        },
+        "lootCount": 3,
+        "lootPoints": 5.5,
+        "droughtDays": 10.1,
+        "daysSinceLoot": 4,
+        "tenureDays": 121,
+        "bisOwned": 0,
+        "lastAwardAt": 1791131400
+      },
+      {
+        "key": "pfeil",
+        "need": 46,
+        "parts": {
+          "drought": 37,
+          "share": 25,
+          "need": 100,
+          "tenure": 50
+        },
+        "lootCount": 1,
+        "lootPoints": 2,
+        "droughtDays": 11,
+        "daysSinceLoot": 11,
+        "tenureDays": 30,
+        "bisOwned": 0,
+        "lastAwardAt": 1790494200
+      },
+      {
+        "key": "heila",
+        "need": 43,
+        "parts": {
+          "drought": 30,
+          "share": 0,
+          "need": 100,
+          "tenure": 77
+        },
+        "lootCount": 2,
+        "lootPoints": 3.5,
+        "droughtDays": 9,
+        "daysSinceLoot": 9,
+        "tenureDays": 46,
+        "bisOwned": 0,
+        "lastAwardAt": 1790681400
+      },
+      {
+        "key": "messer",
+        "need": 23,
+        "parts": {
+          "drought": 3,
+          "share": 0,
+          "need": 94,
+          "tenure": 35
+        },
+        "lootCount": 3,
+        "lootPoints": 3.5,
+        "droughtDays": 1,
+        "daysSinceLoot": 1,
+        "tenureDays": 21,
+        "bisOwned": 1,
+        "lastAwardAt": 1791405017
+      }
+    ]
+  }
+}

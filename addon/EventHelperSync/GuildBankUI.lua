@@ -774,6 +774,7 @@ function EHS:RefreshGuildBankUI()
 end
 
 function EHS:ToggleGuildBankUI()
+    if not self:ModuleOn("guildbank") then return self:ModuleOffNotice("guildbank") end
     if not frame then build() end
     if frame:IsShown() then
         frame:Hide()
@@ -786,6 +787,7 @@ function EHS:ToggleGuildBankUI()
 end
 
 function EHS:ShowGuildBankUI()
+    if not self:ModuleOn("guildbank") then return self:ModuleOffNotice("guildbank") end
     if not frame then build() end
     frame:Show()
     self:RefreshGuildBankUI()

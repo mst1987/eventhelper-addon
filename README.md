@@ -70,6 +70,35 @@ Die Ausgabe nennt beide Quellen und die gefundenen Raid-Sessions:
 [EventHelper]  · 21.07.2026 20:40 — Tempest Keep, 2 Item(s)
 ```
 
+### Module wählen
+
+Das Addon besteht aus drei Teilen, die selten dieselbe Person braucht. Beim ersten Einloggen (auch nach dem Update auf 1.15.0) fragt ein kleines Fenster, welche davon an sein sollen:
+
+```
+ ┌─ EventHelper Sync - Module ───────────────────────────────────┐
+ │ Welche Teile brauchst du? Was aus ist, siehst du im Spiel nicht.│
+ │                                                               │
+ │ [ An ●]  Loot-Sync                                            │
+ │          Loot aus RCLootCouncil und Gargul hochladen …        │
+ │ [● Aus]  Loot-Council                                         │
+ │          Bedarf je Raider, Tooltip, Vorschlag neben RCLC …    │
+ │ [ An ●]  Gildenbank                                           │
+ │          Scan, Ausgabeliste, Post, Entnahme …                 │
+ │                                                               │
+ │ Später ändern: /ehs module            [Später] [Übernehmen]   │
+ └───────────────────────────────────────────────────────────────┘
+```
+
+| Modul | Was dazugehört | Für wen |
+|---|---|---|
+| **Loot-Sync** | Loot sammeln und exportieren, Upload-Knopf, Raid-Abende im Fenster, Rechtsklick an der Minimap | Loot-Verteiler, Raidleitung |
+| **Loot-Council** | Council-Fenster (`/ehc`), Zeilen im Item-Tooltip, [Vorschlag neben RCLootCouncil](#eventhelper-vorschlag-in-rclootcouncil) | der Council |
+| **Gildenbank** | Scan beim Öffnen der Bank, Ausgabeliste (`/ehb`), Post und Entnahme, eigener Minimap-Knopf | Bankverwaltung |
+
+Vorbelegt ist alles **an**, so wie es vor der Frage war. Ein Klick auf die Zeile oder den Schalter schaltet um, mindestens ein Modul muss an bleiben. **Später** speichert nichts und fragt beim nächsten Einloggen wieder. Ändern lässt sich die Wahl jederzeit mit `/ehs module` oder dem Knopf **Module wählen** im EventHelper-Fenster, und zwar **ohne `/reload`**: ein ausgeschaltetes Modul zeigt sofort keine Knöpfe, Tooltip-Zeilen und Fenster mehr, ein eingeschaltetes ist sofort da. Wer ein ausgeschaltetes Modul aufruft (`/ehc`, `/ehb`, …), bekommt im Chat gesagt, wie es wieder angeht. `/ehs status` und `/ehs diag` nennen die Module in der ersten Zeile.
+
+Die Wahl gilt für den ganzen Account (sie steht in den SavedVariables neben allem anderen).
+
 ### Das Fenster im Spiel
 
 Der Knopf an der **Minimap** öffnet es — oder `/ehs`. Es beantwortet auf einen Blick, was sonst niemand sieht:
@@ -125,6 +154,7 @@ Ein normaler Wurf mit der Antwort „PvP/Bank" bleibt dabei drin — der ging ja
 | `/ehs` | das Fenster öffnen |
 | `/ehs upload` | jetzt speichern, statt auszuloggen (lädt die UI neu) |
 | `/ehs status` | dasselbe kurz im Chat |
+| `/ehs module` | [Module wählen](#module-wählen): Loot-Sync, Loot-Council, Gildenbank an/aus |
 | `/ehs diag` | **findet er nichts? Das hier sagt, woran es liegt** |
 | `/ehs minimap` | Minimap-Knopf ein-/ausblenden |
 | `/ehs bankbutton` | Gildenbank-Knopf an der Minimap ein-/ausblenden |
@@ -462,11 +492,11 @@ Eine Zeile **je Spieler** mit bis zu drei Posten (sonst zwei und „+N weitere")
 2. hängt genau die vorgemerkten Mengen an, Schritt für Schritt mit kurzen Pausen: ein passender Stapel wird ganz genommen, von einem grösseren wird erst die Menge in einen freien Taschenplatz abgeteilt (`SplitContainerItem`) und dann angehängt (`ClickSendMailItemButton`); jeder Schritt wartet, bis der Anhang wirklich da ist,
 3. höchstens **12 Anhänge** pro Brief — passt nicht alles hinein, bleibt der Rest offen und die Zeile bietet nach dem Senden wieder „Post" an.
 
-Danach steht in der Zeile in Gold **„in der Post"** / **„Vorbereitet"**. Das Addon ruft **nie** selbst `SendMail` auf — **Senden klickt der Spieler**. Mehrere Zeugen merken sich Empfänger und Anhänge des abgehenden Briefs, alle ohne Taint (`hooksecurefunc` / `HookScript`): der Senden-Knopf (`PreClick` sieht die Anhänge, bevor etwas rausgeht, `OnClick` danach), das globale `SendMail` (das ruft Blizzards `SendMailFrame_SendMail` auf beiden Clients auf) und `C_Mail.SendMail`, falls ein Client es hat. Sie schreiben in **einen** Schnappschuss — ein Brief, den drei Zeugen sehen, wird einmal abgehakt. Bei `MAIL_SEND_SUCCESS` werden genau die vorbereiteten Posten abgehakt, deren Gegenstände wirklich drin waren (`via = "mail"`), und der Chat meldet „Post an Thrall gesendet: 2 Posten abgehakt." plus „Der Server erfährt es erst nach /reload …". Hat kein Zeuge den Klick gesehen, gelten für den vorbereiteten Brief der zuletzt gesehene Empfänger (Empfängerfeld) und die zuletzt gesehenen Anhänge (`MAIL_SEND_INFO_UPDATE`) — nie für einen anderen Empfänger.
+Danach steht in der Zeile in Gold **„in der Post"** / **„Vorbereitet"**. Das Addon ruft **nie** selbst `SendMail` auf — **Senden klickt der Spieler**. Ab 1.15.1 merken sich mehrere Zeugen Empfänger und Anhänge des abgehenden Briefs (ist das Modul Gildenbank aus, tun sie nichts), alle ohne Taint (`hooksecurefunc` / `HookScript`): der Senden-Knopf (`PreClick` sieht die Anhänge, bevor etwas rausgeht, `OnClick` danach), das globale `SendMail` (das ruft Blizzards `SendMailFrame_SendMail` auf beiden Clients auf) und `C_Mail.SendMail`, falls ein Client es hat. Sie schreiben in **einen** Schnappschuss — ein Brief, den drei Zeugen sehen, wird einmal abgehakt. Bei `MAIL_SEND_SUCCESS` werden genau die vorbereiteten Posten abgehakt, deren Gegenstände wirklich drin waren (`via = "mail"`), und der Chat meldet „Post an Thrall gesendet: 2 Posten abgehakt." plus „Der Server erfährt es erst nach /reload …". Hat kein Zeuge den Klick gesehen, gelten für den vorbereiteten Brief der zuletzt gesehene Empfänger (Empfängerfeld) und die zuletzt gesehenen Anhänge (`MAIL_SEND_INFO_UPDATE`) — nie für einen anderen Empfänger.
 
 Still bleibt dabei nichts: wird nichts abgehakt, sagt der Chat warum — „keine vorbereitete Post erkannt" (ein Brief ohne „Post" an jemanden mit offenen Posten; ein Brief an jemand anderen bleibt still), „Post ging an … statt an …", „die Anhänge passten zu keinem vorbereiteten Posten" oder bei `MAIL_FAILED` „Post nicht gesendet".
 
-**Jetzt hochladen (/reload).** Der Server erfährt die Haken erst über die SavedVariables, und die schreibt WoW nur bei `/reload` oder beim Ausloggen. Solange Haken nicht auf der Platte sind, zeigt das Fenster (an Bank und Briefkasten) oben den Knopf **„Jetzt hochladen (/reload)"** und am Briefkasten die Zeile „N Spieler offen - M abgehakt, der Server erfährt es nach /reload". Der Klick speichert und lädt die UI neu (wie `/ehs upload`), danach meldet das Sync-Tool die Haken.
+**Jetzt hochladen (/reload)** (ab 1.15.1). Der Server erfährt die Haken erst über die SavedVariables, und die schreibt WoW nur bei `/reload` oder beim Ausloggen. Solange Haken nicht auf der Platte sind, zeigt das Fenster (an Bank und Briefkasten) oben den Knopf **„Jetzt hochladen (/reload)"** und am Briefkasten die Zeile „N Spieler offen - M abgehakt, der Server erfährt es nach /reload". Der Klick speichert und lädt die UI neu (wie `/ehs upload`), danach meldet das Sync-Tool die Haken.
 
 **Wenn der Client das Anhängen sperrt** (offen bei WoW Forever): Wirft ein Aufruf einen Fehler, bleibt der Cursor leer oder meldet der Client `ADDON_ACTION_BLOCKED`/`ADDON_ACTION_FORBIDDEN` für dieses Addon, hört es auf. Empfänger, Betreff und Text bleiben ausgefüllt, der Chat nennt die Plätze („Tasche 1 Platz 4: 2x Bold Living Ruby (von 5, Shift-Klick teilt den Stapel)") und in den offenen Taschen sind sie gold umrandet — hineinziehen, Senden, abgehakt wird trotzdem. Das merkt sich das Addon für die Sitzung und geht beim nächsten Brief gleich so vor.
 

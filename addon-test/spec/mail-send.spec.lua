@@ -137,3 +137,23 @@ WoWMock.fire("MAIL_FAILED")
 expect(WoWMock.printed("Post nicht gesendet - nichts abgehakt."), "failure line")
 expectEqual(EHS:IsHandedOut("t1"), nil, "nothing ticked on failure")
 expectEqual(WoWMock.mail.addonSendCalls, 0, "never SendMail from the addon")
+
+-- Guild bank module off (Modules.lua): the hooks stay, but nothing is noted,
+-- ticked or said
+EHS.db.modules = { loot = true, council = true, guildbank = true }
+WoWMock.setBags({ [0] = { [3] = { MANA, 1 } } })
+EHS:PrepareMail(group("Thrall"))
+WoWMock.advance(10)
+expectEqual(EHS:PreparedMail().mode, "ready", "prepared with the module on")
+EHS.db.modules.guildbank = false
+WoWMock.prints = {}
+WoWMock.clickSend()
+WoWMock.mailSent()
+expectEqual(EHS:IsHandedOut("t1"), nil, "module off: nothing ticked")
+expectEqual(#WoWMock.prints, 0, "module off: no word")
+SendMailNameEditBox:SetText("Thrall")
+SendMailSubjectEditBox:SetText("Hi")
+WoWMock.clickSend()
+WoWMock.mailSent()
+expectEqual(#WoWMock.prints, 0, "module off: no hint for an unprepared mail either")
+EHS.db.modules.guildbank = true

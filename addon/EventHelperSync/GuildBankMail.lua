@@ -1048,14 +1048,18 @@ end
 
 local hooked = {}
 
+-- The hooks stay once set (hooks cannot be taken back); with the guild bank
+-- module off (Modules.lua) they do nothing.
 local function witness(source, readArg)
     return function(arg)
+        if not EHS:ModuleOn("guildbank") then return end
         local ok, err = pcall(Mail.OnSendMail, readArg and arg or nil, source)
         if not ok then EHS:Debug("Post:", tostring(err)) end
     end
 end
 
 local function noteRecipient(box)
+    if not EHS:ModuleOn("guildbank") then return end
     local text = boxText(box)
     if text ~= "" then state.lastRecipient = text end
 end
@@ -1095,6 +1099,8 @@ end
 local function onOpen()
     Mail.InstallHooks()
     if state.open then return end
+    -- Module off (Modules.lua): the mailbox stays as it is.
+    if not EHS:ModuleOn("guildbank") then return end
     state.open = true
     notify("open")
 end
@@ -1134,6 +1140,12 @@ frame:SetScript("OnEvent", function(_, event, arg1)
     elseif event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
         if arg1 == mailInfoType() then onClose() end
     elseif event == "MAIL_SEND_SUCCESS" then
+        -- Module off: no tick and no word (a snapshot from before is dropped).
+        if not EHS:ModuleOn("guildbank") then
+            state.sent = nil
+            state.lastRecipient = nil
+            return
+        end
         local ok, err = pcall(onSendSuccess)
         if not ok then
             EHS:Print("Post gesendet, aber beim Abhaken ging etwas schief: " .. tostring(err))
@@ -1141,7 +1153,7 @@ frame:SetScript("OnEvent", function(_, event, arg1)
     elseif event == "MAIL_FAILED" then
         if state.sent then
             state.sent = nil
-            EHS:Print("Post nicht gesendet - nichts abgehakt.")
+            if EHS:ModuleOn("guildbank") then EHS:Print("Post nicht gesendet - nichts abgehakt.") end
         end
     elseif event == "MAIL_SEND_INFO_UPDATE" then
         if state.prepared then

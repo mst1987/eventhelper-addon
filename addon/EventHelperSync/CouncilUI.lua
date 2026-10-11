@@ -692,6 +692,7 @@ function EHS:RefreshCouncil()
 end
 
 function EHS:ToggleCouncil()
+    if not self:ModuleOn("council") then return self:ModuleOffNotice("council") end
     if not frame then build() end
     if frame:IsShown() then
         frame:Hide()
@@ -702,6 +703,7 @@ function EHS:ToggleCouncil()
 end
 
 function EHS:ShowCouncil()
+    if not self:ModuleOn("council") then return self:ModuleOffNotice("council") end
     if not frame then build() end
     frame:Show()
     self:RefreshCouncil()
@@ -725,6 +727,8 @@ end
 
 local function addCouncilLines(tooltip, itemId)
     if not tooltip or itemId == nil then return end
+    -- The hook stays once set; with the module off it adds nothing (Modules.lua).
+    if not EHS:ModuleOn("council") then return end
     if issecretvalue and issecretvalue(itemId) then return end
     itemId = tonumber(itemId)
     if not itemId then return end
@@ -860,6 +864,7 @@ end
 
 SLASH_EVENTHELPERCOUNCIL1 = "/ehc"
 SlashCmdList.EVENTHELPERCOUNCIL = function(msg)
+    if not EHS:ModuleOn("council") then return EHS:ModuleOffNotice("council") end
     local text = strtrim(msg or "")
     if text == "" then
         EHS:ToggleCouncil()

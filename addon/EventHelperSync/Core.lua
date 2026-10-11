@@ -45,7 +45,7 @@ local function addonMetadata(field)
     return nil
 end
 
-EHS.version = addonMetadata("Version") or "1.14.1"
+EHS.version = addonMetadata("Version") or "1.15.1"
 
 --- Ereignisse anmelden, ohne dass ein unbekanntes alles abbricht: WoW Forever
 --- wirft bei RegisterEvent mit einem Ereignis, das es nicht kennt.
@@ -118,6 +118,8 @@ end
 -- Abgewählte Raid-Abende zählen nicht mit: für sie lohnt sich kein Reload, sie
 -- werden ohnehin nicht exportiert.
 function EHS:PendingCount()
+    -- Loot-Sync aus (Modules.lua): kein Knopf, kein goldener Ring.
+    if not self:ModuleOn("loot") then return 0 end
     local since = self.db.lastFlushedAt or 0
     local count = 0
     for _, session in ipairs(self:BuildSessions()) do
@@ -142,15 +144,20 @@ function EHS:FlushAndReload()
         return false
     end
 
-    local envelope = self:Rebuild()
     local items = 0
-    for _, session in ipairs(envelope.sessions) do items = items + #session.items end
+    if self:ModuleOn("loot") then
+        local envelope = self:Rebuild()
+        for _, session in ipairs(envelope.sessions) do items = items + #session.items end
+    end
     -- A fresh guild bank scan alone is worth a reload too (GuildBank.lua),
     -- and so are handouts ticked off in game (GuildBankHandouts.lua).
-    local guildBank = self:GuildBankUnsaved()
-    local handouts = self.HandoutsUnsaved and self:HandoutsUnsaved()
+    local bankOn = self:ModuleOn("guildbank")
+    local guildBank = bankOn and self:GuildBankUnsaved()
+    local handouts = bankOn and self.HandoutsUnsaved and self:HandoutsUnsaved()
     if items == 0 and not guildBank and not handouts then
-        self:Print("Nichts zu speichern - es wurde kein Loot gefunden.")
+        self:Print(self:ModuleOn("loot")
+            and "Nichts zu speichern - es wurde kein Loot gefunden."
+            or "Nichts zu speichern.")
         return false
     end
 
@@ -191,13 +198,19 @@ frame:SetScript("OnEvent", function(_, event, arg1)
         EHS:StartButton()
         EHS:StartMinimap()
         -- Council-Tooltip und Kategorie zur Instanz sind eine Zugabe: scheitern
-        -- sie auf einem Client, soll der Rest trotzdem laufen.
-        local ok, err = pcall(EHS.StartCouncil, EHS)
-        if not ok then EHS:Debug("Council:", tostring(err)) end
+        -- sie auf einem Client, soll der Rest trotzdem laufen. Ist das Modul
+        -- aus, holt SetModule (Modules.lua) das beim Einschalten nach.
+        if EHS:ModuleOn("council") then
+            local ok, err = pcall(EHS.StartCouncil, EHS)
+            if not ok then EHS:Debug("Council:", tostring(err)) end
+        end
+        EHS:AskModulesOnce()
         return
     end
 
     if event == "PLAYER_LOGOUT" then
+        -- Loot-Sync aus: den letzten Export stehen lassen, nichts neu bauen.
+        if not EHS:ModuleOn("loot") then return end
         -- Letzte Gelegenheit vor dem Schreiben der SavedVariables.
         local ok, err = pcall(function()
             EHS:Rebuild()
@@ -221,7 +234,7 @@ end)
 SLASH_EVENTHELPERSYNC1 = "/ehs"
 SLASH_EVENTHELPERSYNC2 = "/eventhelper"
 
-local function reportStatus()
+local function reportLoot()
     local envelope = EHS:Rebuild()
     local items = 0
     for _, session in ipairs(envelope.sessions) do
@@ -240,7 +253,9 @@ local function reportStatus()
             session.instance ~= "" and session.instance or "unbekannte Instanz",
             #session.items))
     end
+end
 
+local function reportGuildBank()
     local guildBank = EHS.db.guildBank
     if guildBank and guildBank.scannedAt then
         EHS:Print(("Gildenbank: Stand %s, %d Tabs."):format(
@@ -254,17 +269,26 @@ local function reportStatus()
         if done > 0 then line = line .. (", %d abgehakt (noch nicht gemeldet)"):format(done) end
         EHS:Print(line .. ". Liste: /ehs bank")
     end
+end
+
+local function reportStatus()
+    EHS:Print("Module: " .. EHS:ModuleSummary() .. ". Ändern: /ehs module")
+    if EHS:ModuleOn("loot") then reportLoot() end
+    if EHS:ModuleOn("guildbank") then reportGuildBank() end
 
     -- The council categories, also just an extra.
-    local okCouncil, councilLines = pcall(EHS.CouncilStatusLines, EHS)
-    if okCouncil and type(councilLines) == "table" then
-        for _, line in ipairs(councilLines) do EHS:Print(line) end
+    if EHS:ModuleOn("council") then
+        local okCouncil, councilLines = pcall(EHS.CouncilStatusLines, EHS)
+        if okCouncil and type(councilLines) == "table" then
+            for _, line in ipairs(councilLines) do EHS:Print(line) end
+        end
     end
 
     if EHS.db.lastError then
         EHS:Print("|cffdd4444Letzter Fehler:|r " .. EHS.db.lastError)
     end
 
+    if not EHS:ModuleOn("loot") then return end
     local pending = EHS:PendingCount()
     if pending > 0 then
         EHS:Print(("|cffffd200%d Item(s) liegen noch nicht auf der Platte.|r Mit |cffffd200/ehs upload|r speichern (lädt die UI neu)."):format(pending))
@@ -283,6 +307,8 @@ SlashCmdList.EVENTHELPERSYNC = function(msg)
         EHS:ToggleOptions()
     elseif cmd == "status" then
         reportStatus()
+    elseif cmd == "module" or cmd == "modules" or cmd == "modul" then
+        EHS:ShowModuleChooser()
     elseif cmd == "upload" or cmd == "save" then
         -- Ein getippter Slash-Befehl zählt als Hardware-Event, ReloadUI() ist
         -- von hier aus also erlaubt.
@@ -330,6 +356,7 @@ SlashCmdList.EVENTHELPERSYNC = function(msg)
         EHS:Print("  /ehs            - Fenster mit Status, Raid-Abenden und Einstellungen")
         EHS:Print("  /ehs upload     - jetzt speichern (lädt die UI neu) statt auszuloggen")
         EHS:Print("  /ehs status     - dasselbe kurz im Chat")
+        EHS:Print("  /ehs module     - Module wählen: Loot-Sync, Loot-Council, Gildenbank")
         EHS:Print("  /ehs diag       - warum findet er nichts? Zeigt jede Stufe einzeln")
         EHS:Print("  /ehs minimap    - Minimap-Knopf ein-/ausblenden")
         EHS:Print("  /ehs bankbutton - Gildenbank-Knopf an der Minimap ein-/ausblenden")

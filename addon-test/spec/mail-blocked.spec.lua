@@ -1,5 +1,7 @@
 -- GuildBankMail.lua on a Retail-like client (WoW Forever): mailbox via the
--- interaction manager, C_Container only, the body in MailEditBox - and the
+-- interaction manager, C_Container only, the body in the scrolling
+-- MailEditBox (no SendMailBodyEditBox; the real Forever has one, TBC
+-- Anniversary has MailEditBox - this covers that path) - and the
 -- client blocks the item calls. Once with ADDON_ACTION_BLOCKED (the call does
 -- nothing, the event names the addon), then in a fresh session the same
 -- without an event (the cursor just stays empty).
@@ -41,7 +43,7 @@ WoWMock.advance(10)
 expect(EHS:MailAttachBlocked(), "ADDON_ACTION_BLOCKED for this addon: blocked")
 expectEqual(EHS:PreparedMail().mode, "manual", "by hand")
 expectEqual(SendMailNameEditBox:GetText(), "Zibbo", "recipient")
-expectEqual(MailEditBox.text, "Gildenbank-Ausgabe (EventHelper)\n2x Bold Living Ruby - Gruul\nViel Erfolg!", "body in MailEditBox")
+expectEqual(MailEditBox.text, "Gildenbank-Ausgabe\n2x Bold Living Ruby - Gruul", "body in MailEditBox")
 expect(WoWMock.printed("Tasche 1 Platz 4: 2x Bold Living Ruby"), "slot line")
 expectEqual(WoWMock.cursor, nil, "cursor clean")
 expectEqual(#WoWMock.mail.calls, 1, "stopped at the first blocked call")

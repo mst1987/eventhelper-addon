@@ -458,11 +458,15 @@ Eine Zeile **je Spieler** mit bis zu drei Posten (sonst zwei und „+N weitere")
 
 **„Post"** (nur ausserhalb des Kampfes):
 
-1. wechselt auf „Nachricht senden" und füllt **Empfänger** (`Name`, auf einem anderen Realm `Name-Realm`), **Betreff** „Gildenbank: N Posten" und **Text** (ein Posten je Zeile mit Zweck, nur Latin-1),
+1. wechselt auf „Nachricht senden" und füllt **Empfänger** (`Name`, auf einem anderen Realm `Name-Realm`), **Betreff** „Gildenbank: N Posten" und **Text** (Kopfzeile „Gildenbank-Ausgabe", darunter ein Posten je Zeile mit Zweck, nur Latin-1; was nicht in 500 Zeichen passt, wird zu „+N weitere"),
 2. hängt genau die vorgemerkten Mengen an, Schritt für Schritt mit kurzen Pausen: ein passender Stapel wird ganz genommen, von einem grösseren wird erst die Menge in einen freien Taschenplatz abgeteilt (`SplitContainerItem`) und dann angehängt (`ClickSendMailItemButton`); jeder Schritt wartet, bis der Anhang wirklich da ist,
 3. höchstens **12 Anhänge** pro Brief — passt nicht alles hinein, bleibt der Rest offen und die Zeile bietet nach dem Senden wieder „Post" an.
 
-Danach steht in der Zeile in Gold **„in der Post"** / **„Vorbereitet"**. Das Addon ruft **nie** selbst `SendMail` auf — **Senden klickt der Spieler**. Ein Hook auf `SendMail` (`hooksecurefunc`, ohne Taint) merkt sich Empfänger und Anhänge des abgehenden Briefs; bei `MAIL_SEND_SUCCESS` werden genau die vorbereiteten Posten abgehakt, deren Gegenstände wirklich drin waren (`via = "mail"`), und der Chat meldet „Post an Thrall gesendet: 2 Posten abgehakt.". Bei `MAIL_FAILED` oder wenn der Empfänger vorher geändert wurde, wird nichts abgehakt.
+Danach steht in der Zeile in Gold **„in der Post"** / **„Vorbereitet"**. Das Addon ruft **nie** selbst `SendMail` auf — **Senden klickt der Spieler**. Mehrere Zeugen merken sich Empfänger und Anhänge des abgehenden Briefs, alle ohne Taint (`hooksecurefunc` / `HookScript`): der Senden-Knopf (`PreClick` sieht die Anhänge, bevor etwas rausgeht, `OnClick` danach), das globale `SendMail` (das ruft Blizzards `SendMailFrame_SendMail` auf beiden Clients auf) und `C_Mail.SendMail`, falls ein Client es hat. Sie schreiben in **einen** Schnappschuss — ein Brief, den drei Zeugen sehen, wird einmal abgehakt. Bei `MAIL_SEND_SUCCESS` werden genau die vorbereiteten Posten abgehakt, deren Gegenstände wirklich drin waren (`via = "mail"`), und der Chat meldet „Post an Thrall gesendet: 2 Posten abgehakt." plus „Der Server erfährt es erst nach /reload …". Hat kein Zeuge den Klick gesehen, gelten für den vorbereiteten Brief der zuletzt gesehene Empfänger (Empfängerfeld) und die zuletzt gesehenen Anhänge (`MAIL_SEND_INFO_UPDATE`) — nie für einen anderen Empfänger.
+
+Still bleibt dabei nichts: wird nichts abgehakt, sagt der Chat warum — „keine vorbereitete Post erkannt" (ein Brief ohne „Post" an jemanden mit offenen Posten; ein Brief an jemand anderen bleibt still), „Post ging an … statt an …", „die Anhänge passten zu keinem vorbereiteten Posten" oder bei `MAIL_FAILED` „Post nicht gesendet".
+
+**Jetzt hochladen (/reload).** Der Server erfährt die Haken erst über die SavedVariables, und die schreibt WoW nur bei `/reload` oder beim Ausloggen. Solange Haken nicht auf der Platte sind, zeigt das Fenster (an Bank und Briefkasten) oben den Knopf **„Jetzt hochladen (/reload)"** und am Briefkasten die Zeile „N Spieler offen - M abgehakt, der Server erfährt es nach /reload". Der Klick speichert und lädt die UI neu (wie `/ehs upload`), danach meldet das Sync-Tool die Haken.
 
 **Wenn der Client das Anhängen sperrt** (offen bei WoW Forever): Wirft ein Aufruf einen Fehler, bleibt der Cursor leer oder meldet der Client `ADDON_ACTION_BLOCKED`/`ADDON_ACTION_FORBIDDEN` für dieses Addon, hört es auf. Empfänger, Betreff und Text bleiben ausgefüllt, der Chat nennt die Plätze („Tasche 1 Platz 4: 2x Bold Living Ruby (von 5, Shift-Klick teilt den Stapel)") und in den offenen Taschen sind sie gold umrandet — hineinziehen, Senden, abgehakt wird trotzdem. Das merkt sich das Addon für die Sitzung und geht beim nächsten Brief gleich so vor.
 
@@ -492,6 +496,7 @@ Was noch in der Gildenbank liegt, holt ein Klick auf die Zeile an der offenen Ba
 | Sync-Tool: „… nicht erreichbar" | `baseUrl` prüfen (mit `https://` und Port), Server erreichbar? |
 | WoW an einem ungewöhnlichen Ort installiert | In `~/.eventhelper-sync.json` `savedVariablesPath` direkt auf die Datei zeigen lassen. |
 | In der Inbox steht „mehrere Raids an diesem Tag" | Zwei Raid-Helper-Events am selben Tag — das Event in der Auswahlliste selbst wählen. |
+| Gildenbank-Post gesendet, auf der Webseite aber noch offen | Im Spiel ist sie abgehakt (Chat: „… Posten abgehakt"), der Server erfährt es erst nach `/reload`: „Jetzt hochladen (/reload)" im Ausgabefenster oder `/ehs upload`, dann meldet das Sync-Tool die Haken. Sagt der Chat „nichts abgehakt", steht dort der Grund (nicht über „Post" vorbereitet, anderer Empfänger, Anhänge passten nicht). |
 
 ### `/ehs diag` — warum findet er nichts?
 
@@ -778,7 +783,7 @@ Zurück geht `POST { "done": [{ "id", "via": "manual" | "mail", "by": "Name-Real
 | `RCLCSuggestUI.lua` | EventHelper-Vorschlag neben RCLootCouncils Abstimmung: Haken ins Abstimmungs-Modul, Andocken, `/ehs vorschlag` |
 | `GuildBankData.lua` | Platzhalter; das Sync-Tool überschreibt ihn mit der Gildenbank-Ausgabeliste |
 | `GuildBankHandouts.lua` | Ausgabe-Logik ohne Fenster: Daten prüfen, Banken dieses Charakters, Bestand und Fehlmenge, Abhaken (`guildBankDone`), API für die Post-Ausgabe |
-| `GuildBankMail.lua` | Ausgabe per Post: Briefkasten erkennen, Taschen zählen, Brief ausfüllen und Anhänge planen/anhängen, Fallback bei gesperrtem Anhängen, Abhaken bei `MAIL_SEND_SUCCESS` |
+| `GuildBankMail.lua` | Ausgabe per Post: Briefkasten erkennen, Taschen zählen, Brief ausfüllen und Anhänge planen/anhängen, Fallback bei gesperrtem Anhängen, Senden sehen (Senden-Knopf, `SendMail`, `C_Mail.SendMail`), Abhaken bei `MAIL_SEND_SUCCESS` |
 | `GuildBankWithdraw.lua` | Aus der Gildenbank nehmen (Klick auf eine Zeile): Stapel live lesen, planen (Tageslimit), `AutoStoreGuildBankItem` / `SplitGuildBankItem`, Fallback bei Sperre |
 | `GuildBankUI.lua` | Fenster „Gildenbank-Ausgabe", `/ehs bank`, `/ehb`, öffnet sich mit der Gildenbank und am Briefkasten (Post-Modus) |
 

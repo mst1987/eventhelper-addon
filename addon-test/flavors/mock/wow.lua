@@ -112,7 +112,14 @@ function Widget:Show() self.__shown = true end
 function Widget:Hide() self.__shown = false end
 function Widget:SetShown(shown) self.__shown = shown and true or false end
 function Widget:IsShown() return self.__shown end
-function Widget:SetText(text) self.__text = text end
+function Widget:SetText(text)
+    self.__text = text
+    -- an edit box fires OnTextChanged on SetText too (only hooks here: the
+    -- addon's own boxes must not change behaviour in the older specs)
+    if self.__kind == "EditBox" then
+        for _, fn in ipairs(self.__hooks.OnTextChanged or {}) do fn(self, false) end
+    end
+end
 function Widget:GetText() return self.__text end
 function Widget:SetTextColor(r, g, b) self.__color = { r, g, b } end
 function Widget:SetAlpha(a) self.__alpha = a end
@@ -213,9 +220,14 @@ function WoWMock.Fire(event, ...)
     end
 end
 
+--- A click as the game runs it: PreClick, OnClick, PostClick - each script,
+-- then what HookScript added to it.
 function WoWMock.Click(widget, button)
     assert(widget.__scripts.OnClick, "widget has no OnClick")
-    widget.__scripts.OnClick(widget, button or "LeftButton")
+    for _, script in ipairs({ "PreClick", "OnClick", "PostClick" }) do
+        if widget.__scripts[script] then widget.__scripts[script](widget, button or "LeftButton") end
+        for _, fn in ipairs(widget.__hooks[script] or {}) do fn(widget, button or "LeftButton") end
+    end
 end
 
 function WoWMock.Run(widget, script, ...)
@@ -343,9 +355,11 @@ end
 
 -- Bags, cursor and mail ---------------------------------------------------------------------
 -- Immediate (no locks, no delays; ../mock/wow.lua has the slow client).
--- Anniversary: the old bag globals and SendMailBodyEditBox; Forever:
--- C_Container only and the scrolling MailEditBox. WoWMock.mailBlock = true
--- makes the item calls raise, as a client that forbids them.
+-- Anniversary: the old bag globals and the scrolling MailEditBox (GetInputText);
+-- Forever: C_Container only and SendMailBodyEditBox - as Blizzard's
+-- MailFrame.lua of each client has it (wow-ui-source, branches
+-- classic_anniversary and forever). WoWMock.mailBlock = true makes the item
+-- calls raise, as a client that forbids them.
 
 for _, event in ipairs({ "MAIL_SHOW", "MAIL_CLOSED", "MAIL_SEND_SUCCESS", "MAIL_FAILED", "MAIL_SEND_INFO_UPDATE",
     "BAG_UPDATE_DELAYED", "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN" }) do
@@ -566,12 +580,25 @@ WoWMock.mailTab = 1
 function MailFrameTab_OnClick(_, tab) WoWMock.mailTab = tab end
 newWidget("EditBox", "SendMailNameEditBox")
 newWidget("EditBox", "SendMailSubjectEditBox")
-if FOREVER then newWidget("EditBox", "MailEditBox") else newWidget("EditBox", "SendMailBodyEditBox") end
+if FOREVER then newWidget("EditBox", "SendMailBodyEditBox") else newWidget("EditBox", "MailEditBox") end
 
 function SendMail(recipient, subject, body)
     WoWMock.sendCalls[#WoWMock.sendCalls + 1] = { recipient = recipient, subject = subject, body = body }
     if not WoWMock.playerClicking then WoWMock.addonSendCalls = WoWMock.addonSendCalls + 1 end
 end
+
+--- The body as Blizzard's SendMailFrame_SendMail reads it on this client.
+function WoWMock.MailBody()
+    if FOREVER then return SendMailBodyEditBox:GetText() end
+    return MailEditBox:GetInputText()
+end
+
+-- Blizzard's Send button: OnClick -> SendMailFrame_SendMail -> SendMail.
+function SendMailFrame_SendMail()
+    SendMail(SendMailNameEditBox:GetText(), SendMailSubjectEditBox:GetText(), WoWMock.MailBody())
+end
+newWidget("Button", "SendMailMailButton")
+SendMailMailButton:SetScript("OnClick", function() SendMailFrame_SendMail() end)
 
 function hooksecurefunc(a, b, c)
     local tbl, name, fn = _G, a, b
@@ -585,17 +612,20 @@ function hooksecurefunc(a, b, c)
     end
 end
 
---- The player clicks "Senden", then the server confirms.
+--- The player clicks "Senden", then the server confirms. Blizzard's mail
+-- frame resets the send frame before the addon sees MAIL_SEND_SUCCESS.
 function WoWMock.SendAndConfirm()
     WoWMock.playerClicking = true
-    local body = FOREVER and MailEditBox:GetInputText() or SendMailBodyEditBox:GetText()
-    SendMail(SendMailNameEditBox:GetText(), SendMailSubjectEditBox:GetText(), body)
+    WoWMock.Click(SendMailMailButton)
     WoWMock.playerClicking = false
     for index, a in pairs(WoWMock.attachments) do
         local item = bagSlot(a.bag, a.slot)
         if item then WoWMock.bags[a.bag].slots[a.slot] = nil end
         WoWMock.attachments[index] = nil
     end
+    SendMailNameEditBox:SetText("")
+    SendMailSubjectEditBox:SetText("")
+    if FOREVER then SendMailBodyEditBox:SetText("") else MailEditBox:SetText("") end
     WoWMock.Fire("MAIL_SEND_SUCCESS")
 end
 

@@ -126,6 +126,8 @@ expectEqual(rows[1].count:GetText(), "4 da", "the potions are enough now")
 expectEqual(win.summary:GetText(), "15 Posten offen - 1 abgehakt, wird beim nächsten Sync gemeldet", "summary with ticks")
 expect(win.thumb:IsShown(), "15 rows: still a little scrolling")
 expect(EHS:HandoutsUnsaved(), "worth a reload")
+expectEqual(EHS:HandoutsUnsavedCount(), 1, "one tick not on disk")
+expect(win.upload:IsShown(), "upload button at the guild bank too")
 
 WoWMock.Click(allButton)
 expectEqual(EHS.db.settings.handoutsView, "all", "view remembered")
@@ -142,6 +144,7 @@ WoWMock.Click(rows[1].check)
 expect(EHS.db.guildBankDone[P .. "3"] == nil, "unticked before the sync")
 expect(not rows[1].check.mark:IsShown() and not rows[1].strike:IsShown(), "row back to normal")
 expectEqual(win.summary:GetText(), "16 Posten offen", "summary back")
+expect(not win.upload:IsShown(), "nothing unsaved: no upload button")
 WoWMock.Click(openButton)
 
 -- Tick everything: "Offen" shows the done state

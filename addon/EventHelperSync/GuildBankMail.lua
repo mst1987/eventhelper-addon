@@ -15,10 +15,18 @@ recipient. "Post" then:
   3. stops after 12 attachments (ATTACHMENTS_MAX_SEND); the rest stays open and
      gets its own "Post" after this mail is sent.
 
-The addon never calls SendMail - the player clicks Blizzard's "Senden". A hook
-on SendMail (hooksecurefunc, no taint) notes recipient and attachments of the
-mail that goes out; on MAIL_SEND_SUCCESS exactly the prepared handouts whose
-items were in it are ticked off (via = "mail"), MAIL_FAILED ticks nothing.
+The addon never calls SendMail - the player clicks Blizzard's "Senden". Several
+witnesses note recipient and attachments of the mail that goes out, all without
+taint (hooksecurefunc / HookScript): the Send button (PreClick, OnClick), the
+global SendMail, and C_Mail.SendMail should a client have it. They share one
+snapshot, so a send seen twice is one send. On MAIL_SEND_SUCCESS exactly the
+prepared handouts whose items were in it are ticked off (via = "mail"); if no
+witness saw the click, the recipient and attachments seen last (recipient box,
+MAIL_SEND_INFO_UPDATE) stand in - only for the prepared mail and only with the
+same recipient. MAIL_FAILED ticks nothing. When nothing is ticked, the chat
+says why (no prepared mail, another recipient, attachments did not match);
+after ticking it says that the server learns it after /reload, and the window
+offers "Jetzt hochladen (/reload)".
 
 Whether a Retail-based client (WoW Forever) lets addon code pick up and attach
 items is unknown. If a call errors, leaves the cursor empty or the client fires
@@ -56,8 +64,12 @@ local state = {
     token = 0,        -- invalidates a running preparation
     job = nil,
     prepared = nil,   -- the mail the addon filled: see EHS:PrepareMail
-    sent = nil,       -- snapshot of the mail that went out (SendMail hook)
-    lastSeen = nil,   -- attachments as of the last MAIL_SEND_INFO_UPDATE
+    sent = nil,       -- snapshot of the mail that went out (Mail.OnSendMail)
+    -- attachments of the prepared mail as of the last MAIL_SEND_INFO_UPDATE
+    -- { items, empty, at }, and the last time there were any { items, at }
+    seen = nil,
+    lastFull = nil,
+    lastRecipient = nil, -- the last non-empty text of the recipient box
 }
 
 local function str(value)
@@ -204,17 +216,16 @@ local function entryLine(entry)
     return line
 end
 
---- The mail text: a head line, one line per handout with its purpose, a
--- greeting. Lines that do not fit into Mail.MAX_BODY become "+N weitere".
+--- The mail text: a head line and one line per handout with its purpose.
+-- Lines that do not fit into Mail.MAX_BODY become "+N weitere".
 function Mail.Body(entries)
-    local head, foot = "Gildenbank-Ausgabe (EventHelper)", "Viel Erfolg!"
+    local head = "Gildenbank-Ausgabe"
     local lines = {}
     for _, entry in ipairs(entries) do lines[#lines + 1] = entryLine(entry) end
     local function build(count)
         local out = { head }
         for k = 1, count do out[#out + 1] = lines[k] end
         if count < #lines then out[#out + 1] = ("+%d weitere"):format(#lines - count) end
-        out[#out + 1] = foot
         return table.concat(out, "\n")
     end
     local count = #lines
@@ -854,6 +865,8 @@ function EHS:PrepareMail(group)
     -- a new mail replaces whatever was being prepared
     state.token = state.token + 1
     state.job = nil
+    state.seen = nil
+    state.lastFull = nil
     hideHighlights()
     clearCursor()
 
@@ -870,6 +883,7 @@ function EHS:PrepareMail(group)
     local recipientText = Mail.RecipientName(group)
     showSendTab()
     setBox(_G.SendMailNameEditBox, recipientText)
+    state.lastRecipient = recipientText
     setBox(_G.SendMailSubjectEditBox, Mail.Subject(#plan.entries))
     setBody(Mail.Body(plan.entries))
 
@@ -893,43 +907,193 @@ end
 -- Sending (the player's click) and the result
 -- ---------------------------------------------------------------------------
 
---- Called after the client's SendMail: recipient and attachments of the mail
--- that goes out. The attachments are still in the send frame then; should a
--- client have cleared them already, the last known ones count.
-function Mail.OnSendMail(recipient)
+-- What the chat says after ticking: the server only learns it from the
+-- SavedVariables, and WoW writes them on /reload or logout only (Core.lua).
+Mail.UPLOAD_HINT = "Der Server erfährt es erst nach /reload: \"Jetzt hochladen\" im Ausgabefenster oder /ehs upload."
+
+--- The open handout group whose recipient this is (as in the recipient box),
+-- or nil.
+function Mail.OpenGroupFor(recipient)
+    local key = Mail.RecipientKey(recipient)
+    if key == "" then return nil end
+    local ok, groups = pcall(EHS.GetHandouts, EHS)
+    if not ok or type(groups) ~= "table" then return nil end
+    for _, group in ipairs(groups) do
+        if group.hasCharacter and Mail.RecipientKey(Mail.RecipientName(group)) == key then return group end
+    end
+    return nil
+end
+
+-- How long an emptied send frame still counts as "emptied by this send" (a
+-- client may clear the slots while sending) rather than by the player.
+Mail.SEND_WINDOW = 5
+
+local function clock()
+    return tonumber(try(GetTime)) or time()
+end
+
+--- The attachments of the prepared mail as last seen (MAIL_SEND_INFO_UPDATE).
+-- Emptied just now (within Mail.SEND_WINDOW): the send emptied them, so the
+-- last full set counts; emptied earlier: the player took them out.
+function Mail.RecentAttachments()
+    local seen = state.seen
+    if not seen then return {} end
+    if seen.empty and state.lastFull and clock() - seen.at <= Mail.SEND_WINDOW then return state.lastFull.items end
+    return seen.items
+end
+
+--- Note the mail that goes out now: recipient and attachments. Every source
+-- that sees the player send calls this (the Send button before and after its
+-- click, the hooks on SendMail and C_Mail.SendMail); they all write the one
+-- snapshot, so a send seen twice is still one send, and one MAIL_SEND_SUCCESS
+-- uses it once. PreClick runs before anything is sent: what it sees is the
+-- truth. A later source that finds the slots empty keeps what an earlier one
+-- saw for this send, else the attachments seen last (Mail.RecentAttachments).
+-- @param recipient as passed to SendMail; nil reads the recipient box
+-- @param source "PreClick", "OnClick", "SendMail", "C_Mail.SendMail"
+function Mail.OnSendMail(recipient, source)
+    recipient = str(recipient)
+    if recipient == "" then recipient = boxText(_G.SendMailNameEditBox) end
+    if recipient == "" then recipient = str(state.lastRecipient) end
+    local now = clock()
     local items, n = Mail.SendItems()
-    if n == 0 and state.lastSeen then items = state.lastSeen end
-    state.sent = { recipient = str(recipient), items = items, prepared = state.prepared }
+    if n == 0 and source ~= "PreClick" then
+        local before = state.sent
+        if before and before.prepared == state.prepared and now - before.at <= Mail.SEND_WINDOW then
+            items = before.items
+        elseif state.prepared then
+            items = Mail.RecentAttachments()
+        end
+    end
+    if recipient ~= "" then state.lastRecipient = recipient end
+    state.sent = { recipient = recipient, items = items, prepared = state.prepared, source = source, at = now }
+    EHS:Debug("Post gesendet (" .. str(source) .. "):", recipient)
+end
+
+local function dropPrepared(prepared)
+    if state.prepared ~= prepared then return end
+    state.prepared = nil
+    state.job = nil
+    state.token = state.token + 1
+    state.seen = nil
+    state.lastFull = nil
+    hideHighlights()
 end
 
 local function onSendSuccess()
     local sent = state.sent
     state.sent = nil
-    if not sent or not sent.prepared then return end
-    local prepared = sent.prepared
-    if state.prepared == prepared then
-        state.prepared = nil
-        state.job = nil
-        state.token = state.token + 1
-        state.lastSeen = nil
-        hideHighlights()
+    if not sent and state.prepared then
+        -- No source saw the click: the recipient and attachments seen last
+        -- (recipient box, MAIL_SEND_INFO_UPDATE) stand for the mail.
+        sent = { recipient = str(state.lastRecipient), items = Mail.RecentAttachments(), prepared = state.prepared,
+            source = "fallback" }
     end
-    if Mail.RecipientKey(sent.recipient) ~= Mail.RecipientKey(prepared.recipientText) then
-        EHS:Print(("Post ging an %s statt an %s - nichts abgehakt."):format(Mail.Latin1(sent.recipient), prepared.recipientText))
+    local recipient = sent and sent.recipient or str(state.lastRecipient)
+    -- the next mail starts without a recipient
+    state.lastRecipient = nil
+    local prepared = sent and sent.prepared
+
+    if not prepared then
+        -- A mail the addon did not fill. Only worth a word when it went to
+        -- somebody with open handouts - any other mail is none of ours.
+        if Mail.OpenGroupFor(recipient) then
+            EHS:Print(("Post an %s gesendet, aber keine vorbereitete Post erkannt - nichts abgehakt. Im Ausgabefenster auf \"Post\" klicken oder die Posten von Hand abhaken.")
+                :format(Mail.Latin1(recipient)))
+        end
+        return
+    end
+
+    dropPrepared(prepared)
+    if recipient == "" then
+        EHS:Print(("Post gesendet, aber der Empfänger war nicht zu erkennen - für %s nichts abgehakt."):format(prepared.display))
+        refresh()
+        return
+    end
+    if Mail.RecipientKey(recipient) ~= Mail.RecipientKey(prepared.recipientText) then
+        EHS:Print(("Post ging an %s statt an %s - nichts abgehakt."):format(Mail.Latin1(recipient), prepared.recipientText))
         refresh()
         return
     end
     local ids = Mail.Covered(prepared.entries, sent.items)
-    if #ids > 0 then EHS:MarkHandedOut(ids, "mail", EHS:PlayerFullName()) end
+    if #ids == 0 then
+        EHS:Print(("Post an %s gesendet, aber die Anhänge passten zu keinem vorbereiteten Posten - nichts abgehakt.")
+            :format(prepared.display))
+        refresh()
+        return
+    end
+    EHS:MarkHandedOut(ids, "mail", EHS:PlayerFullName())
     EHS:Print(("Post an %s gesendet: %d Posten abgehakt."):format(prepared.display, #ids))
     local open = #prepared.entries - #ids
     if open > 0 then
         EHS:Print(("%d Posten waren nicht in der Post und bleiben offen."):format(open))
     end
+    EHS:Print(Mail.UPLOAD_HINT)
     refresh()
 end
 
+-- ---------------------------------------------------------------------------
+-- Seeing the player send, without taint
+-- ---------------------------------------------------------------------------
+
+-- Blizzard's Send button calls SendMailFrame_SendMail, which calls the global
+-- SendMail (TBC Anniversary: Blizzard_UIPanels_Game/Classic/MailFrame.lua,
+-- WoW Forever: Blizzard_MailFrame/MailFrame.lua). Neither client has a
+-- C_Mail.SendMail today, but should one come (or another addon send through
+-- it), it is hooked too. The Send button itself is a second witness: its
+-- PreClick still sees the attachments before anything is sent, its OnClick
+-- the recipient box afterwards. A gamepad on Forever calls the button's mixin
+-- method directly - the SendMail hook still sees that. All of it is
+-- hooksecurefunc / HookScript: nothing of Blizzard's is replaced.
+
+local hooked = {}
+
+local function witness(source, readArg)
+    return function(arg)
+        local ok, err = pcall(Mail.OnSendMail, readArg and arg or nil, source)
+        if not ok then EHS:Debug("Post:", tostring(err)) end
+    end
+end
+
+local function noteRecipient(box)
+    local text = boxText(box)
+    if text ~= "" then state.lastRecipient = text end
+end
+
+--- Install the hooks that exist on this client; what is missing now (the
+-- send frame of a client that loads it later) is tried again when the
+-- mailbox opens. Each hook only once.
+-- @return table which hooks are in place (for the specs and /ehs diag)
+function Mail.InstallHooks()
+    if type(hooksecurefunc) == "function" then
+        if not hooked.SendMail and type(_G.SendMail) == "function" then
+            hooked.SendMail = pcall(hooksecurefunc, "SendMail", witness("SendMail", true)) or nil
+        end
+        if not hooked.CMail and type(C_Mail) == "table" and type(C_Mail.SendMail) == "function" then
+            hooked.CMail = pcall(hooksecurefunc, C_Mail, "SendMail", witness("C_Mail.SendMail", true)) or nil
+        end
+    end
+    local button = _G.SendMailMailButton
+    if not hooked.button and type(button) == "table" and type(button.HookScript) == "function" then
+        local pre = pcall(button.HookScript, button, "PreClick", witness("PreClick"))
+        local post = pcall(button.HookScript, button, "OnClick", witness("OnClick"))
+        hooked.button = (pre or post) or nil
+    end
+    local box = _G.SendMailNameEditBox
+    if not hooked.recipient and type(box) == "table" and type(box.HookScript) == "function" then
+        hooked.recipient = pcall(box.HookScript, box, "OnTextChanged", function(self)
+            pcall(noteRecipient, self)
+        end) or nil
+    end
+    return hooked
+end
+
+-- ---------------------------------------------------------------------------
+-- Events
+-- ---------------------------------------------------------------------------
+
 local function onOpen()
+    Mail.InstallHooks()
     if state.open then return end
     state.open = true
     notify("open")
@@ -942,7 +1106,9 @@ local function onClose()
     if state.job then clearCursor() end
     state.job = nil
     state.prepared = nil
-    state.lastSeen = nil
+    state.seen = nil
+    state.lastFull = nil
+    state.lastRecipient = nil
     hideHighlights()
     notify("close")
 end
@@ -968,7 +1134,10 @@ frame:SetScript("OnEvent", function(_, event, arg1)
     elseif event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
         if arg1 == mailInfoType() then onClose() end
     elseif event == "MAIL_SEND_SUCCESS" then
-        onSendSuccess()
+        local ok, err = pcall(onSendSuccess)
+        if not ok then
+            EHS:Print("Post gesendet, aber beim Abhaken ging etwas schief: " .. tostring(err))
+        end
     elseif event == "MAIL_FAILED" then
         if state.sent then
             state.sent = nil
@@ -977,9 +1146,14 @@ frame:SetScript("OnEvent", function(_, event, arg1)
     elseif event == "MAIL_SEND_INFO_UPDATE" then
         if state.prepared then
             local items, n = Mail.SendItems()
-            if n > 0 then state.lastSeen = items end
+            local now = clock()
+            state.seen = { items = items, empty = n == 0, at = now }
+            if n > 0 then state.lastFull = { items = items, at = now } end
         end
-        if state.open then notify("update") end
+        if state.open then
+            noteRecipient(_G.SendMailNameEditBox)
+            notify("update")
+        end
     elseif event == "BAG_UPDATE_DELAYED" then
         if state.open then notify("update") end
     elseif event == "ADDON_ACTION_BLOCKED" or event == "ADDON_ACTION_FORBIDDEN" then
@@ -990,11 +1164,4 @@ frame:SetScript("OnEvent", function(_, event, arg1)
     end
 end)
 
--- Note the mail the player sends. hooksecurefunc keeps SendMail untainted.
-if type(hooksecurefunc) == "function" and type(SendMail) == "function" then
-    local ok, err = pcall(hooksecurefunc, "SendMail", function(recipient)
-        local fine, problem = pcall(Mail.OnSendMail, recipient)
-        if not fine then EHS:Debug("Post:", tostring(problem)) end
-    end)
-    if not ok then EHS:Debug("Post-Hook:", tostring(err)) end
-end
+Mail.InstallHooks()

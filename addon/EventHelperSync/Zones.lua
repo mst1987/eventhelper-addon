@@ -29,6 +29,8 @@ end
 
 --- Aktuelle Instanz festhalten, sofern wir in einer Raid-Instanz stecken.
 function EHS:RecordZone()
+    -- Nur der Loot-Sync braucht die Zeitleiste (Modules.lua).
+    if not self:ModuleOn("loot") then return end
     local name, instanceType = GetInstanceInfo()
     if instanceType ~= "raid" or not name or name == "" then return end
 

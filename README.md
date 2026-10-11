@@ -70,6 +70,35 @@ Die Ausgabe nennt beide Quellen und die gefundenen Raid-Sessions:
 [EventHelper]  · 21.07.2026 20:40 — Tempest Keep, 2 Item(s)
 ```
 
+### Module wählen
+
+Das Addon besteht aus drei Teilen, die selten dieselbe Person braucht. Beim ersten Einloggen (auch nach dem Update auf 1.15.0) fragt ein kleines Fenster, welche davon an sein sollen:
+
+```
+ ┌─ EventHelper Sync - Module ───────────────────────────────────┐
+ │ Welche Teile brauchst du? Was aus ist, siehst du im Spiel nicht.│
+ │                                                               │
+ │ [ An ●]  Loot-Sync                                            │
+ │          Loot aus RCLootCouncil und Gargul hochladen …        │
+ │ [● Aus]  Loot-Council                                         │
+ │          Bedarf je Raider, Tooltip, Vorschlag neben RCLC …    │
+ │ [ An ●]  Gildenbank                                           │
+ │          Scan, Ausgabeliste, Post, Entnahme …                 │
+ │                                                               │
+ │ Später ändern: /ehs module            [Später] [Übernehmen]   │
+ └───────────────────────────────────────────────────────────────┘
+```
+
+| Modul | Was dazugehört | Für wen |
+|---|---|---|
+| **Loot-Sync** | Loot sammeln und exportieren, Upload-Knopf, Raid-Abende im Fenster, Rechtsklick an der Minimap | Loot-Verteiler, Raidleitung |
+| **Loot-Council** | Council-Fenster (`/ehc`), Zeilen im Item-Tooltip, [Vorschlag neben RCLootCouncil](#eventhelper-vorschlag-in-rclootcouncil) | der Council |
+| **Gildenbank** | Scan beim Öffnen der Bank, Ausgabeliste (`/ehb`), Post und Entnahme, eigener Minimap-Knopf | Bankverwaltung |
+
+Vorbelegt ist alles **an**, so wie es vor der Frage war. Ein Klick auf die Zeile oder den Schalter schaltet um, mindestens ein Modul muss an bleiben. **Später** speichert nichts und fragt beim nächsten Einloggen wieder. Ändern lässt sich die Wahl jederzeit mit `/ehs module` oder dem Knopf **Module wählen** im EventHelper-Fenster, und zwar **ohne `/reload`**: ein ausgeschaltetes Modul zeigt sofort keine Knöpfe, Tooltip-Zeilen und Fenster mehr, ein eingeschaltetes ist sofort da. Wer ein ausgeschaltetes Modul aufruft (`/ehc`, `/ehb`, …), bekommt im Chat gesagt, wie es wieder angeht. `/ehs status` und `/ehs diag` nennen die Module in der ersten Zeile.
+
+Die Wahl gilt für den ganzen Account (sie steht in den SavedVariables neben allem anderen).
+
 ### Das Fenster im Spiel
 
 Der Knopf an der **Minimap** öffnet es — oder `/ehs`. Es beantwortet auf einen Blick, was sonst niemand sieht:
@@ -125,6 +154,7 @@ Ein normaler Wurf mit der Antwort „PvP/Bank" bleibt dabei drin — der ging ja
 | `/ehs` | das Fenster öffnen |
 | `/ehs upload` | jetzt speichern, statt auszuloggen (lädt die UI neu) |
 | `/ehs status` | dasselbe kurz im Chat |
+| `/ehs module` | [Module wählen](#module-wählen): Loot-Sync, Loot-Council, Gildenbank an/aus |
 | `/ehs diag` | **findet er nichts? Das hier sagt, woran es liegt** |
 | `/ehs minimap` | Minimap-Knopf ein-/ausblenden |
 | `/ehs bankbutton` | Gildenbank-Knopf an der Minimap ein-/ausblenden |

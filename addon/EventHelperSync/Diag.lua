@@ -195,6 +195,10 @@ end
 
 function EHS:Diagnose()
     self:Print("|cffffd200--- Diagnose ---|r  (Addon " .. tostring(self.version) .. ")")
+    self:Print("Module: " .. self:ModuleSummary() .. ".")
+    if not self:ModuleOn("loot") then
+        self:Print(bad("Der Loot-Sync ist ausgeschaltet - es wird nichts exportiert.") .. " Einschalten: /ehs module")
+    end
     for _, step in ipairs({ diagRclc, diagGargul, diagPipeline }) do
         local good, err = pcall(step)
         if not good then self:Print(bad("Fehler in der Diagnose: " .. tostring(err))) end

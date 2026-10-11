@@ -504,6 +504,17 @@ local function build()
     frame.settingsTitle = label(frame, "Einstellungen", "GameFontNormal")
     frame.settingsTitle:SetPoint("TOPLEFT", 16, settingsTop)
 
+    -- Loot-Sync, Loot-Council, Gildenbank an/aus (Modules.lua).
+    frame.modules = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    frame.modules:SetSize(130, 22)
+    frame.modules:SetPoint("TOPRIGHT", -16, settingsTop + 4)
+    frame.modules:SetText("Module wählen")
+    frame.modules:SetScript("OnClick", function() EHS:ShowModuleChooser() end)
+
+    frame.moduleLine = label(frame, "", "GameFontDisableSmall")
+    frame.moduleLine:SetPoint("RIGHT", frame.modules, "LEFT", -10, 0)
+    frame.moduleLine:SetJustifyH("RIGHT")
+
     frame.days = numberField(frame,
         "Zeitraum (Tage)",
         "Wie weit zurück Loot gesucht wird. Der Server erkennt Doppelte selbst.",
@@ -575,8 +586,49 @@ end
 -- Auffrischen
 -- ---------------------------------------------------------------------------
 
+--- The settings part below the table, and what depends on the modules.
+local function refreshSettings(self)
+    frame.days.refresh()
+    frame.gap.refresh()
+    frame.showButton.refresh()
+    frame.minimap.refresh()
+    frame.bankMinimap.refresh()
+    frame.skipAward.refresh()
+    frame.autoHandouts.refresh()
+    frame.rclcSuggest.refresh()
+
+    local councilOn, bankOn = self:ModuleOn("council"), self:ModuleOn("guildbank")
+    frame.moduleLine:SetText(self:ModuleSummary())
+    frame.council:SetEnabled(councilOn)
+    frame.guildBank:SetEnabled(bankOn)
+    -- Switches of a module that is off do nothing: shown, but greyed out.
+    for _, pair in ipairs({ { frame.rclcSuggest, councilOn }, { frame.bankMinimap, bankOn }, { frame.autoHandouts, bankOn } }) do
+        pair[1]:SetEnabled(pair[2])
+        pair[1].text:SetAlpha(pair[2] and 1 or .4)
+    end
+end
+
+--- Loot-Sync off: no table, a short note where it was.
+local function showLootOff(self)
+    frame.sources:SetText(grey("Loot-Sync ist ausgeschaltet."))
+    frame.summary:SetText("Kein Loot-Upload in diesem Account.")
+    frame.pending:SetText("Einschalten: \"Module wählen\" unten oder /ehs module.")
+    frame.upload:SetText("Jetzt speichern")
+    frame.upload:SetEnabled(false)
+    frame.showExport:SetEnabled(false)
+    for i = 1, VISIBLE_ROWS do rows[i]:Hide() end
+    scrollUpdate(0)
+    frame.empty:SetText("Die Raid-Abende erscheinen hier, sobald der Loot-Sync an ist.")
+    frame.listFoot:SetText("")
+    frame.skipInfo:SetText("")
+    refreshSettings(self)
+end
+
 function EHS:RefreshOptions()
     if not frame or not frame:IsShown() then return end
+
+    if not self:ModuleOn("loot") then return showLootOff(self) end
+    frame.showExport:SetEnabled(true)
 
     local sources = self:AvailableSources()
     frame.sources:SetText(("Quellen:  RCLootcouncil %s    Gargul %s"):format(
@@ -677,14 +729,7 @@ function EHS:RefreshOptions()
         and ("%d von %d Abenden angezeigt - %d durch Filter ausgeblendet."):format(#shown, #sessions, gefiltert)
         or ("%d Raid-Abende."):format(#shown))
 
-    frame.days.refresh()
-    frame.gap.refresh()
-    frame.showButton.refresh()
-    frame.minimap.refresh()
-    frame.bankMinimap.refresh()
-    frame.skipAward.refresh()
-    frame.autoHandouts.refresh()
-    frame.rclcSuggest.refresh()
+    refreshSettings(self)
 
     -- Wie viel der Schalter tatsächlich wegnimmt — sonst bleibt er eine
     -- Behauptung, und niemand weiss, ob er greift.

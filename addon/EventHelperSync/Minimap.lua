@@ -109,38 +109,45 @@ local function build()
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
         GameTooltip:AddLine("EventHelper Sync")
 
-        local sources = EHS:AvailableSources()
-        GameTooltip:AddDoubleLine("RCLootcouncil",
-            sources.rclc and "|cff44dd44gefunden|r" or "|cffdd4444nicht geladen|r")
-        GameTooltip:AddDoubleLine("Gargul",
-            sources.gargul and "|cff44dd44gefunden|r" or "|cffdd4444nicht geladen|r")
+        -- Only what belongs to a module that is on (Modules.lua).
+        local lootOn = EHS:ModuleOn("loot")
+        local bankOn = EHS:ModuleOn("guildbank")
+        if lootOn then
+            local sources = EHS:AvailableSources()
+            GameTooltip:AddDoubleLine("RCLootcouncil",
+                sources.rclc and "|cff44dd44gefunden|r" or "|cffdd4444nicht geladen|r")
+            GameTooltip:AddDoubleLine("Gargul",
+                sources.gargul and "|cff44dd44gefunden|r" or "|cffdd4444nicht geladen|r")
 
-        local sessions = EHS:BuildSessions()
-        local included = 0
-        for _, session in ipairs(sessions) do
-            if not EHS:IsExcluded(session.sessionId) then included = included + 1 end
-        end
-        GameTooltip:AddDoubleLine("Raid-Abende", ("%d von %d ausgewählt"):format(included, #sessions))
+            local sessions = EHS:BuildSessions()
+            local included = 0
+            for _, session in ipairs(sessions) do
+                if not EHS:IsExcluded(session.sessionId) then included = included + 1 end
+            end
+            GameTooltip:AddDoubleLine("Raid-Abende", ("%d von %d ausgewählt"):format(included, #sessions))
 
-        local pending = EHS:PendingCount()
-        if pending > 0 then
-            GameTooltip:AddDoubleLine("Ungespeichert", ("|cffffd200%d Item(s)|r"):format(pending))
-        else
-            GameTooltip:AddDoubleLine("Stand", "|cff44dd44gespeichert|r")
+            local pending = EHS:PendingCount()
+            if pending > 0 then
+                GameTooltip:AddDoubleLine("Ungespeichert", ("|cffffd200%d Item(s)|r"):format(pending))
+            else
+                GameTooltip:AddDoubleLine("Stand", "|cff44dd44gespeichert|r")
+            end
         end
 
         -- Nur wenn es Ausgabe-Daten gibt: sonst ist die Zeile nur Rauschen.
         local okHandouts, open = pcall(EHS.HandoutCounts, EHS)
-        if okHandouts and EHS.Handouts.Load() then
+        if bankOn and okHandouts and EHS.Handouts.Load() then
             GameTooltip:AddDoubleLine("Gildenbank-Ausgabe",
                 open > 0 and ("|cffffd200%d offen|r"):format(open) or "|cff44dd44nichts offen|r")
         end
 
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine("Linksklick: Fenster öffnen", 1, 1, 1)
-        GameTooltip:AddLine("Shift-Linksklick / Mittelklick: Loot-Council", 1, 1, 1)
-        GameTooltip:AddLine("Strg-Linksklick: Gildenbank-Ausgabe", 1, 1, 1)
-        GameTooltip:AddLine("Rechtsklick: jetzt speichern (lädt die UI neu)", 1, 1, 1)
+        if EHS:ModuleOn("council") then
+            GameTooltip:AddLine("Shift-Linksklick / Mittelklick: Loot-Council", 1, 1, 1)
+        end
+        if bankOn then GameTooltip:AddLine("Strg-Linksklick: Gildenbank-Ausgabe", 1, 1, 1) end
+        if lootOn then GameTooltip:AddLine("Rechtsklick: jetzt speichern (lädt die UI neu)", 1, 1, 1) end
         GameTooltip:AddLine("Ziehen: um die Minimap bewegen", .6, .6, .6)
         GameTooltip:Show()
     end)
@@ -278,7 +285,7 @@ end
 --- Visibility, gold ring and number of the guild bank button.
 function EHS:RefreshBankMinimap()
     if not bankButton then return end
-    if self.db.settings.showBankMinimap == false then
+    if self.db.settings.showBankMinimap == false or not self:ModuleOn("guildbank") then
         bankButton:Hide()
         return
     end

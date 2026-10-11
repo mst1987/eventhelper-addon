@@ -702,6 +702,8 @@ local function requestRefresh()
 end
 
 function EHS:ShowSuggest()
+    -- Part of the loot council module (Modules.lua).
+    if not self:ModuleOn("council") then return end
     if not panel then build() end
     dock()
     panel:Show()
@@ -715,6 +717,7 @@ end
 
 --- /ehc vorschlag: von Hand auf- und zumachen (auch ohne Automatik).
 function EHS:ToggleSuggest()
+    if not self:ModuleOn("council") then return self:ModuleOffNotice("council") end
     if panel and panel:IsShown() then
         state.wanted = false
         state.closed = true
@@ -776,6 +779,7 @@ local HOOKED_METHODS = {
 }
 
 local function onHook(method, ...)
+    if not EHS:ModuleOn("council") then return end
     local handler = HANDLERS[method]
     if handler then
         handler(...)
@@ -788,6 +792,8 @@ end
 -- @return true, wenn gehakt (jetzt oder schon frueher)
 function EHS:StartSuggest()
     if hookedModule then return true end
+    -- Off: no hooks at all; SetModule (Modules.lua) calls this again when switched on.
+    if not self:ModuleOn("council") then return false end
     local _, vf = rclc()
     if not vf then return false end
     hookedModule = vf

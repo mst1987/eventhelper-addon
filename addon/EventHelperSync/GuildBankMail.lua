@@ -931,6 +931,8 @@ end
 
 local function onOpen()
     if state.open then return end
+    -- Module off (Modules.lua): the mailbox stays as it is.
+    if not EHS:ModuleOn("guildbank") then return end
     state.open = true
     notify("open")
 end
@@ -993,6 +995,7 @@ end)
 -- Note the mail the player sends. hooksecurefunc keeps SendMail untainted.
 if type(hooksecurefunc) == "function" and type(SendMail) == "function" then
     local ok, err = pcall(hooksecurefunc, "SendMail", function(recipient)
+        if not EHS:ModuleOn("guildbank") then return end
         local fine, problem = pcall(Mail.OnSendMail, recipient)
         if not fine then EHS:Debug("Post:", tostring(problem)) end
     end)

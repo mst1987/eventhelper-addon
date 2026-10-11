@@ -293,6 +293,8 @@ end
 
 local function onOpen()
     if bank.open then return end
+    -- Module off (Modules.lua): no scan, no handout window at the bank.
+    if not EHS:ModuleOn("guildbank") then return end
     bank.open = true
     bank.openedAt = time()
     EHS:ScanGuildBank()

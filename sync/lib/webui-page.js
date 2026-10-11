@@ -22,6 +22,7 @@ const SVG_GEAR = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" st
 const SVG_X = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 const SVG_BACK = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>';
 const SVG_RELOAD = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>';
+const SVG_DOWNLOAD = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>';
 
 const CREST = '<span class="crest" aria-hidden="true">' + SVG_SHIELD + "</span>";
 const BRAND = '<span class="brand"><b>EventHelper Sync</b><small class="js-ver">&nbsp;</small></span>';
@@ -125,6 +126,10 @@ module.exports.PAGE = String.raw`<!doctype html>
   .strip span { display: flex; flex-direction: column; line-height: 1.3; }
   .strip b { font-size: 13.5px; color: var(--text); }
   .strip small { font-size: 12.5px; color: #c9c2ff; }
+  .strip.upd { border-color: rgba(127,209,127,.45); background: rgba(127,209,127,.10); color: var(--good); }
+  .strip.upd small { color: #b8e6b8; }
+  .strip .upd-text { flex: 1; min-width: 0; }
+  .strip .btn, .strip .linkbtn { flex: none; }
   .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .tile { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); text-align: left; min-width: 0; }
   button.tile:hover { border-color: #3a404c; background: #232831; }
@@ -282,6 +287,7 @@ module.exports.PAGE = String.raw`<!doctype html>
 <section class="view" id="v-main" hidden>
   <header class="hdr">${CREST}${BRAND}${PILL}${BTN_LOG}${BTN_SETTINGS}${BTN_QUIT}</header>
   <div class="main-body grow">
+    <div class="strip upd" id="upd" role="status" hidden>${SVG_DOWNLOAD}<span class="upd-text"><b id="upd-title">Update verfügbar</b><small id="upd-text"></small></span><button type="button" class="linkbtn" data-act="update-notes">Was ist neu?</button><button type="button" class="btn sm primary" data-act="update-install" id="upd-btn">Installieren</button></div>
     <div class="problems" id="problems" role="alert" hidden></div>
     <div class="strip" id="strip" hidden>${SVG_RELOAD.replace(/14/g, "18")}<span><b>Neue Daten fürs Spiel</b><small id="strip-text"></small></span></div>
     <div class="tiles" id="tiles"></div>
@@ -359,6 +365,15 @@ module.exports.PAGE = String.raw`<!doctype html>
           <button type="button" class="action" data-act="upload-all" id="act-upload"><img src="${ICONS.upload}" alt="">Loot hochladen</button>
           <button type="button" class="action" data-act="council" id="act-council"><img src="${ICONS.council}" alt="">Council holen</button>
           <button type="button" class="action" data-act="handouts" id="act-handouts"><img src="${ICONS.handouts}" alt="">Ausgabeliste holen</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <span class="kicker">Version</span>
+        <div class="static-lines" id="ver-lines"></div>
+        <div class="inline">
+          <button type="button" class="btn" data-act="update-check" id="btn-update-check">Nach Updates suchen</button>
+          <button type="button" class="btn primary" data-act="update-install" id="btn-update-install" hidden>Update installieren</button>
         </div>
       </section>
     </div>
@@ -662,6 +677,38 @@ const actions = {
     if (setupPathOpen) $("su-path").focus();
   },
   "setup-connect"() { setupConnect(); },
+  "update-install"() {
+    const u = lastState && lastState.update;
+    // Started with Node.js the tool cannot replace itself: only the link.
+    if (u && !canInstall(u)) { actions["update-notes"](); return; }
+    run("update", async () => {
+      const r = await post("/api/update/install");
+      if (r.restarting) {
+        // The new version opens its own window; this one belongs to the old process.
+        flash("Update installiert – das Sync-Tool startet neu …", "ok");
+        setTimeout(() => window.close(), 1500);
+        return;
+      }
+      const addons = r.addons || [];
+      const restart = addons.some((a) => a.restartNeeded);
+      flash(addons.length
+        ? "Addon aktualisiert – " + (restart ? "WoW neu starten, damit es die neuen Dateien lädt." : "im Spiel /reload.")
+        : "Schon alles aktuell.", "ok");
+      refresh();
+    });
+  },
+  "update-check"() {
+    run("update-check", async () => {
+      const u = (await post("/api/update/check")).update;
+      if (u.lastError) flash(u.lastError.message, "err");
+      else flash(u.available ? "Update auf v" + u.latest.version + " verfügbar." : "Alles aktuell.", "ok");
+      refresh();
+    });
+  },
+  "update-notes"() {
+    const u = lastState && lastState.update;
+    if (u) openExternal((u.latest && u.latest.url) || u.releasesPage);
+  },
   "open-path"() {
     view = "settings";
     editing = false;
@@ -786,6 +833,7 @@ function render() {
   const id = viewId();
   for (const v of document.querySelectorAll(".view")) v.hidden = v.id !== id;
   renderChrome();
+  renderUpdate();
   if (id === "v-setup") renderSetup();
   else if (id === "v-main") renderMain();
   else if (id === "v-settings") renderSettings();
@@ -814,6 +862,52 @@ function renderChrome() {
     el.title = title;
     el.querySelector(".ptext").textContent = text;
   }
+}
+
+// --- Updates (lib/updater.js) -----------------------------------------------
+
+// Whether "Installieren" can do anything here: addon folders can always be
+// updated, the tool itself only as the packed .exe.
+function canInstall(u) {
+  return !!u && ((u.addons || []).length > 0 || (u.toolOutdated && u.canSelfUpdate));
+}
+
+// "Sync-Tool 1.13.0 · Addon TBC Anniversary 1.12.0" — what is outdated.
+function updateParts(u) {
+  const parts = [];
+  if (u.toolOutdated) parts.push("Sync-Tool " + u.toolVersion + (u.canSelfUpdate ? "" : " (von Hand laden)"));
+  for (const a of u.addons || []) parts.push("Addon " + a.label + " " + (a.version || "?"));
+  return parts;
+}
+
+// The green strip on the overview and the version card in the settings.
+function renderUpdate() {
+  const u = lastState.update;
+  const show = !!(u && u.available && u.latest);
+  const installing = busy.has("update") || !!(u && u.installing);
+  const label = installing ? "Wird installiert …" : canInstall(u) ? "Installieren" : "Herunterladen";
+
+  $("upd").hidden = !show;
+  if (show) {
+    $("upd-title").textContent = "Update auf v" + u.latest.version + " verfügbar";
+    $("upd-text").textContent = "Installiert: " + updateParts(u).join(" · ");
+    $("upd-btn").textContent = label;
+    $("upd-btn").disabled = installing;
+  }
+
+  const lines = ["Sync-Tool v" + lastState.version];
+  if (u) {
+    if (u.latest) lines.push("Neueste Version: v" + u.latest.version + (show ? "" : " – alles aktuell"));
+    if (show) lines.push("Veraltet: " + updateParts(u).join(" · "));
+    lines.push(u.checking ? "Prüfe gerade …" : "Zuletzt geprüft: " + ago(u.checkedAt) + " (alle 6 Stunden von selbst)");
+    if (u.lastError) lines.push("Fehler: " + u.lastError.message);
+  }
+  setHtml($("ver-lines"), lines.map((l) => "<span>" + esc(l) + "</span>").join(""));
+  $("btn-update-check").hidden = !u;
+  $("btn-update-check").disabled = busy.has("update-check") || !!(u && u.checking) || installing;
+  $("btn-update-install").hidden = !show;
+  $("btn-update-install").textContent = installing ? "Wird installiert …" : canInstall(u) ? "Update installieren" : "Neue Version herunterladen";
+  $("btn-update-install").disabled = installing;
 }
 
 // Raids vom Server + lokale Sessions in die vier Reiter sortieren:

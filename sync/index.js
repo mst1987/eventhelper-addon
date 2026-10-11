@@ -27,6 +27,7 @@ const guildbankHandouts = require("./lib/guildbankHandouts");
 const { createWebUI, openInBrowser } = require("./lib/webui");
 const { openAppWindow, showMessageBox } = require("./lib/appWindow");
 const instance = require("./lib/instance");
+const { createUpdater, relaunch } = require("./lib/updater");
 
 const stamp = () => new Date().toLocaleTimeString("de-DE");
 const log = (...args) => console.log(`[${stamp()}]`, ...args);
@@ -305,10 +306,32 @@ async function cmdWatch() {
         onLog: (e) => (e.level === "error" ? fail(e.text) : log(e.text)),
     });
 
+    // Neues Release auf GitHub? Nur mit Oberfläche — dort sitzt der Knopf zum
+    // Installieren. Ersetzen kann sich nur die gepackte .exe selbst; mit
+    // Node.js gestartet meldet die Oberfläche nur den Link (lib/updater.js).
+    let ui = null;
+    const updater = withUi ? createUpdater({
+        getConfig: () => runner.config,
+        log: runner.log,
+        canSelfUpdate: isGuiExe(),
+        exePath: process.execPath,
+        onRestart: () => {
+            // Erst alles freigeben (Port, Instanz-Datei), dann die neue .exe
+            // starten — sie fände sonst diese Instanz und würde nur deren
+            // Fenster öffnen.
+            runner.stop();
+            updater.stop();
+            if (ui) ui.stop();
+            instance.unregister();
+            relaunch(process.execPath);
+            process.exit(0);
+        },
+    }) : null;
+
     if (withUi) {
         // onQuit: process.exit() gehört nicht in webui.js selbst — sonst würde
         // ein Test, der den Server startet, den Testlauf mitbeenden.
-        const ui = createWebUI(runner, { onQuit: () => process.exit(0) });
+        ui = createWebUI(runner, { onQuit: () => process.exit(0), updater });
         try {
             const url = await ui.start(process.env.EVENTHELPER_SYNC_UI_PORT);
             log(`Oberfläche: ${url}`);
@@ -324,6 +347,7 @@ async function cmdWatch() {
     }
 
     runner.start();
+    if (updater) updater.start();
     process.on("SIGINT", () => {
         runner.stop();
         log("Beendet.");

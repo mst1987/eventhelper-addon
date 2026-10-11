@@ -80,12 +80,13 @@ function safeConfig(cfg) {
 
 /**
  * @param {object} runner  aus createRunner()
- * @param {{ onQuit?: () => void }} [options]  onQuit: nach /api/quit aufgerufen
- *   (index.js reicht hier process.exit rein — hier drin nie direkt aufrufen,
- *   sonst würde ein Test, der den Server startet, den Testlauf mitbeenden).
+ * @param {{ onQuit?: () => void, updater?: object }} [options]  onQuit: nach
+ *   /api/quit aufgerufen (index.js reicht hier process.exit rein — hier drin
+ *   nie direkt aufrufen, sonst würde ein Test, der den Server startet, den
+ *   Testlauf mitbeenden). updater: aus lib/updater.js, für den Update-Hinweis.
  * @returns {{ start: () => Promise<string> , stop: () => void }}
  */
-function createWebUI(runner, { onQuit } = {}) {
+function createWebUI(runner, { onQuit, updater } = {}) {
     const key = crypto.randomBytes(16).toString("hex");
     let server = null;
     let url = "";
@@ -158,6 +159,8 @@ function createWebUI(runner, { onQuit } = {}) {
                     logLimit: s.logLimit || s.log.length,
                     intervals: s.intervals || null,
                     connection: s.connection || null,
+                    // A newer release on GitHub for the tool and/or the addon (lib/updater.js).
+                    update: updater ? updater.snapshot() : null,
                     config: safeConfig(runner.config),
                     candidates: wowPaths.discover(runner.config.extraRoots)
                         .map((c) => ({
@@ -322,12 +325,40 @@ function createWebUI(runner, { onQuit } = {}) {
             if (req.method === "POST" && parsed.pathname === "/api/open-external") {
                 const url = String(body.url || "");
                 const base = String(runner.config.baseUrl || "").replace(/\/+$/, "");
-                if (!base || !url.startsWith(base + "/")) {
+                // Plus the release page ("Was ist neu?" next to the update notice).
+                const releases = updater ? updater.state.releasesPage : "";
+                const allowed = (base && url.startsWith(base + "/"))
+                    || (releases && (url === releases || url.startsWith(releases + "/")));
+                if (!allowed) {
                     json(res, 400, { error: "Nur Adressen des eingestellten Servers erlaubt." });
                     return;
                 }
                 openInBrowser(url);
                 json(res, 200, { ok: true });
+                return;
+            }
+
+            // "Nach Updates suchen": ask GitHub now instead of at the next
+            // six-hour interval.
+            if (req.method === "POST" && parsed.pathname === "/api/update/check") {
+                if (!updater) {
+                    json(res, 404, { error: "Keine Update-Prüfung in diesem Lauf." });
+                    return;
+                }
+                json(res, 200, { ok: true, update: await updater.check() });
+                return;
+            }
+
+            // "Update installieren": the addon in every outdated folder, then
+            // the .exe. With restarting the new version comes up with its own
+            // window; the page closes this one itself.
+            if (req.method === "POST" && parsed.pathname === "/api/update/install") {
+                if (!updater) {
+                    json(res, 404, { error: "Keine Update-Prüfung in diesem Lauf." });
+                    return;
+                }
+                const result = await updater.install();
+                json(res, 200, { ok: true, ...result, update: updater.state });
                 return;
             }
 

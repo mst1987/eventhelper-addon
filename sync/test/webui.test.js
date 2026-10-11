@@ -606,6 +606,83 @@ describe("webui", () => {
         });
     });
 
+    describe("Updates (lib/updater.js)", () => {
+        const RELEASES = "https://github.com/mst1987/eventhelper-addon/releases";
+
+        function fakeUpdater(over = {}) {
+            const state = {
+                toolVersion: "1.14.0", canSelfUpdate: true, releasesPage: RELEASES, checking: false, checkedAt: 5,
+                latest: { version: "1.15.0", url: `${RELEASES}/tag/v1.15.0` }, toolOutdated: true, addons: [],
+                available: true, installing: false, lastError: null,
+            };
+            return {
+                state,
+                snapshot: jest.fn(() => state),
+                check: jest.fn(async () => state),
+                install: jest.fn(async () => ({ addons: [{ label: "Forever", dir: "D", files: 3, restartNeeded: false }], restarting: true })),
+                ...over,
+            };
+        }
+
+        it("liefert den Update-Stand mit /api/state (null ohne Updater)", async () => {
+            const updater = fakeUpdater();
+            await startUI(fakeRunner(), { updater });
+            const body = await (await get("/api/state")).json();
+            expect(body.update).toMatchObject({ available: true, latest: { version: "1.15.0" }, toolOutdated: true });
+            expect(updater.snapshot).toHaveBeenCalled();
+
+            ui.stop();
+            await startUI(fakeRunner());
+            expect((await (await get("/api/state")).json()).update).toBeNull();
+        });
+
+        it("Nach Updates suchen und Installieren rufen den Updater", async () => {
+            const updater = fakeUpdater();
+            await startUI(fakeRunner(), { updater });
+            const checked = await (await post("/api/update/check")).json();
+            expect(checked.update.latest.version).toBe("1.15.0");
+            expect(updater.check).toHaveBeenCalledTimes(1);
+
+            const installed = await (await post("/api/update/install")).json();
+            expect(installed).toMatchObject({ ok: true, restarting: true, addons: [{ label: "Forever" }] });
+            expect(updater.install).toHaveBeenCalledTimes(1);
+        });
+
+        it("ein Fehler beim Installieren kommt als Meldung an", async () => {
+            const updater = fakeUpdater({ install: jest.fn(async () => { throw new Error("Prüfsumme stimmt nicht"); }) });
+            await startUI(fakeRunner(), { updater });
+            const res = await post("/api/update/install");
+            expect(res.status).toBe(500);
+            expect((await res.json()).error).toMatch(/Prüfsumme/);
+        });
+
+        it("ohne Updater gibt es die Endpunkte nicht", async () => {
+            await startUI(fakeRunner());
+            expect((await post("/api/update/check")).status).toBe(404);
+            expect((await post("/api/update/install")).status).toBe(404);
+        });
+
+        it("öffnet die Release-Seite, aber keine andere GitHub-Adresse", async () => {
+            await startUI(fakeRunner(), { updater: fakeUpdater() });
+            expect((await post("/api/open-external", { url: `${RELEASES}/tag/v1.15.0` })).status).toBe(200);
+            expect(execFile).toHaveBeenCalledTimes(1);
+            expect((await post("/api/open-external", { url: `${RELEASES}-evil/x` })).status).toBe(400);
+            expect((await post("/api/open-external", { url: "https://github.com/someone/else" })).status).toBe(400);
+            expect(execFile).toHaveBeenCalledTimes(1);
+        });
+
+        it("die Seite hat Hinweisstreifen, Versionskarte und die Aktionen", async () => {
+            await startUI(fakeRunner());
+            const html = await (await get("/")).text();
+            expect(html).toContain('id="upd"');
+            expect(html).toContain('data-act="update-install"');
+            expect(html).toContain('data-act="update-check"');
+            expect(html).toContain('data-act="update-notes"');
+            expect(html).toContain("/api/update/install");
+            expect(html).toContain("window.close()");
+        });
+    });
+
     it("antwortet auf unbekannte Pfade mit 404", async () => {
         await startUI(fakeRunner());
         expect((await get("/gibtsnicht")).status).toBe(404);

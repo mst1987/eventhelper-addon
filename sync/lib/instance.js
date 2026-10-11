@@ -35,7 +35,17 @@ function alive(pid) {
  * PID (Windows vergibt sie neu), sondern ob die Oberfläche unter der Adresse
  * mit dem gespeicherten Schlüssel wirklich antwortet.
  */
-async function findRunning({ timeoutMs = 1500 } = {}) {
+async function findRunning(options) {
+    const entry = await findRunningEntry(options);
+    return entry ? entry.url : null;
+}
+
+/**
+ * Like findRunning(), with the running instance's PID: the native window
+ * (lib/webviewHost.js) belongs to that process and closes when it ends.
+ * @returns {Promise<{ url: string, pid: number }|null>}
+ */
+async function findRunningEntry({ timeoutMs = 1500 } = {}) {
     let entry;
     try {
         entry = JSON.parse(fs.readFileSync(RUN_FILE, "utf8"));
@@ -48,7 +58,7 @@ async function findRunning({ timeoutMs = 1500 } = {}) {
         const probe = new URL(entry.url);
         probe.pathname = "/api/state";
         const res = await fetch(probe, { signal: AbortSignal.timeout(timeoutMs) });
-        return res.ok ? entry.url : null;
+        return res.ok ? { url: entry.url, pid: entry.pid } : null;
     } catch {
         return null;
     }
@@ -75,4 +85,4 @@ function unregister() {
     }
 }
 
-module.exports = { findRunning, register, unregister, RUN_FILE };
+module.exports = { findRunning, findRunningEntry, register, unregister, RUN_FILE };

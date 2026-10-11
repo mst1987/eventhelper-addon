@@ -85,8 +85,12 @@ jobs:
           npm ci
           npm test
 
+      # EHS_REQUIRE_HOST: ein Release ohne das eigene Fenster (WebView2) wäre
+      # still ein Rückschritt auf Edge --app — dann lieber abbrechen.
       - name: Sync-Tool zur .exe bauen
         working-directory: sync
+        env:
+          EHS_REQUIRE_HOST: "1"
         run: npm run build:exe
 
       # Der oberste Ordner im Zip muss "EventHelperSync" heissen — WoW und die

@@ -9,7 +9,7 @@ const path = require("path");
 
 jest.mock("child_process");
 const { execFile, execFileSync } = require("child_process");
-const { openAppWindow, findBrowser, showMessageBox } = require("../lib/appWindow");
+const { openAppWindow, openWindow, findBrowser, showMessageBox } = require("../lib/appWindow");
 
 let tmp;
 const ORIGINAL_ENV = { ...process.env };
@@ -155,5 +155,106 @@ describe("showMessageBox", () => {
         setPlatform("darwin");
         expect(showMessageBox("x")).toBe(false);
         expect(execFileSync).not.toHaveBeenCalled();
+    });
+});
+
+// Die Reihenfolge: eigenes Fenster (WebView2) -> Edge/Chrome --app -> Tab.
+// Das Fenster-Modul (lib/webviewHost.js) als Attrappe; Edge/Chrome echt im
+// temporären Ordner, der Tab als Funktion.
+describe("openWindow", () => {
+    const URL_ = "http://127.0.0.1:8730/?key=abc";
+    const APP_ARG = "--app=" + URL_;
+
+    function fakeHost({ exe = "C:/host/EventHelperSyncWindow.exe", child = { pid: 1 } } = {}) {
+        return {
+            findHost: jest.fn(() => exe),
+            spawnHost: jest.fn(() => child),
+            EXIT_HANDED_OVER: 4,
+        };
+    }
+
+    it("nimmt zuerst das eigene Fenster, mit Eltern-PID und Version", () => {
+        putEdge(tmp);
+        process.env["ProgramFiles(x86)"] = tmp;
+        const host = fakeHost();
+        const openTab = jest.fn();
+
+        expect(openWindow(URL_, { host, openTab, parentPid: 4711, version: "1.16.0" })).toBe("host");
+        expect(host.findHost).toHaveBeenCalledWith({ version: "1.16.0" });
+        expect(host.spawnHost).toHaveBeenCalledWith("C:/host/EventHelperSyncWindow.exe", URL_,
+            expect.objectContaining({ parentPid: 4711 }));
+        expect(execFile).not.toHaveBeenCalled();
+        expect(openTab).not.toHaveBeenCalled();
+    });
+
+    it("fällt ohne eigenes Fenster auf Edge --app zurück", () => {
+        const exe = putEdge(tmp);
+        process.env["ProgramFiles(x86)"] = tmp;
+        const host = fakeHost({ exe: null });
+        const openTab = jest.fn();
+
+        expect(openWindow(URL_, { host, openTab })).toBe("app");
+        expect(execFile).toHaveBeenCalledWith(exe, expect.arrayContaining([APP_ARG]), expect.anything());
+        expect(host.spawnHost).not.toHaveBeenCalled();
+        expect(openTab).not.toHaveBeenCalled();
+    });
+
+    it("fällt ohne Fenster und ohne Edge/Chrome auf den Browser-Tab zurück", () => {
+        const openTab = jest.fn();
+        expect(openWindow(URL_, { host: fakeHost({ exe: null }), openTab })).toBe("tab");
+        expect(openTab).toHaveBeenCalledWith(URL_);
+    });
+
+    it("fällt zurück, wenn das Fenster nicht startet oder findHost wirft", () => {
+        const openTab = jest.fn();
+        expect(openWindow(URL_, { host: fakeHost({ child: null }), openTab })).toBe("tab");
+        const throwing = fakeHost();
+        throwing.findHost.mockImplementation(() => { throw new Error("kaputt"); });
+        expect(openWindow(URL_, { host: throwing, openTab })).toBe("tab");
+        expect(openTab).toHaveBeenCalledTimes(2);
+    });
+
+    it("öffnet Edge, wenn WebView2 kurz nach dem Start scheitert", () => {
+        const exe = putEdge(tmp);
+        process.env["ProgramFiles(x86)"] = tmp;
+        const host = fakeHost();
+        const log = jest.fn();
+        openWindow(URL_, { host, openTab: jest.fn(), log });
+        expect(execFile).not.toHaveBeenCalled();
+
+        const { onExit } = host.spawnHost.mock.calls[0][2];
+        onExit(3, true);
+        expect(execFile).toHaveBeenCalledWith(exe, expect.arrayContaining([APP_ARG]), expect.anything());
+        expect(log).toHaveBeenCalledWith("error", expect.stringMatching(/WebView2/));
+    });
+
+    it("öffnet nach einem Spawn-Fehler den Tab, wenn auch Edge fehlt", () => {
+        const host = fakeHost();
+        const openTab = jest.fn();
+        openWindow(URL_, { host, openTab });
+        host.spawnHost.mock.calls[0][2].onError(new Error("ENOENT"));
+        expect(openTab).toHaveBeenCalledWith(URL_);
+    });
+
+    // Wie bisher mit Edge: Fenster zu heisst nicht Sync beenden.
+    it("lässt beim Schliessen des Fensters alles weiterlaufen und öffnet nichts", () => {
+        putEdge(tmp);
+        process.env["ProgramFiles(x86)"] = tmp;
+        const host = fakeHost();
+        const openTab = jest.fn();
+        const log = jest.fn();
+        openWindow(URL_, { host, openTab, log });
+        const { onExit } = host.spawnHost.mock.calls[0][2];
+
+        onExit(0, false);
+        expect(log).toHaveBeenCalledWith("info", expect.stringMatching(/Hintergrund/));
+        // Später gescheitert (kein failedEarly): kein Browserfenster aus dem Nichts.
+        onExit(3, false);
+        // Fenster war schon offen und wurde nach vorn geholt: nichts zu melden.
+        log.mockClear();
+        onExit(4, false);
+        expect(log).not.toHaveBeenCalled();
+        expect(execFile).not.toHaveBeenCalled();
+        expect(openTab).not.toHaveBeenCalled();
     });
 });

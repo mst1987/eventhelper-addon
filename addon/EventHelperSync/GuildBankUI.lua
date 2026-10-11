@@ -53,17 +53,20 @@ local autoOpened = false
 -- The mode of the last refresh, to start a switched list at the top.
 local lastMode = nil
 
-local WIDTH = 640
+-- A page of the main window (MainWindow.lua), as wide as its content area.
+local PAD = 16
+local WIDTH = EHS.MainLayout.pageWidth
+local LIST_WIDTH = WIDTH - 2 * PAD
 local ROW_HEIGHT = 30
-local VISIBLE_ROWS = 12
+local VISIBLE_ROWS = 13
 local ICON_SIZE = 24
 local MAIL_ROW_HEIGHT = 60
 local VISIBLE_MAIL_ROWS = 6
 local MAIL_LINES = 3
 local MAIL_ICON_SIZE = 18
 local MAIL_LINE_GAP = 19
-local LIST_TOP = -70
-local ROW_WIDTH = WIDTH - 24
+local LIST_TOP = -134
+local ROW_WIDTH = LIST_WIDTH - 6
 -- Names, items, tab and count in the normal font; the header lines stay small.
 local ROW_FONT = "GameFontHighlight"
 
@@ -90,12 +93,24 @@ end
 
 -- Columns: x position and width inside a row.
 local COL = {
-    check = { 2, 26 },
-    name = { 32, 120 },
-    icon = { 156, ICON_SIZE },
-    item = { 186, 252 },
-    tab = { 442, 64 },
-    count = { 508, 102 },
+    check = { 4, 22 },
+    name = { 32, 130 },
+    icon = { 166, ICON_SIZE },
+    item = { 196, 280 },
+    tab = { 482, 70 },
+    count = { 556, 100 },
+}
+local BANK_HEADER = {
+    { "", COL.check[1], COL.check[2] },
+    { "Für", COL.name[1], COL.name[2] },
+    { "Item", COL.icon[1], COL.icon[2] + COL.item[2] + 6 },
+    { "Tab", COL.tab[1], COL.tab[2] },
+    { "Bestand", COL.count[1], COL.count[2], "RIGHT" },
+}
+local MAIL_HEADER = {
+    { "Für", 8, 120 },
+    { "Items", 136, 300 },
+    { "Stand", 450, 120 },
 }
 
 -- The geometry, for the specs.
@@ -204,33 +219,9 @@ local function toggleEntry(entry)
     end
 end
 
---- A flat checkbox: dark box, thin border, Blizzard's check mark.
+--- The check of a row (UIKit.lua): ticked = handed out.
 local function buildCheck(parent)
-    local check = CreateFrame("Button", nil, parent)
-    check:SetSize(COL.check[2], COL.check[2])
-    local box = W.solid(check, "ARTWORK", 0.12, 0.12, 0.12, 1)
-    box:SetPoint("CENTER", 0, 0)
-    box:SetSize(16, 16)
-    check.box = box
-    local edges = {
-        { "TOPLEFT", "TOPRIGHT", nil, 1 }, { "BOTTOMLEFT", "BOTTOMRIGHT", nil, 1 },
-        { "TOPLEFT", "BOTTOMLEFT", 1, nil }, { "TOPRIGHT", "BOTTOMRIGHT", 1, nil },
-    }
-    for _, e in ipairs(edges) do
-        local line = W.solid(check, "OVERLAY", 0.55, 0.45, 0.25, 1)
-        line:SetPoint(e[1], box, e[1], 0, 0)
-        line:SetPoint(e[2], box, e[2], 0, 0)
-        if e[3] then line:SetWidth(e[3]) end
-        if e[4] then line:SetHeight(e[4]) end
-    end
-    local hl = W.solid(check, "HIGHLIGHT", 1, 1, 1, 0.15)
-    hl:SetPoint("CENTER", 0, 0)
-    hl:SetSize(16, 16)
-    check.mark = check:CreateTexture(nil, "OVERLAY")
-    check.mark:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-    check.mark:SetSize(24, 24)
-    check.mark:SetPoint("CENTER", 1, 1)
-    check.mark:Hide()
+    local check = EHS.Kit.Check(parent, COL.check[2])
     check:SetScript("OnClick", function(self) toggleEntry(self.entry) end)
     check:SetScript("OnEnter", showRowTooltip)
     check:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -241,13 +232,7 @@ local function buildRow(parent, index)
     local row = CreateFrame("Button", nil, parent)
     row:SetSize(ROW_WIDTH, ROW_HEIGHT)
     row:SetPoint("TOPLEFT", 0, -(index - 1) * ROW_HEIGHT)
-
-    if index % 2 == 0 then
-        local stripe = W.solid(row, "BACKGROUND", 1, 1, 1, 0.03)
-        stripe:SetAllPoints()
-    end
-    local hl = W.solid(row, "HIGHLIGHT", 1, 1, 1, 0.07)
-    hl:SetAllPoints()
+    EHS.Kit.RowBackground(row, index)
 
     row.check = buildCheck(row)
     row.check:SetPoint("LEFT", COL.check[1], 0)
@@ -360,7 +345,7 @@ local function buildMailRow(parent, index)
     row:SetPoint("TOPLEFT", 0, -(index - 1) * MAIL_ROW_HEIGHT)
 
     if index % 2 == 0 then
-        local stripe = W.solid(row, "BACKGROUND", 1, 1, 1, 0.03)
+        local stripe = W.solid(row, "BACKGROUND", 1, 1, 1, 0.025)
         stripe:SetAllPoints()
     end
     -- a prepared mail: gold tint and a gold bar on the left
@@ -391,12 +376,11 @@ local function buildMailRow(parent, index)
     end
 
     row.state = W.text(row, ROW_FONT)
-    row.state:SetPoint("LEFT", 402, 0)
+    row.state:SetPoint("LEFT", 450, 0)
     row.state:SetWidth(120)
 
-    row.button = W.textButton(row, "Post", 80)
-    row.button:SetHeight(22)
-    row.button:SetPoint("RIGHT", -6, 0)
+    row.button = EHS.Kit.Button(row, "Post", "secondary", 80)
+    row.button:SetPoint("RIGHT", -8, 0)
     row.button:SetScript("OnClick", function(self)
         local group = self:GetParent().group
         if group then EHS:PrepareMail(group) end
@@ -417,9 +401,9 @@ local function setMailLines(row, entries)
         local line = row.lines[k]
         local y = ((count - 1) / 2 - (k - 1)) * MAIL_LINE_GAP
         line.icon:ClearAllPoints()
-        line.icon:SetPoint("LEFT", row, "LEFT", 122, y)
+        line.icon:SetPoint("LEFT", row, "LEFT", 136, y)
         line.text:ClearAllPoints()
-        line.text:SetPoint("LEFT", row, "LEFT", 146, y)
+        line.text:SetPoint("LEFT", row, "LEFT", 160, y)
         if k <= shown then
             local entry = entries[k]
             line.icon:SetTexture(Handouts.IconTexture(entry))
@@ -444,116 +428,74 @@ local function setMailButton(button, state)
         return
     end
     local prepared = state ~= "bags"
+    local C = EHS.Kit.C
     button.label:SetText(prepared and "Vorbereitet" or "Post")
     if prepared then
-        button.bg:SetColorTexture(1, 0.82, 0, 0.18)
-        button.label:SetTextColor(1, 0.82, 0)
+        button.bg:SetColorTexture(0.165, 0.137, 0.078, 1)
+        button.label:SetTextColor(C.gold[1], C.gold[2], C.gold[3])
     else
-        button.bg:SetColorTexture(1, 1, 1, 0.06)
-        button.label:SetTextColor(1, 1, 1)
+        button.bg:SetColorTexture(C.field[1], C.field[2], C.field[3], 1)
+        button.label:SetTextColor(C.text[1], C.text[2], C.text[3])
     end
-    button:SetEnabled(state ~= "busy")
+    button:SetActive(state ~= "busy")
     button:Show()
 end
 
-local function savePosition(self)
-    self:StopMovingOrSizing()
-    local point, _, relativePoint, x, y = self:GetPoint()
-    if point then EHS.db.guildBankPos = { point = point, relativePoint = relativePoint, x = x, y = y } end
-end
-
-local function build()
-    frame = CreateFrame("Frame", "EventHelperSyncGuildBankFrame", UIParent)
-    frame:SetSize(WIDTH, -LIST_TOP + VISIBLE_ROWS * ROW_HEIGHT + 14)
-    local pos = EHS.db.guildBankPos
-    if pos and pos.point then
-        frame:SetPoint(pos.point, UIParent, pos.relativePoint or pos.point, pos.x or 0, pos.y or 0)
-    else
-        frame:SetPoint("CENTER", 0, 60)
-    end
-    frame:SetFrameStrata("HIGH")
-    frame:SetClampedToScreen(true)
-    frame:SetMovable(true)
-    frame:EnableMouse(true)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
-    frame:SetScript("OnDragStop", savePosition)
+local function build(holder)
+    local Kit = EHS.Kit
+    frame = holder
     frame:SetScript("OnHide", function() autoOpened = false end)
 
-    local bg = W.solid(frame, "BACKGROUND", 0.05, 0.05, 0.06, 0.94)
-    bg:SetAllPoints()
-    local edges = {
-        { "TOPLEFT", "TOPRIGHT", nil, 1 }, { "BOTTOMLEFT", "BOTTOMRIGHT", nil, 1 },
-        { "TOPLEFT", "BOTTOMLEFT", 1, nil }, { "TOPRIGHT", "BOTTOMRIGHT", 1, nil },
-    }
-    for _, e in ipairs(edges) do
-        local line = W.solid(frame, "BORDER", 0.55, 0.45, 0.25, 1)
-        line:SetPoint(e[1])
-        line:SetPoint(e[2])
-        if e[3] then line:SetWidth(e[3]) end
-        if e[4] then line:SetHeight(e[4]) end
-    end
-
-    frame.title = W.text(frame, "GameFontNormal")
-    frame.title:SetPoint("TOPLEFT", 12, -10)
+    frame.title = Kit.Text(frame, "h2")
+    frame.title:SetPoint("TOPLEFT", PAD, -14)
     frame.title:SetText("Gildenbank-Ausgabe")
 
-    frame.close = W.textButton(frame, "x", 20, "Schliessen (Esc)")
-    frame.close:SetPoint("TOPRIGHT", -6, -6)
-    frame.close:SetScript("OnClick", function() frame:Hide() end)
-
-    -- Offen / Alle
-    frame.viewButtons = {}
-    local anchor = frame.close
-    for i = #VIEW_BUTTONS, 1, -1 do
-        local def = VIEW_BUTTONS[i]
-        local button = W.textButton(frame, def.label, 52, def.tooltip)
-        button:SetPoint("RIGHT", anchor, "LEFT", -4, 0)
-        button:SetScript("OnClick", function()
-            EHS.db.settings.handoutsView = def.view
-            offset = 0
-            EHS:RefreshGuildBankUI()
-        end)
-        button.view = def.view
-        frame.viewButtons[#frame.viewButtons + 1] = button
-        anchor = button
-    end
+    -- "Gildenbank offen" / "Briefkasten offen", right of the title
+    frame.place = Kit.Pill(frame)
+    frame.place:SetPoint("LEFT", frame.title, "RIGHT", 12, 0)
+    frame.place:SetState("Gildenbank offen", "on")
+    function frame.place:SetText(text) self:SetState(text, "on") end
+    function frame.place:GetText() return self.label:GetText() end
+    frame.bankOpen = frame.place
 
     -- Ticked handouts reach the server only with the SavedVariables, and WoW
     -- writes them on /reload or logout only. One click here is the hardware
     -- event ReloadUI() needs (Core.lua) - no hunting for /ehs upload.
-    frame.upload = W.textButton(frame, "Jetzt hochladen (/reload)", 170)
-    frame.upload:SetPoint("RIGHT", anchor, "LEFT", -10, 0)
-    frame.upload:SetScript("OnClick", function() EHS:FlushAndReload() end)
-    frame.upload:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Abgehakte Posten hochladen")
-        GameTooltip:AddLine(("%d abgehakt, der Server weiß es noch nicht."):format(self.count or 0), 1, 1, 1, true)
-        GameTooltip:AddLine("Speichert und lädt die UI neu - danach meldet das Sync-Tool die Haken dem Server.",
-            1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    frame.upload:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    frame.upload = Kit.Button(frame, "Speichern & hochladen", "primary", 226, function() EHS:FlushAndReload() end,
+        function(self)
+            GameTooltip:AddLine("Abgehakte Posten hochladen")
+            GameTooltip:AddLine(("%d abgehakt, der Server weiß es noch nicht."):format(self.count or 0), 1, 1, 1, true)
+            GameTooltip:AddLine("Speichert und lädt die UI neu - danach meldet das Sync-Tool die Haken dem Server.",
+                1, 1, 1, true)
+        end)
+    frame.upload:SetPoint("TOPRIGHT", -PAD, -12)
     frame.upload:Hide()
 
-    frame.header = W.text(frame, "GameFontHighlightSmall")
-    frame.header:SetPoint("TOPLEFT", 12, -32)
-    frame.header:SetWidth(WIDTH - 24)
+    frame.header = Kit.Text(frame, "small")
+    frame.header:SetPoint("TOPLEFT", PAD, -46)
+    frame.header:SetWidth(LIST_WIDTH)
 
-    frame.summary = W.text(frame, "GameFontDisableSmall")
-    frame.summary:SetPoint("TOPLEFT", 12, -48)
-    frame.summary:SetWidth(WIDTH - 140)
+    frame.summary = Kit.Text(frame, "hint")
+    frame.summary:SetPoint("TOPLEFT", PAD, -62)
+    frame.summary:SetWidth(LIST_WIDTH)
 
-    frame.bankOpen = W.text(frame, "GameFontHighlightSmall", "RIGHT")
-    frame.bankOpen:SetPoint("TOPRIGHT", -12, -48)
-    frame.bankOpen:SetWidth(110)
-    frame.bankOpen:SetText("Gildenbank offen")
-    frame.bankOpen:SetTextColor(0.35, 0.9, 0.35)
+    -- Offen / Alle
+    local defs = {}
+    for _, def in ipairs(VIEW_BUTTONS) do
+        defs[#defs + 1] = { label = def.label, value = def.view, tooltip = def.tooltip, onClick = function()
+            EHS.db.settings.handoutsView = def.view
+            offset = 0
+            EHS:RefreshGuildBankUI()
+        end }
+    end
+    frame.viewButtons = Kit.ChipRow(frame, defs, PAD, -82, 4)
+    for _, chip in ipairs(frame.viewButtons) do chip.view = chip.value end
 
-    local line = W.solid(frame, "ARTWORK", 1, 1, 1, 0.12)
-    line:SetPoint("TOPLEFT", 8, LIST_TOP + 4)
-    line:SetPoint("TOPRIGHT", -8, LIST_TOP + 4)
-    line:SetHeight(1)
+    frame.bankColumns = Kit.Header(frame, BANK_HEADER, LIST_WIDTH)
+    frame.bankColumns:SetPoint("TOPLEFT", PAD, LIST_TOP + 22)
+    frame.mailColumns = Kit.Header(frame, MAIL_HEADER, LIST_WIDTH)
+    frame.mailColumns:SetPoint("TOPLEFT", PAD, LIST_TOP + 22)
+    frame.mailColumns:Hide()
 
     local function onWheel(_, delta)
         local maxOffset = math.max(0, #list - visibleRows())
@@ -562,30 +504,27 @@ local function build()
     end
 
     frame.list = CreateFrame("Frame", nil, frame)
-    frame.list:SetPoint("TOPLEFT", 8, LIST_TOP)
-    frame.list:SetSize(WIDTH - 16, VISIBLE_ROWS * ROW_HEIGHT)
+    frame.list:SetPoint("TOPLEFT", PAD, LIST_TOP)
+    frame.list:SetSize(LIST_WIDTH, VISIBLE_ROWS * ROW_HEIGHT)
+    Kit.Border(frame.list, Kit.C.line)
     frame.list:EnableMouseWheel(true)
     frame.list:SetScript("OnMouseWheel", onWheel)
     for i = 1, VISIBLE_ROWS do rows[i] = buildRow(frame.list, i) end
+    frame.listScroll = Kit.Thumb(frame.list)
 
     -- the same place at the mailbox: one row per recipient
     frame.mailList = CreateFrame("Frame", nil, frame)
-    frame.mailList:SetPoint("TOPLEFT", 8, LIST_TOP)
-    frame.mailList:SetSize(WIDTH - 16, VISIBLE_MAIL_ROWS * MAIL_ROW_HEIGHT)
+    frame.mailList:SetPoint("TOPLEFT", PAD, LIST_TOP)
+    frame.mailList:SetSize(LIST_WIDTH, VISIBLE_MAIL_ROWS * MAIL_ROW_HEIGHT)
+    Kit.Border(frame.mailList, Kit.C.line)
     frame.mailList:EnableMouseWheel(true)
     frame.mailList:SetScript("OnMouseWheel", onWheel)
     for i = 1, VISIBLE_MAIL_ROWS do mailRows[i] = buildMailRow(frame.mailList, i) end
+    frame.mailScroll = Kit.Thumb(frame.mailList)
     frame.mailList:Hide()
 
-    frame.thumb = W.solid(frame, "OVERLAY", 0.85, 0.7, 0.35, 0.6)
-    frame.thumb:SetWidth(3)
-
-    frame.empty = W.text(frame, "GameFontDisable", "CENTER")
-    frame.empty:SetPoint("TOP", frame.list, "TOP", 0, -40)
-    frame.empty:SetWidth(WIDTH - 60)
-
-    tinsert(UISpecialFrames, "EventHelperSyncGuildBankFrame")
-    frame:Hide()
+    frame.empty = Kit.Empty(frame, LIST_WIDTH - 40)
+    frame.empty:SetPoint("TOP", frame.list, "TOP", 0, -50)
 end
 
 -- ---------------------------------------------------------------------------
@@ -603,19 +542,10 @@ local function setStrike(row, on)
     row.strike:Show()
 end
 
---- The scroll position mark for `count` rows of which `visible` fit.
-local function setThumb(count, visible, rowHeight, anchor)
-    if count <= visible then
-        frame.thumb:Hide()
-        return
-    end
-    local maxOffset = math.max(1, count - visible)
-    local height = visible * rowHeight
-    local thumb = math.max(16, height * visible / count)
-    frame.thumb:SetHeight(thumb)
-    frame.thumb:ClearAllPoints()
-    frame.thumb:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", 0, -(height - thumb) * offset / maxOffset)
-    frame.thumb:Show()
+--- The scroll position for `count` rows of which `visible` fit.
+local function setThumb(count, visible, _, anchor)
+    local scroll = anchor == frame.mailList and frame.mailScroll or frame.listScroll
+    scroll.Set(offset, count, visible)
 end
 
 --- The mailbox mode: one row per recipient.
@@ -686,8 +616,11 @@ function EHS:RefreshGuildBankUI()
     end
     frame.list:SetShown(mode == "bank")
     frame.mailList:SetShown(mode == "mail")
+    frame.bankColumns:SetShown(mode == "bank")
+    frame.mailColumns:SetShown(mode == "mail")
     local okCount, unsaved = pcall(self.HandoutsUnsavedCount, self)
     frame.upload.count = okCount and tonumber(unsaved) or 0
+    frame.upload:SetLabel(("Speichern & hochladen (%d)"):format(frame.upload.count))
     frame.upload:SetShown(frame.upload.count > 0)
     for _, button in ipairs(frame.viewButtons) do button:SetShown(mode == "bank") end
     if mode == "mail" then
@@ -698,13 +631,7 @@ function EHS:RefreshGuildBankUI()
     frame.bankOpen:SetText("Gildenbank offen")
 
     local current = view()
-    for _, button in ipairs(frame.viewButtons) do
-        if button.view == current then
-            button.label:SetTextColor(1, 0.82, 0)
-        else
-            button.label:SetTextColor(0.6, 0.6, 0.6)
-        end
-    end
+    for _, chip in ipairs(frame.viewButtons) do chip:SetSelected(chip.view == current) end
     frame.bankOpen:SetShown(self:IsGuildBankOpen() and true or false)
 
     local entries, scope, data, status, banks = self:GetHandoutEntries()
@@ -758,11 +685,7 @@ function EHS:RefreshGuildBankUI()
             row.item:SetText(Handouts.ItemLabel(entry))
             row.tab:SetText(Handouts.TabLabel(entry))
             row.count:SetText(countText(entry))
-            if entry.done then
-                row.check.mark:Show()
-            else
-                row.check.mark:Hide()
-            end
+            row.check:SetChecked(entry.done ~= nil)
             local alpha = entry.done and 0.45 or 1
             for _, cell in ipairs({ row.name, row.icon, row.item, row.tab, row.count }) do cell:SetAlpha(alpha) end
             setStrike(row, entry.done ~= nil)
@@ -773,24 +696,19 @@ function EHS:RefreshGuildBankUI()
     setThumb(#list, VISIBLE_ROWS, ROW_HEIGHT, frame.list)
 end
 
+-- A page of the main window: /ehb, its minimap button, the rail and the
+-- minimap menu open it.
 function EHS:ToggleGuildBankUI()
     if not self:ModuleOn("guildbank") then return self:ModuleOffNotice("guildbank") end
-    if not frame then build() end
-    if frame:IsShown() then
-        frame:Hide()
-    else
-        -- opened by hand: stays when the guild bank or mailbox closes
-        autoOpened = false
-        frame:Show()
-        self:RefreshGuildBankUI()
-    end
+    local shown = self:ToggleMain("guildbank")
+    -- opened by hand: stays when the guild bank or mailbox closes
+    autoOpened = false
+    return shown
 end
 
 function EHS:ShowGuildBankUI()
     if not self:ModuleOn("guildbank") then return self:ModuleOffNotice("guildbank") end
-    if not frame then build() end
-    frame:Show()
-    self:RefreshGuildBankUI()
+    return self:ShowMain("guildbank")
 end
 
 -- ---------------------------------------------------------------------------
@@ -805,14 +723,17 @@ local function onPlaceEvent(what)
         if settings.autoOpenHandouts ~= false and not (frame and frame:IsShown()) then
             local open = EHS:HandoutCounts()
             if open > 0 then
+                -- Only an window opened here closes with the bank again; one
+                -- that was open on another page just switches over and stays.
+                local wasOpen = EHS:MainPage() ~= nil
                 EHS:ShowGuildBankUI()
-                autoOpened = true
+                autoOpened = not wasOpen
                 return
             end
         end
     elseif what == "close" and autoOpened and frame and frame:IsShown() then
-        frame:Hide()
         autoOpened = false
+        EHS:HideMain()
         return
     end
     EHS:RefreshGuildBankUI()
@@ -820,6 +741,21 @@ end
 
 EHS:OnGuildBankEvent(onPlaceEvent)
 EHS:OnMailboxEvent(onPlaceEvent)
+
+EHS:RegisterPage({
+    id = "guildbank", label = "Gildenbank", module = "guildbank", order = 30, frameName = "EventHelperSyncGuildBankFrame",
+    icon = "Interface\\Icons\\INV_Box_02",
+    build = build, refresh = function() EHS:RefreshGuildBankUI() end,
+    sub = function()
+        if EHS.IsMailboxOpen and EHS:IsMailboxOpen() then return "Briefkasten offen" end
+        if EHS:IsGuildBankOpen() then return "Gildenbank offen" end
+        return "Ausgabeliste"
+    end,
+    badge = function()
+        local ok, open = pcall(EHS.HandoutCounts, EHS)
+        return ok and open or 0
+    end,
+})
 
 SLASH_EVENTHELPERBANK1 = "/ehb"
 SlashCmdList.EVENTHELPERBANK = function() EHS:ToggleGuildBankUI() end

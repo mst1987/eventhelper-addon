@@ -83,7 +83,7 @@ expectEqual(select(2, active()), "manual", "chosen by hand")
 expectEqual(plain(council.category.label:GetText()), "Kara - Sonntag", "button shows the choice")
 expectEqual(council.filter:GetText(), "Kara - Sonntag · nur Caster · T4 · BiS T4 · 2 Raider", "filter of this category")
 expectEqual(rows[1].raider.character, "Gemli", "raiders of this category")
-expectEqual(plain(rows[1].need:GetText()), "Bedarf 99", "need of this category")
+expectEqual(plain(rows[1].need:GetText()), "99", "need of this category")
 expectEqual(rows[2].raider.character, "Karl", "second")
 expect(not rows[3]:IsShown(), "only two raiders")
 

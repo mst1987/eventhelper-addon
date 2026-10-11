@@ -124,19 +124,27 @@ WoWMock.CloseMailbox()
 
 -- Loot sync off ------------------------------------------------------------------------------------
 
+local main = EventHelperSyncMainFrame
 EHS:ShowCouncil()
 EHS:SetModule("council", false)
-expect(not EventHelperSyncCouncilFrame:IsShown(), "switching off closes its window")
+expect(not EventHelperSyncCouncilFrame:IsShown(), "switching off leaves its page")
+expect(main:IsShown(), "the window stays open on another page")
+expect(not main.navs.council:IsShown(), "the module is gone from the rail")
+WoWMock.prints = {}
+EHS:ShowMain("council")
+expect(printed("Loot-Council ist ausgeschaltet"), "its page says how to switch it on")
 
 EHS:SetModule("loot", false)
 expectEqual(EHS:PendingCount(), 0, "nothing pending without the loot sync")
-EHS:ShowOptions()
-local options = EventHelperSyncOptionsFrame
-expectEqual(options.sources:GetText(), "|cff888888Loot-Sync ist ausgeschaltet.|r", "options say it")
-expect(options.moduleLine:GetText():find("Loot-Sync aus", 1, true), "module line in the options")
-WoWMock.Click(options.modules)
-expect(chooser:IsShown(), "Module wählen opens the chooser")
-chooser:Hide()
+expect(not main.navs.loot:IsShown(), "loot sync gone from the rail")
+EHS:ShowMain("settings")
+local settings = EventHelperSyncSettingsPage
+expect(settings:IsShown(), "settings page")
+expectEqual(settings.loot.pill.label:GetText(), "aus", "loot card: aus")
+expect(settings.loot.offNote:IsShown(), "loot card: only the note")
+expect(not settings.loot.rows[1].control:IsShown(), "loot card: no controls")
+expect(not settings.moduleSwitches[1].on and not settings.moduleSwitches[2].on and settings.moduleSwitches[3].on,
+    "module switches show the choice")
 
 local before = EHS.db.export
 EHS.db.export = "unchanged"
@@ -147,6 +155,19 @@ EHS.db.export = before
 WoWMock.prints = {}
 SlashCmdList.EVENTHELPERSYNC("diag")
 expect(printed("Der Loot-Sync ist ausgeschaltet"), "diag says it first")
-EHS:SetModule("loot", true)
-EHS:RefreshOptions()
-expect(options.sources:GetText():find("Quellen:", 1, true), "table back with the loot sync on")
+
+-- the last module cannot be switched off in the settings either
+WoWMock.prints = {}
+WoWMock.Click(settings.moduleSwitches[3])
+expect(EHS:ModuleOn("guildbank"), "the last module stays on")
+expect(settings.moduleSwitches[3].on, "its switch flips back")
+expect(printed("Mindestens ein Modul muss an bleiben."), "and says why")
+
+-- switched on in the settings
+WoWMock.Click(settings.moduleSwitches[1])
+expect(EHS:ModuleOn("loot"), "loot sync on again")
+expect(main.navs.loot:IsShown(), "back in the rail")
+expect(not settings.loot.offNote:IsShown() and settings.loot.rows[1].control:IsShown(), "loot card shows its settings")
+EHS:ShowMain("loot")
+expect(EventHelperSyncLootPage.sources:GetText():find("RCLootCouncil", 1, true), "loot page back")
+EHS:HideMain()

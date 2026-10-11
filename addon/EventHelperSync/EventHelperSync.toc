@@ -9,6 +9,8 @@
 
 Core.lua
 Modules.lua
+UIKit.lua
+MainWindow.lua
 Zones.lua
 Collect.lua
 Sessions.lua
@@ -16,7 +18,8 @@ Export.lua
 GuildBank.lua
 Button.lua
 Minimap.lua
-Options.lua
+LootPage.lua
+SettingsPage.lua
 Diag.lua
 UI.lua
 CouncilData.lua

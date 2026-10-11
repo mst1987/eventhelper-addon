@@ -95,40 +95,34 @@ Das Addon besteht aus drei Teilen, die selten dieselbe Person braucht. Beim erst
 | **Loot-Council** | Council-Fenster (`/ehc`), Zeilen im Item-Tooltip, [Vorschlag neben RCLootCouncil](#eventhelper-vorschlag-in-rclootcouncil) | der Council |
 | **Gildenbank** | Scan beim Öffnen der Bank, Ausgabeliste (`/ehb`), Post und Entnahme, eigener Minimap-Knopf | Bankverwaltung |
 
-Vorbelegt ist alles **an**, so wie es vor der Frage war. Ein Klick auf die Zeile oder den Schalter schaltet um, mindestens ein Modul muss an bleiben. **Später** speichert nichts und fragt beim nächsten Einloggen wieder. Ändern lässt sich die Wahl jederzeit mit `/ehs module` oder dem Knopf **Module wählen** im EventHelper-Fenster, und zwar **ohne `/reload`**: ein ausgeschaltetes Modul zeigt sofort keine Knöpfe, Tooltip-Zeilen und Fenster mehr, ein eingeschaltetes ist sofort da. Wer ein ausgeschaltetes Modul aufruft (`/ehc`, `/ehb`, …), bekommt im Chat gesagt, wie es wieder angeht. `/ehs status` und `/ehs diag` nennen die Module in der ersten Zeile.
+Vorbelegt ist alles **an**, so wie es vor der Frage war. Ein Klick auf die Zeile oder den Schalter schaltet um, mindestens ein Modul muss an bleiben. **Später** speichert nichts und fragt beim nächsten Einloggen wieder. Ändern lässt sich die Wahl jederzeit mit `/ehs module`, über „Module wählen" im Minimap-Menü oder direkt mit den Schaltern im Bereich **Einstellungen**, und zwar **ohne `/reload`**: ein ausgeschaltetes Modul zeigt sofort keine Knöpfe, Tooltip-Zeilen und Fenster mehr, ein eingeschaltetes ist sofort da. Wer ein ausgeschaltetes Modul aufruft (`/ehc`, `/ehb`, …), bekommt im Chat gesagt, wie es wieder angeht. `/ehs status` und `/ehs diag` nennen die Module in der ersten Zeile.
 
 Die Wahl gilt für den ganzen Account (sie steht in den SavedVariables neben allem anderen).
 
 ### Das Fenster im Spiel
 
-Der Knopf an der **Minimap** öffnet es — oder `/ehs`. Es beantwortet auf einen Blick, was sonst niemand sieht:
+Der Knopf an der **Minimap** öffnet es — oder `/ehs`. Seit 1.16 ist es **ein** Fenster mit einer Leiste links: ein Eintrag pro eingeschaltetem Modul, darunter die Einstellungen. Rechts steht der gewählte Bereich. Loot-Council und Gildenbank-Ausgabe sind keine eigenen Fenster mehr, sondern Bereiche hier. Das Fenster merkt sich seine Position und den zuletzt gewählten Bereich, Esc schliesst es.
 
 ```
- ┌─ EventHelper Sync ──────────────────────────────────────────────────────────────────┐
- │ Quellen:  RCLootcouncil gefunden    Gargul gefunden                                 │
- │ 58 Raid-Abende, 1535 Items exportbereit.          [   Jetzt speichern (34)       ]  │
- │ 34 Item(s) liegen noch nicht auf der Platte.      [ Export als Text anzeigen     ]  │
- │                                                                                     │
- │ Filter: [Alle Raids ▾]  ☐ nur ungespeicherte  ☐ nur ausgewählte                     │
- │                                          [ Alle auswählen ] [ Alle abwählen ]      │
- │   Datum         Zeit          Raid                     Items Spieler Bosse Quelle   │
- │  ───────────────────────────────────────────────────────────────────────────────    │
- │ ☑ So 02.08.26   19:39–21:18   unbekannt                   34      19     –  Gargul  │
- │ ☑ Mo 27.07.26   21:05–21:24   Gruul's Lair                35      15     2  RCLC    │
- │ ☐ So 26.07.26   20:03–21:33   unbekannt                   33      17     –  Gargul  │
- │ ☑ Mo 20.07.26   21:03–21:20   Serpentshrine Cavern        41      19     2  RCLC    │
- │  …                                                                                  │
- │ 58 Raid-Abende.                                                                     │
- │                                                                                     │
- │ Einstellungen                                                                       │
- │ Zeitraum (Tage)       [ 21 ]   Neuer Abend ab (Std.)  [ 6 ]                         │
- │ ☑ Bank- und Entzauber-Items weglassen                                               │
- │ ☑ Upload-Knopf anzeigen  ☑ Minimap-Knopf anzeigen  ☑ Gildenbank-Knopf an der Minimap│
- │   Zuletzt 574 Item(s) übersprungen (486 RCLootcouncil, 88 Gargul).                  │
- └─────────────────────────────────────────────────────────────────────────────────────┘
+ ┌─ EventHelper Sync  v1.16.0 ───────────────────────────────────────────────────────────── x ┐
+ │ ┌───────────────────┐ │ Loot-Sync                               [ Speichern & hochladen (34) ] │
+ │ │ Loot-Sync     34  │ │ RCLootCouncil gefunden · Gargul gefunden  lädt die UI neu, das Tool holt es │
+ │ │ 58 Abende         │ │ ┌──────────────────┬───────────────────┬────────────────────────────┐ │
+ │ └───────────────────┘ │ │ 52 von 58        │ 1535              │ 34                         │ │
+ │   Loot-Council        │ │ Raid-Abende ausg.│ Items exportbereit│ Items noch nicht gespeichert│ │
+ │   SSC/TK Mittwoch     │ └──────────────────┴───────────────────┴────────────────────────────┘ │
+ │   Gildenbank      16  │ [Alle Raids    v] (Nur ungespeicherte)(Nur ausgewählte) [Alle ausw.][Alle abw.] │
+ │   Ausgabeliste        │  DATUM      ZEIT         RAID               ITEMS SPIELER BOSSE QUELLE OFFEN │
+ │ ───────────────────── │ ☑ So 02.08.26 19:39-21:18 unbekannt            34      19     -  Gargul    34 │
+ │   Einstellungen       │ ☑ Mo 27.07.26 21:05-21:24 Gruul's Lair         35      15     2  RCLC       - │
+ │   Module, Knöpfe      │ ☐ So 26.07.26 20:03-21:33 unbekannt            33      17     -  Gargul     - │
+ │                       │ 58 Raid-Abende.                                       Export als Text │
+ └────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Jede Zeile beantwortet für sich, ob dieser Abend hochgehört: **Wochentag** (Raids haben feste Tage), Zeitspanne, Raid, wie viele **Items** an wie viele **Spieler**, wie viele **Bosse**, aus welcher **Quelle** und wie viel davon noch **offen** ist. Mehr steht im Tooltip.
+Alle Fenster des Addons (auch Modulwahl, Export, Upload-Knopf und Vorschlag neben RCLootCouncil) sind aus denselben Bausteinen gebaut (`UIKit.lua`): ein Rahmen mit Titelleiste und X, eine rote **Haupthandlung** pro Bereich, Schalter statt Häkchen für an/aus, Auswahl-Chips für Filter, − / + für Zahlen, ein Spaltenkopf über jeder Liste. Dieselbe Handlung heisst überall gleich: **Speichern & hochladen**.
+
+Der Bereich **Loot-Sync** beantwortet auf einen Blick, was sonst niemand sieht. Jede Zeile beantwortet für sich, ob dieser Abend hochgehört: **Wochentag** (Raids haben feste Tage), Zeitspanne, Raid, wie viele **Items** an wie viele **Spieler**, wie viele **Bosse**, aus welcher **Quelle** und wie viel davon noch **offen** ist. Mehr steht im Tooltip.
 
 **Filter und Sammelauswahl**, weil eine Gilde nach ein paar Monaten bei fünfzig Abenden landet: nach Raid filtern, nur ungespeicherte zeigen — und „Alle abwählen" wirkt auf *das, was der Filter gerade zeigt*. „Alle Karazhan-Abende abwählen" sind damit zwei Klicks statt fünfzig.
 
@@ -143,17 +137,20 @@ Ein normaler Wurf mit der Antwort „PvP/Bank" bleibt dabei drin — der ging ja
 
 **Abwählen, was nicht interessiert.** Der Pug vom Dienstag, die Runde mit Freunden — Häkchen weg, und der Abend wird nicht hochgeladen. Die Auswahl wird gespeichert und gilt dauerhaft. Abgewählte Abende bleiben sichtbar, nur blass: man muss sie ja wiederfinden können, um sie zurückzuholen.
 
-**Der Minimap-Knopf** zeigt schon von aussen, ob etwas ansteht — goldener Ring heisst ungespeicherter Loot. Linksklick öffnet das Fenster, Shift-Linksklick oder Mittelklick den [Loot-Council](#loot-council-im-spiel), Strg-Linksklick die Gildenbank-Ausgabe, Rechtsklick speichert sofort, Ziehen verschiebt ihn um die Minimap.
+**Die Einstellungen** sind ein eigener Bereich, nicht mehr unter der Tabelle: oben die drei [Module](#module-wählen) mit Schaltern, darunter ein Block pro Modul (Loot-Sync: Zeitraum, neuer Abend ab, Bank/Entzaubern weglassen, Upload-Knopf · Gildenbank: Ausgabeliste automatisch öffnen, eigener Minimap-Knopf · Loot-Council: Vorschlag neben RCLootCouncil) und „Allgemein" (Minimap-Knopf, Diagnose). Ein ausgeschaltetes Modul zeigt in seinem Block nur, dass es aus ist. Direkt dorthin: `/ehs einstellungen`.
 
-**Der Gildenbank-Knopf** (eine Truhe) daneben ist nur für die [Gildenbank-Ausgabe](#gildenbank-ausgabe-im-spiel): goldener Ring und eine kleine Zahl, solange Posten offen sind; Linksklick öffnet/schliesst das Fenster, Rechtsklick das EventHelper-Fenster mit den Einstellungen, Ziehen verschiebt ihn (eigene Position). Der Tooltip zeigt „N Posten offen", ggf. „M abgehakt, wird beim nächsten Sync gemeldet" und den Stand der Liste. Ausblenden: `/ehs bankbutton` oder der Haken „Gildenbank-Knopf an der Minimap".
+**Der Minimap-Knopf** zeigt schon von aussen, ob etwas ansteht — goldener Ring heisst ungespeicherter Loot. Linksklick öffnet das Fenster, **Rechtsklick ein Menü** mit allem, was die eingeschalteten Module können (Speichern & hochladen, Loot-Council, Gildenbank-Ausgabe mit Zahl der offenen Posten, Einstellungen, Module wählen). Ohne das Menüsystem des Clients speichert der Rechtsklick wie früher sofort. Die alten Abkürzungen gehen weiter: Shift-Linksklick oder Mittelklick öffnet den [Loot-Council](#loot-council-im-spiel), Strg-Linksklick die Gildenbank-Ausgabe. Ziehen verschiebt den Knopf um die Minimap.
+
+**Der Gildenbank-Knopf** (eine Truhe) daneben ist nur für die [Gildenbank-Ausgabe](#gildenbank-ausgabe-im-spiel): goldener Ring und eine kleine Zahl, solange Posten offen sind; Linksklick öffnet/schliesst den Bereich, Rechtsklick dasselbe Menü, Ziehen verschiebt ihn (eigene Position). Der Tooltip zeigt „N Posten offen", ggf. „M abgehakt, wird beim nächsten Sync gemeldet" und den Stand der Liste. Ausblenden: `/ehs bankbutton` oder der Haken „Gildenbank-Knopf an der Minimap".
 
 **Befehle**
 
 | Befehl | Wirkung |
 |---|---|
-| `/ehs` | das Fenster öffnen |
-| `/ehs upload` | jetzt speichern, statt auszuloggen (lädt die UI neu) |
-| `/ehs status` | dasselbe kurz im Chat |
+| `/ehs` | das Fenster öffnen (auf dem zuletzt gewählten Bereich) |
+| `/ehs upload` | Speichern & hochladen, statt auszuloggen (lädt die UI neu) |
+| `/ehs status` | der Stand kurz im Chat |
+| `/ehs einstellungen` | das Fenster auf den Einstellungen |
 | `/ehs module` | [Module wählen](#module-wählen): Loot-Sync, Loot-Council, Gildenbank an/aus |
 | `/ehs diag` | **findet er nichts? Das hier sagt, woran es liegt** |
 | `/ehs minimap` | Minimap-Knopf ein-/ausblenden |
@@ -169,7 +166,7 @@ Ein normaler Wurf mit der Antwort „PvP/Bank" bleibt dabei drin — der ging ja
 
 ### Der Upload-Knopf
 
-Sobald Loot vergeben wurde, der noch nicht auf der Platte liegt, erscheint ein verschiebbarer Knopf **„Loot hochladen (n)"**. Ein Klick speichert und lädt die UI neu — danach holt das Sync-Tool die Daten binnen Sekunden ab. Kein Ausloggen nötig.
+Sobald Loot vergeben wurde, der noch nicht auf der Platte liegt, erscheint ein verschiebbarer Knopf **„Speichern & hochladen (n)"**. Ein Klick speichert und lädt die UI neu — danach holt das Sync-Tool die Daten binnen Sekunden ab. Kein Ausloggen nötig.
 
 Der Knopf verschwindet wieder, sobald nichts mehr offen ist, und ist im Kampf gesperrt (ein Reload mitten im Bosskill wäre schlecht). Wer ihn gar nicht sehen will: `/ehs button`, dann tut es `/ehs upload`.
 
@@ -338,19 +335,18 @@ Ein Fehler beim Holen (Server nicht erreichbar, Server noch ohne diese Route, Or
 
 ### Das Fenster
 
-`/ehs council`, `/ehc`, Shift-Linksklick oder Mittelklick auf den Minimap-Knopf, oder der Knopf „Loot-Council" im Hauptfenster:
+Ein Bereich im [Hauptfenster](#das-fenster-im-spiel): `/ehs council`, `/ehc`, der Eintrag „Loot-Council" in der Leiste, das Minimap-Menü oder Shift-Linksklick bzw. Mittelklick auf den Minimap-Knopf:
 
 ```
- ┌ Loot-Council [SSC/TK Mittwoch (auto)] ──────────────────────────────────────────────────── [x] ┐
- │ [Alle][Caster][Heiler][Tank][Nahkampf][Fernkampf]                                               │
- │ Stand: 05.10. 21:30, vor 2 Std.                                                                 │
- │ SSC/TK Mittwoch · T5 · BiS T5 · 24 Raider                                                   [?] │
- │ ─────────────────────────────────────────────────────────────────────────────────────────────── │
- │ Neuling Probe Arkan  ████████████▓▓▓▓▓▓▓▒▒░  Bedarf 95   0 Items · 0 Pkt    BiS -       noch nie │
- │ Gemli Shadow         ██████████▓▓▓▓▒░░░░    Bedarf 82   3 Items · 5,5 Pkt  BiS 9/16 vor 12 Tagen│
- │ Messer Probe Kampf   ████████▓▓▓▓▒░         Bedarf 64   2 Items · 1,5 Pkt  BiS 4/17  vor 3 Std. │
- │ …                                                                              (Mausrad scrollt) │
- └─────────────────────────────────────────────────────────────────────────────────────────────────┘
+ │ Loot-Council                                          [ SSC/TK Mittwoch (auto) ] [?] │
+ │ Stand: 05.10. 21:30, vor 2 Std.                                                       │
+ │ SSC/TK Mittwoch · T5 · BiS T5 · 24 Raider                                             │
+ │ (Alle)(Caster)(Heiler)(Tank)(Nahkampf)(Fernkampf)                                     │
+ │  RAIDER               BEDARF                    ERHALTEN           BIS       ZULETZT  │
+ │  Neuling Probe Arkan  ████████████▓▓▓▓▓▒▒░  95  0 Items · 0 Pkt    BiS -     noch nie │
+ │  Gemli Shadow         ██████████▓▓▓▓▒░░░   82  3 Items · 5,5 Pkt  BiS 9/16  vor 12 T. │
+ │  Messer Probe Kampf   ████████▓▓▓▓▒░       64  2 Items · 1,5 Pkt  BiS 4/17  vor 3 Std.│
+ │  …                                                                  (Mausrad scrollt) │
       █ Wartezeit (45 %)   ▓ Loot-Anteil (30 %)   ▒ BiS-Lücke (10 %)   ░ Zugehörigkeit (15 %)
 ```
 
@@ -440,20 +436,20 @@ POST /api/ingest/guildbank/handouts ◄─ Sync-Tool ◄─ EventHelperSyncDB.gu
 
 ### Das Fenster
 
-`/ehs bank`, `/ehb`, der eigene Gildenbank-Knopf an der Minimap, Strg-Linksklick auf den EventHelper-Minimap-Knopf, der Knopf „Gildenbank" im Hauptfenster — und **von selbst, wenn die Gildenbank geöffnet wird** und etwas offen ist (abschaltbar im Hauptfenster). Dann schliesst es sich auch mit der Bank.
+Ein Bereich im [Hauptfenster](#das-fenster-im-spiel): `/ehs bank`, `/ehb`, der eigene Gildenbank-Knopf an der Minimap, der Eintrag „Gildenbank" in der Leiste (mit der Zahl der offenen Posten), das Minimap-Menü, Strg-Linksklick auf den EventHelper-Minimap-Knopf — und **von selbst, wenn die Gildenbank geöffnet wird** und etwas offen ist (abschaltbar in den Einstellungen). Hat sie sich so von selbst geöffnet, schliesst sie sich auch mit der Bank; war das Fenster schon offen, wechselt es nur auf diesen Bereich und bleibt.
 
 ```
- ┌ Gildenbank-Ausgabe ───────────────────────────────────────────── [Offen][Alle] [x] ┐
- │ Stand: 05.10. 21:30, vor 1 Std. - Pulse (Thunderstrike)                            │
- │ 3 Posten offen - 1 abgehakt, wird beim nächsten Sync gemeldet     Gildenbank offen │
- │ ────────────────────────────────────────────────────────────────────────────────── │
- │ [ ] Anna        [?] 3x Super Healing Potion          Tab 3        4 da             │
- │ [ ] Naphfß      [?] 2x Super Healing Potion          Tab 3        nur 1!           │
- │ [x] Zibbo       [#] 2x Bold Living Ruby  (durchgestrichen)  Tab 1/2      14 da     │
- └────────────────────────────────────────────────────────────────────────────────────┘
+ │ Gildenbank-Ausgabe [Gildenbank offen]                     [ Speichern & hochladen (1) ] │
+ │ Stand: 05.10. 21:30, vor 1 Std. - Pulse (Thunderstrike)                                  │
+ │ 3 Posten offen - 1 abgehakt, wird beim nächsten Sync gemeldet                            │
+ │ (Offen)(Alle)                                                                            │
+ │     FÜR          ITEM                                  TAB          BESTAND               │
+ │ [ ] Anna        [?] 3x Super Healing Potion            Tab 3           4 da               │
+ │ [ ] Naphfß      [?] 2x Super Healing Potion            Tab 3         nur 1!               │
+ │ [x] Zibbo       [#] 2x Bold Living Ruby (durchgestr.)  Tab 1/2        14 da               │
 ```
 
-Das Fenster ist 640 px breit und zeigt 12 Zeilen à 30 px (Mausrad scrollt, der Balken rechts zeigt die Position), Icons 24 px, Name und Gegenstand in normaler Schriftgrösse. Eine Zeile pro Posten, nach Empfänger gruppiert: Häkchen, Name in Klassenfarbe (hat der Raider keinen Charakter hinterlegt, steht sein Discord-Name in Grau), Icon, Menge und Gegenstand in Qualitätsfarbe, der Bank-Tab und wie viele da sind. Reicht der Bestand nicht, steht dort in Gelb **„nur 1!"** — offene Posten desselben Gegenstands teilen sich den Bestand der Reihe nach. Ist die Gildenbank offen und wurde bei diesem Besuch gescannt, zählt der **live** gezählte Bestand, sonst der Stand des letzten hochgeladenen Scans. Gezeigt werden die Posten der Gildenbank dieses Charakters (Client, Realm, Gilde); gibt es die nicht, die Banken dieses Clients bzw. alle, mit Hinweis in der Kopfzeile.
+Der Bereich zeigt 13 Zeilen à 30 px mit Spaltenkopf (Mausrad scrollt, die Spur rechts zeigt die Position), Icons 24 px, Name und Gegenstand in normaler Schriftgrösse. Eine Zeile pro Posten, nach Empfänger gruppiert: Häkchen, Name in Klassenfarbe (hat der Raider keinen Charakter hinterlegt, steht sein Discord-Name in Grau), Icon, Menge und Gegenstand in Qualitätsfarbe, der Bank-Tab und wie viele da sind. Reicht der Bestand nicht, steht dort in Gelb **„nur 1!"** — offene Posten desselben Gegenstands teilen sich den Bestand der Reihe nach. Ist die Gildenbank offen und wurde bei diesem Besuch gescannt, zählt der **live** gezählte Bestand, sonst der Stand des letzten hochgeladenen Scans. Gezeigt werden die Posten der Gildenbank dieses Charakters (Client, Realm, Gilde); gibt es die nicht, die Banken dieses Clients bzw. alle, mit Hinweis in der Kopfzeile.
 
 Abhaken legt den Posten unter `EventHelperSyncDB.guildBankDone` ab (`{ id, via = "manual", by = "Name-Realm", at }`), die Zeile wird gedimmt und durchgestrichen, „Offen" blendet sie aus. Haken wieder weg nimmt es zurück, solange es noch nicht gemeldet ist. `/ehs upload` speichert auch, wenn nur abgehakt wurde. Der Tooltip einer Zeile zeigt Zweck, wer angefragt und wer bestätigt hat, den Bestand je Tab und „Abhaken, wenn rausgegeben." bzw. den Hinweis auf die Fehlmenge.
 
@@ -498,7 +494,7 @@ Danach steht in der Zeile in Gold **„in der Post"** / **„Vorbereitet"**. Das
 
 Still bleibt dabei nichts: wird nichts abgehakt, sagt der Chat warum — „keine vorbereitete Post erkannt" (ein Brief ohne „Post" an jemanden mit offenen Posten; ein Brief an jemand anderen bleibt still), „Post ging an … statt an …", „die Anhänge passten zu keinem vorbereiteten Posten" oder bei `MAIL_FAILED` „Post nicht gesendet".
 
-**Jetzt hochladen (/reload)** (ab 1.15.1). Der Server erfährt die Haken erst über die SavedVariables, und die schreibt WoW nur bei `/reload` oder beim Ausloggen. Solange Haken nicht auf der Platte sind, zeigt das Fenster (an Bank und Briefkasten) oben den Knopf **„Jetzt hochladen (/reload)"** und am Briefkasten die Zeile „N Spieler offen - M abgehakt, der Server erfährt es nach /reload". Der Klick speichert und lädt die UI neu (wie `/ehs upload`), danach meldet das Sync-Tool die Haken.
+**Speichern & hochladen** (ab 1.15.1, ab 1.16 mit diesem Wort). Der Server erfährt die Haken erst über die SavedVariables, und die schreibt WoW nur bei `/reload` oder beim Ausloggen. Solange Haken nicht auf der Platte sind, zeigt der Bereich (an Bank und Briefkasten) oben rechts den Knopf **„Speichern & hochladen (N)"** und am Briefkasten die Zeile „N Spieler offen - M abgehakt, der Server erfährt es nach /reload". Der Klick speichert und lädt die UI neu (wie `/ehs upload`), danach meldet das Sync-Tool die Haken.
 
 **Wenn der Client das Anhängen sperrt** (offen bei WoW Forever): Wirft ein Aufruf einen Fehler, bleibt der Cursor leer oder meldet der Client `ADDON_ACTION_BLOCKED`/`ADDON_ACTION_FORBIDDEN` für dieses Addon, hört es auf. Empfänger, Betreff und Text bleiben ausgefüllt, der Chat nennt die Plätze („Tasche 1 Platz 4: 2x Bold Living Ruby (von 5, Shift-Klick teilt den Stapel)") und in den offenen Taschen sind sie gold umrandet — hineinziehen, Senden, abgehakt wird trotzdem. Das merkt sich das Addon für die Sitzung und geht beim nächsten Brief gleich so vor.
 
@@ -528,7 +524,7 @@ Was noch in der Gildenbank liegt, holt ein Klick auf die Zeile an der offenen Ba
 | Sync-Tool: „… nicht erreichbar" | `baseUrl` prüfen (mit `https://` und Port), Server erreichbar? |
 | WoW an einem ungewöhnlichen Ort installiert | In `~/.eventhelper-sync.json` `savedVariablesPath` direkt auf die Datei zeigen lassen. |
 | In der Inbox steht „mehrere Raids an diesem Tag" | Zwei Raid-Helper-Events am selben Tag — das Event in der Auswahlliste selbst wählen. |
-| Gildenbank-Post gesendet, auf der Webseite aber noch offen | Im Spiel ist sie abgehakt (Chat: „… Posten abgehakt"), der Server erfährt es erst nach `/reload`: „Jetzt hochladen (/reload)" im Ausgabefenster oder `/ehs upload`, dann meldet das Sync-Tool die Haken. Sagt der Chat „nichts abgehakt", steht dort der Grund (nicht über „Post" vorbereitet, anderer Empfänger, Anhänge passten nicht). |
+| Gildenbank-Post gesendet, auf der Webseite aber noch offen | Im Spiel ist sie abgehakt (Chat: „… Posten abgehakt"), der Server erfährt es erst nach `/reload`: „Speichern & hochladen" in der Gildenbank-Ausgabe oder `/ehs upload`, dann meldet das Sync-Tool die Haken. Sagt der Chat „nichts abgehakt", steht dort der Grund (nicht über „Post" vorbereitet, anderer Empfänger, Anhänge passten nicht). |
 
 ### `/ehs diag` — warum findet er nichts?
 
@@ -799,6 +795,9 @@ Zurück geht `POST { "done": [{ "id", "via": "manual" | "mail", "by": "Name-Real
 | Datei | Aufgabe |
 |---|---|
 | `Core.lua` | Ereignisse, Slash-Befehle, Neuaufbau des Exports, `FlushAndReload()` |
+| `Modules.lua` | Module an/aus (`ModuleOn`, `SetModule`), die Abfrage beim ersten Einloggen |
+| `UIKit.lua` | die Bausteine aller Fenster: Rahmen mit Titelleiste, Knöpfe, Schalter, Chips, − / +, Auswahl, Etiketten, Spaltenkopf, Bildlaufspur, Karten |
+| `MainWindow.lua` | das Hauptfenster mit der Leiste; Bereiche melden sich mit `EHS:RegisterPage` an, `ShowMain` / `ToggleMain` |
 | `Zones.lua` | Zeitleiste der besuchten Raid-Instanzen (für Gargul-Loot ohne Instanz) |
 | `Collect.lua` | beide Historien auslesen und auf eine Zeilenform bringen |
 | `Sessions.lua` | Zeilen zu Raid-Abenden bündeln |
@@ -806,18 +805,19 @@ Zurück geht `POST { "done": [{ "id", "via": "manual" | "mail", "by": "Name-Real
 | `GuildBank.lua` | Gildenbank beim Öffnen scannen (TBC: `GUILDBANKFRAME_OPENED`, Forever: `PLAYER_INTERACTION_MANAGER_FRAME_SHOW`), letzter Scan nach `EventHelperSyncDB.guildBank` |
 | `Button.lua` | Upload-Knopf: erscheint bei ungespeichertem Loot, Klick löst den Reload aus |
 | `Minimap.lua` | Knopf an der Minimap, mit Hinweisring bei Ungespeichertem; der Gildenbank-Knopf daneben |
-| `Options.lua` | das Fenster: Status, Raid-Abende zum Abwählen, Einstellungen |
+| `LootPage.lua` | Bereich Loot-Sync: Haupthandlung, drei Zahlen, Filter, Raid-Abende zum Abwählen |
+| `SettingsPage.lua` | Bereich Einstellungen: Module, ein Block pro Modul, Allgemein |
 | `UI.lua` | Kopierbox hinter `/ehs export` |
 | `CouncilData.lua` | Platzhalter; das Sync-Tool überschreibt ihn mit den Council-Daten |
 | `Council.lua` | Council-Logik ohne Fenster: Daten prüfen, Item → Raider, denen es fehlt, Vergaben seit dem Sync vorläufig dazurechnen (Zählregel und Bedarfsformel des Servers; mit Gewichtung der Kategorie Item-Klassen, Teil-Rückstellung der Wartezeit, Zugehörigkeit), Rollen, Roster-Abzeichen, Texte und Farben |
-| `CouncilUI.lua` | Loot-Council-Fenster, Item-Tooltip, `/ehc` |
+| `CouncilUI.lua` | Bereich Loot-Council, Item-Tooltip, `/ehc` |
 | `RCLCSuggest.lua` | EventHelper-Vorschlag ohne Fenster: Antwort-Stufen, Rolle des Items (Caster/Heiler/Tank/Nahkampf/Fernkampf/Physisch/-), Rangliste und Texte je Item |
 | `RCLCSuggestUI.lua` | EventHelper-Vorschlag neben RCLootCouncils Abstimmung: Haken ins Abstimmungs-Modul, Andocken, `/ehs vorschlag` |
 | `GuildBankData.lua` | Platzhalter; das Sync-Tool überschreibt ihn mit der Gildenbank-Ausgabeliste |
 | `GuildBankHandouts.lua` | Ausgabe-Logik ohne Fenster: Daten prüfen, Banken dieses Charakters, Bestand und Fehlmenge, Abhaken (`guildBankDone`), API für die Post-Ausgabe |
 | `GuildBankMail.lua` | Ausgabe per Post: Briefkasten erkennen, Taschen zählen, Brief ausfüllen und Anhänge planen/anhängen, Fallback bei gesperrtem Anhängen, Senden sehen (Senden-Knopf, `SendMail`, `C_Mail.SendMail`), Abhaken bei `MAIL_SEND_SUCCESS` |
 | `GuildBankWithdraw.lua` | Aus der Gildenbank nehmen (Klick auf eine Zeile): Stapel live lesen, planen (Tageslimit), `AutoStoreGuildBankItem` / `SplitGuildBankItem`, Fallback bei Sperre |
-| `GuildBankUI.lua` | Fenster „Gildenbank-Ausgabe", `/ehs bank`, `/ehb`, öffnet sich mit der Gildenbank und am Briefkasten (Post-Modus) |
+| `GuildBankUI.lua` | Bereich „Gildenbank-Ausgabe", `/ehs bank`, `/ehb`, öffnet sich mit der Gildenbank und am Briefkasten (Post-Modus) |
 
 Und im Sync-Tool:
 

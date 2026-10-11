@@ -37,36 +37,45 @@ local rows = {}
 local offset = 0
 local list = {}
 
-local WIDTH = 600
-local CATEGORY_WIDTH = 210
-local ROW_HEIGHT = 22
+-- Ein Bereich im Hauptfenster (MainWindow.lua): so breit wie dessen Inhaltsfeld.
+local PAD = 16
+local WIDTH = EHS.MainLayout.pageWidth
+local LIST_WIDTH = WIDTH - 2 * PAD
+local CATEGORY_WIDTH = 230
+local ROW_HEIGHT = 28
 local VISIBLE_ROWS = 14
-local LIST_TOP = -88
-local BAR_WIDTH = 100
+local LIST_TOP = -134
+local BAR_WIDTH = 120
 
--- Spalten: x-Position und Breite innerhalb einer Zeile (Zeile = WIDTH - 24).
--- "Items" ist breit genug fuer "12 Items · 25,5 Pkt" (Version 3).
+-- Spalten: x-Position und Breite innerhalb einer Zeile.
+-- "Erhalten" ist breit genug fuer "12 Items · 25,5 Pkt" (Version 3).
 local COL = {
-    name = { 4, 150 },
-    bar = { 158, BAR_WIDTH },
-    need = { 264, 60 },
-    items = { 328, 104 },
-    bis = { 436, 54 },
-    last = { 492, 80 },
+    name = { 8, 180 },
+    bar = { 194, BAR_WIDTH },
+    need = { 320, 40 },
+    items = { 372, 150 },
+    bis = { 528, 66 },
+    last = { 598, 58 },
+}
+local HEADER = {
+    { "Raider", COL.name[1], COL.name[2] },
+    { "Bedarf", COL.bar[1], COL.bar[2] + COL.need[2] + 6 },
+    { "Erhalten", COL.items[1], COL.items[2] },
+    { "BiS", COL.bis[1], COL.bis[2] },
+    { "Zuletzt", COL.last[1], COL.last[2], "RIGHT" },
 }
 
--- Rollen-Knoepfe in einer eigenen Zeile unter dem Titel (sechs passen neben
--- Kategorie-Knopf und "x" nicht mehr in die Titelzeile). Breiten nach Text.
+-- Rollen als Auswahl-Chips unter dem Titel.
 local ROLE_BUTTONS = {
-    { role = "", label = "Alle", width = 40 },
-    { role = "caster", label = "Caster", width = 52 },
-    { role = "healer", label = "Heiler", width = 50 },
-    { role = "tank", label = "Tank", width = 44 },
-    { role = "melee", label = "Nahkampf", width = 66 },
-    { role = "ranged", label = "Fernkampf", width = 70 },
+    { role = "", label = "Alle" },
+    { role = "caster", label = "Caster" },
+    { role = "healer", label = "Heiler" },
+    { role = "tank", label = "Tank" },
+    { role = "melee", label = "Nahkampf" },
+    { role = "ranged", label = "Fernkampf" },
 }
 local ROLE_GAP = 4
-EHS.CouncilLayout = { WIDTH = WIDTH, ROLE_BUTTONS = ROLE_BUTTONS, ROLE_GAP = ROLE_GAP, COL = COL }
+EHS.CouncilLayout = { WIDTH = WIDTH, ROLE_BUTTONS = ROLE_BUTTONS, ROLE_GAP = ROLE_GAP, COL = COL, BAR_WIDTH = BAR_WIDTH }
 
 local function now()
     return time()
@@ -376,17 +385,11 @@ end
 
 local function buildRow(parent, index)
     local row = CreateFrame("Button", nil, parent)
-    row:SetSize(WIDTH - 24, ROW_HEIGHT)
+    row:SetSize(LIST_WIDTH - 6, ROW_HEIGHT)
     row:SetPoint("TOPLEFT", 0, -(index - 1) * ROW_HEIGHT)
+    EHS.Kit.RowBackground(row, index)
 
-    if index % 2 == 0 then
-        local stripe = solid(row, "BACKGROUND", 1, 1, 1, 0.03)
-        stripe:SetAllPoints()
-    end
-    local hl = solid(row, "HIGHLIGHT", 1, 1, 1, 0.07)
-    hl:SetAllPoints()
-
-    row.name = text(row)
+    row.name = text(row, EHS.Kit.FontFor("body"))
     row.name:SetPoint("LEFT", COL.name[1], 0)
     row.name:SetWidth(COL.name[2])
     if row.name.SetWordWrap then row.name:SetWordWrap(false) end
@@ -410,17 +413,22 @@ local function buildRow(parent, index)
         previous = seg
     end
 
-    row.need = text(row)
+    row.need = text(row, EHS.Kit.FontFor("big"), "RIGHT")
     row.need:SetPoint("LEFT", COL.need[1], 0)
     row.need:SetWidth(COL.need[2])
 
-    row.items = text(row)
+    row.items = text(row, EHS.Kit.FontFor("body"))
     row.items:SetPoint("LEFT", COL.items[1], 0)
     row.items:SetWidth(COL.items[2])
 
-    row.bis = text(row)
+    row.bis = text(row, EHS.Kit.FontFor("body"))
     row.bis:SetPoint("LEFT", COL.bis[1], 0)
     row.bis:SetWidth(COL.bis[2])
+
+    -- one line per cell: a wrapped cell would spill into the next row
+    for _, cell in ipairs({ row.need, row.items, row.bis }) do
+        if cell.SetWordWrap then cell:SetWordWrap(false) end
+    end
 
     row.last = text(row, "GameFontDisableSmall", "RIGHT")
     row.last:SetPoint("LEFT", COL.last[1], 0)
@@ -431,92 +439,49 @@ local function buildRow(parent, index)
     return row
 end
 
-local function savePosition(self)
-    self:StopMovingOrSizing()
-    local point, _, relativePoint, x, y = self:GetPoint()
-    if point then EHS.db.councilPos = { point = point, relativePoint = relativePoint, x = x, y = y } end
-end
+local function build(holder)
+    local Kit = EHS.Kit
+    frame = holder
 
-local function build()
-    frame = CreateFrame("Frame", "EventHelperSyncCouncilFrame", UIParent)
-    frame:SetSize(WIDTH, -LIST_TOP + VISIBLE_ROWS * ROW_HEIGHT + 14)
-    local pos = EHS.db.councilPos
-    if pos and pos.point then
-        frame:SetPoint(pos.point, UIParent, pos.relativePoint or pos.point, pos.x or 0, pos.y or 0)
-    else
-        frame:SetPoint("CENTER", 0, 60)
-    end
-    frame:SetFrameStrata("HIGH")
-    frame:SetClampedToScreen(true)
-    frame:SetMovable(true)
-    frame:EnableMouse(true)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
-    frame:SetScript("OnDragStop", savePosition)
-
-    -- Hintergrund und ein schmaler Rahmen, von Hand statt per Vorlage.
-    local bg = solid(frame, "BACKGROUND", 0.05, 0.05, 0.06, 0.94)
-    bg:SetAllPoints()
-    local edges = {
-        { "TOPLEFT", "TOPRIGHT", nil, 1 }, { "BOTTOMLEFT", "BOTTOMRIGHT", nil, 1 },
-        { "TOPLEFT", "BOTTOMLEFT", 1, nil }, { "TOPRIGHT", "BOTTOMRIGHT", 1, nil },
-    }
-    for _, e in ipairs(edges) do
-        local line = solid(frame, "BORDER", 0.55, 0.45, 0.25, 1)
-        line:SetPoint(e[1])
-        line:SetPoint(e[2])
-        if e[3] then line:SetWidth(e[3]) end
-        if e[4] then line:SetHeight(e[4]) end
-    end
-
-    frame.title = text(frame, "GameFontNormal")
-    frame.title:SetPoint("TOPLEFT", 12, -10)
+    frame.title = Kit.Text(frame, "h2")
+    frame.title:SetPoint("TOPLEFT", PAD, -14)
     frame.title:SetText("Loot-Council")
 
-    frame.close = textButton(frame, "x", 20, "Schliessen (Esc)")
-    frame.close:SetPoint("TOPRIGHT", -6, -6)
-    frame.close:SetScript("OnClick", function() frame:Hide() end)
+    -- Ein "?" statt einer Legende: die Farben erklaert der Tooltip.
+    frame.help = Kit.Button(frame, "?", "secondary", 26)
+    frame.help:SetPoint("TOPRIGHT", -PAD, -14)
 
-    -- Kategorie-Wahl: ein flacher Knopf mit dem Namen. Klick oeffnet das
-    -- Kontextmenue (MenuUtil), wo es das gibt; sonst schaltet Links-/Rechtsklick
-    -- zur naechsten/vorigen Kategorie weiter.
-    frame.category = textButton(frame, "", CATEGORY_WIDTH)
-    frame.category:SetPoint("LEFT", frame.title, "RIGHT", 10, 0)
-    frame.category.label:SetWidth(CATEGORY_WIDTH - 8)
-    if frame.category.label.SetWordWrap then frame.category.label:SetWordWrap(false) end
+    -- Kategorie-Wahl: ein Knopf mit dem Namen. Klick oeffnet das Kontextmenue
+    -- (MenuUtil), wo es das gibt; sonst schaltet Links-/Rechtsklick zur
+    -- naechsten/vorigen Kategorie weiter.
+    frame.category = Kit.Button(frame, "", "secondary", CATEGORY_WIDTH,
+        function(self, button) EHS:PickCouncilCategory(self, button) end)
+    frame.category:SetPoint("RIGHT", frame.help, "LEFT", -6, 0)
+    frame.category.label:SetWidth(CATEGORY_WIDTH - 12)
     frame.category:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    frame.category:SetScript("OnClick", function(self, button) EHS:PickCouncilCategory(self, button) end)
     frame.category:SetScript("OnEnter", showCategoryTooltip)
     frame.category:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    -- Rollen-Umschalter: Alle | Caster | Heiler | Tank | Nahkampf | Fernkampf,
-    -- eine eigene Zeile unter dem Titel, links buendig.
-    frame.roleButtons = {}
-    local x = 12
+    frame.header = Kit.Text(frame, "small")
+    frame.header:SetPoint("TOPLEFT", PAD, -46)
+    frame.header:SetWidth(LIST_WIDTH)
+
+    frame.filter = Kit.Text(frame, "hint")
+    frame.filter:SetPoint("TOPLEFT", PAD, -62)
+    frame.filter:SetWidth(LIST_WIDTH)
+
+    -- Rollen: Alle | Caster | Heiler | Tank | Nahkampf | Fernkampf.
+    local defs = {}
     for _, def in ipairs(ROLE_BUTTONS) do
-        local button = textButton(frame, def.label, def.width)
-        button:SetPoint("TOPLEFT", x, -30)
-        x = x + def.width + ROLE_GAP
-        button:SetScript("OnClick", function()
+        defs[#defs + 1] = { label = def.label, value = def.role, onClick = function()
             EHS.db.settings.councilRole = def.role
             offset = 0
             EHS:RefreshCouncil()
-        end)
-        button.role = def.role
-        frame.roleButtons[#frame.roleButtons + 1] = button
+        end }
     end
+    frame.roleButtons = Kit.ChipRow(frame, defs, PAD, -82, ROLE_GAP)
+    for _, chip in ipairs(frame.roleButtons) do chip.role = chip.value end
 
-    frame.header = text(frame, "GameFontHighlightSmall")
-    frame.header:SetPoint("TOPLEFT", 12, -54)
-    frame.header:SetWidth(WIDTH - 50)
-
-    frame.filter = text(frame, "GameFontDisableSmall")
-    frame.filter:SetPoint("TOPLEFT", 12, -68)
-    frame.filter:SetWidth(WIDTH - 50)
-
-    -- Ein "?" statt einer Legende: die Farben erklaert der Tooltip.
-    frame.help = textButton(frame, "?", 18)
-    frame.help:SetPoint("TOPRIGHT", -8, -60)
     frame.help:SetScript("OnEnter", function(self)
         local data = Council.Load()
         local weights = Council.WeightsFor(data, shownCategory)
@@ -545,14 +510,13 @@ local function build()
     end)
     frame.help:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    local line = solid(frame, "ARTWORK", 1, 1, 1, 0.12)
-    line:SetPoint("TOPLEFT", 8, LIST_TOP + 4)
-    line:SetPoint("TOPRIGHT", -8, LIST_TOP + 4)
-    line:SetHeight(1)
+    frame.columns = Kit.Header(frame, HEADER, LIST_WIDTH)
+    frame.columns:SetPoint("TOPLEFT", PAD, LIST_TOP + 22)
 
     frame.list = CreateFrame("Frame", nil, frame)
-    frame.list:SetPoint("TOPLEFT", 8, LIST_TOP)
-    frame.list:SetSize(WIDTH - 16, VISIBLE_ROWS * ROW_HEIGHT)
+    frame.list:SetPoint("TOPLEFT", PAD, LIST_TOP)
+    frame.list:SetSize(LIST_WIDTH, VISIBLE_ROWS * ROW_HEIGHT)
+    Kit.Border(frame.list, Kit.C.line)
     frame.list:EnableMouseWheel(true)
     frame.list:SetScript("OnMouseWheel", function(_, delta)
         local maxOffset = math.max(0, #list - VISIBLE_ROWS)
@@ -561,13 +525,12 @@ local function build()
     end)
     for i = 1, VISIBLE_ROWS do rows[i] = buildRow(frame.list, i) end
 
-    -- Schlanke Positionsanzeige statt Scrollleiste: gescrollt wird mit dem Mausrad.
-    frame.thumb = solid(frame.list, "OVERLAY", 0.85, 0.7, 0.35, 0.6)
-    frame.thumb:SetWidth(3)
+    -- Bildlauf mit dem Mausrad; die Spur rechts zeigt, wo man ist.
+    frame.scroll = Kit.Thumb(frame.list)
+    frame.thumb = frame.scroll.thumb
 
-    frame.empty = text(frame, "GameFontDisable", "CENTER")
-    frame.empty:SetPoint("TOP", frame.list, "TOP", 0, -40)
-    frame.empty:SetWidth(WIDTH - 60)
+    frame.empty = Kit.Empty(frame, LIST_WIDTH - 40)
+    frame.empty:SetPoint("TOP", frame.list, "TOP", 0, -50)
 
     -- Live: alle LIVE_INTERVAL Sekunden, solange das Fenster offen ist (OnUpdate
     -- laeuft nur bei sichtbarem Frame), billig nachsehen, ob neue Vergaben da sind.
@@ -578,9 +541,6 @@ local function build()
         local ok, err = pcall(EHS.CouncilLiveTick, EHS)
         if not ok then EHS:Debug("Loot-Council live:", tostring(err)) end
     end)
-
-    tinsert(UISpecialFrames, "EventHelperSyncCouncilFrame")
-    frame:Hide()
 end
 
 -- ---------------------------------------------------------------------------
@@ -598,13 +558,7 @@ function EHS:RefreshCouncil()
     local data, status = self:CouncilData(true)
     local role = selectedRole()
 
-    for _, button in ipairs(frame.roleButtons) do
-        if button.role == role then
-            button.label:SetTextColor(1, 0.82, 0)
-        else
-            button.label:SetTextColor(0.6, 0.6, 0.6)
-        end
-    end
+    for _, chip in ipairs(frame.roleButtons) do chip:SetSelected(chip.role == role) end
 
     local category, how
     if data then category, how = Council.ActiveCategory(data, manualId(), autoId) end
@@ -670,7 +624,7 @@ function EHS:RefreshCouncil()
                 end
             end
             local need = math.floor((tonumber(raider.need) or 0) + 0.5)
-            row.need:SetText(Council.Color(("Bedarf %d"):format(need), Council.NeedColor(need))
+            row.need:SetText(Council.Color(tostring(need), Council.NeedColor(need))
                 .. Council.ProvisionalMark(raider))
             row.items:SetText(Council.LootLabel(raider, weighted))
             row.bis:SetText(Council.BisLabel(raider))
@@ -679,35 +633,29 @@ function EHS:RefreshCouncil()
         end
     end
 
-    if #list > VISIBLE_ROWS then
-        local height = VISIBLE_ROWS * ROW_HEIGHT
-        local thumb = math.max(16, height * VISIBLE_ROWS / #list)
-        frame.thumb:SetHeight(thumb)
-        frame.thumb:ClearAllPoints()
-        frame.thumb:SetPoint("TOPRIGHT", frame.list, "TOPRIGHT", 0, -(height - thumb) * offset / maxOffset)
-        frame.thumb:Show()
-    else
-        frame.thumb:Hide()
-    end
+    frame.scroll.Set(offset, #list, VISIBLE_ROWS)
 end
 
+-- Ein Bereich im Hauptfenster: /ehc, die Leiste und das Minimap-Menue oeffnen ihn.
 function EHS:ToggleCouncil()
     if not self:ModuleOn("council") then return self:ModuleOffNotice("council") end
-    if not frame then build() end
-    if frame:IsShown() then
-        frame:Hide()
-    else
-        frame:Show()
-        self:RefreshCouncil()
-    end
+    return self:ToggleMain("council")
 end
 
 function EHS:ShowCouncil()
     if not self:ModuleOn("council") then return self:ModuleOffNotice("council") end
-    if not frame then build() end
-    frame:Show()
-    self:RefreshCouncil()
+    return self:ShowMain("council")
 end
+
+EHS:RegisterPage({
+    id = "council", label = "Loot-Council", module = "council", order = 20, frameName = "EventHelperSyncCouncilFrame",
+    icon = "Interface\\Icons\\INV_Misc_Coin_02",
+    build = build, refresh = function() EHS:RefreshCouncil() end,
+    sub = function()
+        local category = EHS:CouncilActive()
+        return category and category.name or "keine Daten"
+    end,
+})
 
 -- ---------------------------------------------------------------------------
 -- Item-Tooltip

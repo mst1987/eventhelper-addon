@@ -13,24 +13,27 @@ local probe = CreateFrame("Frame")
 EHS:RegisterEvents(probe, "PLAYER_LOGIN", "SOME_EVENT_THIS_CLIENT_LACKS")
 expect(probe.__events.PLAYER_LOGIN, "known event registered")
 
--- The options window, with the fallbacks on Forever -----------------------------------------
+-- The main window: a rail with the modules, one page at a time --------------------------------
 
 EHS:ToggleOptions()
-local options = EventHelperSyncOptionsFrame
-expect(options and options:IsShown(), "options window open")
-if FOREVER then
-    expect(options.raidButton and not options.raidDrop, "raid filter as a button with MenuUtil")
-    expect(options.scroll.manual, "list scrolls by hand")
-    WoWMock.Click(options.raidButton)
-    expectEqual(MenuUtil.lastMenu.entries[1].text, "Alle Raids", "raid menu")
-else
-    expect(options.raidDrop and not options.raidButton, "classic dropdown")
-    expect(not options.scroll.manual, "FauxScrollFrame")
+local main = EventHelperSyncMainFrame
+expect(main and main:IsShown(), "main window open")
+local lootPage = EventHelperSyncLootPage
+expect(lootPage and lootPage:IsShown(), "the loot page first")
+for _, id in ipairs({ "loot", "council", "guildbank", "settings" }) do
+    expect(main.navs[id]:IsShown(), id .. " in the rail")
 end
-WoWMock.Click(options.council)
-expect(EventHelperSyncCouncilFrame:IsShown(), "council button in the options window")
+expectEqual(lootPage.header.labels[2]:GetText(), "Datum", "column header of the raid table")
+expectEqual(lootPage.upload.kind, "primary", "the one main action")
+WoWMock.Click(lootPage.raidDrop)
+if FOREVER then
+    expectEqual(MenuUtil.lastMenu.entries[2].text, "Alle Raids", "raid menu")
+end
+WoWMock.Click(main.navs.council)
+expect(EventHelperSyncCouncilFrame:IsShown(), "the rail opens the council page")
+expect(not lootPage:IsShown(), "one page at a time")
 EHS:ToggleCouncil()
-expect(not EventHelperSyncCouncilFrame:IsShown(), "toggle closes")
+expect(not EventHelperSyncCouncilFrame:IsShown() and not main:IsShown(), "toggle closes")
 
 -- The council window without data -----------------------------------------------------------
 
@@ -46,8 +49,8 @@ end
 expectEqual(visible, 0, "no rows without data")
 
 local special = false
-for _, name in ipairs(UISpecialFrames) do if name == "EventHelperSyncCouncilFrame" then special = true end end
-expect(special, "Escape closes the council window")
+for _, name in ipairs(UISpecialFrames) do if name == "EventHelperSyncMainFrame" then special = true end end
+expect(special, "Escape closes the main window")
 
 -- ... and with data -------------------------------------------------------------------------
 
@@ -62,14 +65,15 @@ for _, child in ipairs(WoWMock.frames) do
 end
 expectEqual(#rows, 14, "14 rows built")
 expectEqual(rows[1].raider.character, "Neuling", "highest need on top")
-expectEqual(plain(rows[1].need:GetText()), "Bedarf 95", "need text")
+expectEqual(plain(rows[1].need:GetText()), "95", "need text")
 expectEqual(rows[1].last:GetText(), "noch nie", "never looted")
 expectEqual(plain(rows[2].name:GetText()), "Gemli Shadow", "name + spec")
 expectEqual(rows[2].items:GetText(), "2 Items", "items")
 expectEqual(rows[2].bis:GetText(), "BiS 9/16", "bis")
 expectEqual(rows[2].last:GetText(), "vor 12 Tagen", "last loot")
-expectEqual(rows[2].segments.drought.__width, 50, "drought segment = 100 x 50% of 100 px")
-expect(math.abs(rows[2].segments.share.__width - 24) < 1e-9, "share segment")
+expectEqual(rows[2].segments.drought.__width, 60, "drought segment = 100 x 50% of 120 px")
+expect(math.abs(rows[2].segments.share.__width - 28.8) < 1e-9, "share segment")
+expectEqual(council.columns.labels[2]:GetText(), "Bedarf", "column header")
 expectEqual(rows[1].segments.need.__alpha, 1, "visible segment")
 expect(council.thumb:IsShown(), "scroll position shown for 18 raiders")
 
@@ -107,15 +111,11 @@ expectEqual(EHS.db.settings.councilRole, "healer", "role remembered")
 expectEqual(rows[1].raider.character, "Naphfß", "healer with the highest need")
 expect(not rows[7]:IsShown(), "only 6 healers")
 expect(not council.thumb:IsShown(), "no scrolling needed")
-expectEqual(healerButton.label.__color[1], 1, "selected role highlighted")
+expect(healerButton.selected, "selected role chip")
 for _, button in ipairs(council.roleButtons) do if button.role == "" then WoWMock.Click(button) end end
 expectEqual(rows[1].raider.character, "Neuling", "all again")
-
--- position is remembered
-council:ClearAllPoints()
-council:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 100, -50)
-WoWMock.Run(council, "OnDragStop")
-expect(EHS.db.councilPos.point == "TOPLEFT" and EHS.db.councilPos.x == 100, "position saved")
+EHS:RefreshMain()
+expectEqual(main.navs.council.sub:GetText(), "SSC/TK Mittwoch", "rail: the active category under the name")
 
 -- Item tooltips -----------------------------------------------------------------------------
 
@@ -142,24 +142,40 @@ EventHelperSync_Council = saved
 
 -- Entry points ------------------------------------------------------------------------------
 
-council:Hide()
+EHS:HideMain()
 SlashCmdList.EVENTHELPERSYNC("council")
 expect(council:IsShown(), "/ehs council opens")
 SlashCmdList.EVENTHELPERCOUNCIL("")
 expect(not council:IsShown(), "/ehc toggles")
 local minimap = EventHelperSyncMinimapButton
 WoWMock.Click(minimap, "MiddleButton")
-expect(council:IsShown(), "middle click opens the council")
-council:Hide()
+expect(council:IsShown(), "middle click still opens the council")
+EHS:HideMain()
 WoWMock.shift = true
 WoWMock.Click(minimap, "LeftButton")
-expect(council:IsShown(), "shift-left-click opens the council")
+expect(council:IsShown(), "shift-left-click still opens the council")
 WoWMock.shift = false
-options:Hide()
+EHS:HideMain()
 WoWMock.Click(minimap, "LeftButton")
-expect(options:IsShown(), "plain left click still opens the options")
+expect(main:IsShown(), "plain left click opens the main window")
 WoWMock.Run(minimap, "OnEnter")
-expect(WoWMock.TooltipText(GameTooltip):find("Shift-Linksklick / Mittelklick: Loot-Council", 1, true), "minimap tooltip")
+expect(WoWMock.TooltipText(GameTooltip):find("Linksklick: Fenster öffnen", 1, true), "minimap tooltip")
+EHS:HideMain()
+if FOREVER then
+    -- right click: the menu with every module
+    WoWMock.Click(minimap, "RightButton")
+    local entries, council_entry = {}, nil
+    for _, e in ipairs(MenuUtil.lastMenu.entries) do
+        entries[#entries + 1] = e.title or e.text
+        if e.text == "Loot-Council" then council_entry = e end
+    end
+    local menu = table.concat(entries, "|")
+    expectEqual(menu, "EventHelper|Fenster öffnen|Speichern & hochladen|Loot-Council|Gildenbank-Ausgabe|Einstellungen|Einstellungen öffnen|Module wählen",
+        "minimap menu")
+    council_entry.callback()
+    expect(council:IsShown(), "menu entry opens the council page")
+    EHS:HideMain()
+end
 
 WoWMock.prints = {}
 SlashCmdList.EVENTHELPERSYNC("help")

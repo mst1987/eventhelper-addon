@@ -59,7 +59,7 @@ expectEqual(raider.state:GetText(), "in den Taschen", "in the bags")
 expect(raider.button:IsShown(), "button")
 expectEqual(raider.button.label:GetText(), "Post", "Post")
 expect(not raider.prepBg:IsShown(), "not prepared")
-expect(win.thumb:IsShown(), "15 recipients scroll")
+expect(win.mailScroll.thumb:IsShown(), "15 recipients scroll")
 
 -- scroll to Zibbo (the last of 15, one row per notch)
 for _ = 1, 10 do WoWMock.Run(win.mailList, "OnMouseWheel", -1) end
@@ -105,7 +105,7 @@ expectEqual(WoWMock.addonSendCalls, 0, "still never SendMail from the addon")
 
 -- the upload button: shown while ticks are not on disk, a click saves and reloads
 expect(win.upload:IsShown(), "upload button at the mailbox")
-expectEqual(win.upload.label:GetText(), "Jetzt hochladen (/reload)", "upload label")
+expectEqual(win.upload.label:GetText(), "Speichern & hochladen (2)", "upload label: the same words as everywhere")
 WoWMock.Run(win.upload, "OnEnter")
 expect(WoWMock.TooltipText(GameTooltip):find("2 abgehakt, der Server weiß es noch nicht.", 1, true), "upload tooltip")
 WoWMock.reloaded = false

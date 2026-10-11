@@ -33,8 +33,10 @@ local function positionFromDb()
 end
 
 local function build()
-    button = CreateFrame("Button", "EventHelperSyncUploadButton", UIParent, "UIPanelButtonTemplate")
-    button:SetSize(210, 26)
+    -- Die Haupthandlung aus dem Baukasten (UIKit.lua): derselbe Knopf und
+    -- dasselbe Wort wie im Fenster, "Speichern & hochladen".
+    button = EHS.Kit.Button(UIParent, "", "primary", 240)
+    _G.EventHelperSyncUploadButton = button
     button:SetMovable(true)
     button:EnableMouse(true)
     button:RegisterForDrag("LeftButton")
@@ -56,7 +58,7 @@ local function build()
 
     button:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("EventHelper - Loot hochladen")
+        GameTooltip:AddLine("EventHelper - Speichern & hochladen")
         GameTooltip:AddLine("Speichert den bisherigen Loot und lädt dazu die UI neu.", 1, 1, 1, true)
         GameTooltip:AddLine("Danach holt ihn das Sync-Tool von selbst ab.", 1, 1, 1, true)
         GameTooltip:AddLine(" ")
@@ -83,10 +85,10 @@ function EHS:RefreshButton()
         return
     end
 
-    button:SetText(("Loot hochladen (%d)"):format(pending))
+    button:SetLabel(("Speichern & hochladen (%d)"):format(pending))
     -- Im Kampf bleibt er sichtbar, aber unbenutzbar: ihn verschwinden zu lassen
     -- wäre verwirrend, ein Reload mitten im Bosskill wäre schlimmer.
-    button:SetEnabled(not InCombatLockdown())
+    button:SetActive(not InCombatLockdown())
     button:Show()
 end
 

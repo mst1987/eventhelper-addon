@@ -156,15 +156,15 @@ EHS.db.settings.councilCategory = category.id
 EHS:ShowCouncil()
 local council = EventHelperSyncCouncilFrame
 local layout = EHS.CouncilLayout
-local labels, right = {}, 12
+local labels, right = {}, 16
 for i, button in ipairs(council.roleButtons) do
     labels[#labels + 1] = button.label:GetText()
-    right = right + layout.ROLE_BUTTONS[i].width + (i > 1 and layout.ROLE_GAP or 0)
+    right = right + button:GetWidth() + (i > 1 and layout.ROLE_GAP or 0)
 end
-expectEqual(table.concat(labels, "|"), "Alle|Caster|Heiler|Tank|Nahkampf|Fernkampf", "six role buttons")
-expect(right <= layout.WIDTH - 12, "the role row fits the window (%d of %d px)", right, layout.WIDTH)
+expectEqual(table.concat(labels, "|"), "Alle|Caster|Heiler|Tank|Nahkampf|Fernkampf", "six role chips")
+expect(right <= layout.WIDTH - 16, "the role row fits the page (" .. right .. " of " .. layout.WIDTH .. " px)")
 local lastCol = layout.COL.last
-expect(lastCol[1] + lastCol[2] <= layout.WIDTH - 24, "the columns fit the row")
+expect(lastCol[1] + lastCol[2] <= layout.WIDTH - 32 - 6, "the columns fit the row")
 
 local function rows()
     local out = {}
@@ -184,8 +184,8 @@ expectEqual(plain(messerRow.name:GetText()), "Messer Probe Kampf-Schurke", "name
 expectEqual(plain(messerRow.items:GetText()), "2 Items · 1,5 Pkt", "items and points")
 expect(messerRow.segments.tenure.__width > 0 and messerRow.segments.tenure.__alpha == 1, "the fourth segment shows tenure")
 local gemliRow = rowOf("gemli")
--- 100 px x 24 % x 100/100 = 23.8 px (exact share)
-expect(math.abs(gemliRow.segments.tenure.__width - 100 * weights.tenure / 100) < 1e-9, "tenure segment width")
+-- 120 px x 24 % x 100/100 (exact share)
+expect(math.abs(gemliRow.segments.tenure.__width - layout.BAR_WIDTH * weights.tenure / 100) < 1e-9, "tenure segment width")
 expectEqual(plain(gemliRow.name:GetText()), "Gemli Schattenpriester", "core: no badge")
 
 WoWMock.Run(messerRow, "OnEnter")
@@ -228,7 +228,7 @@ local expectedMesser
 for _, expected in ipairs(cross.expected.raiders) do
     if expected.key == "messer" then expectedMesser = expected end
 end
-expectEqual(plain(messerRow.need:GetText()), ("Bedarf %d*"):format(expectedMesser.need), "live: the server's need, marked")
+expectEqual(plain(messerRow.need:GetText()), ("%d*"):format(expectedMesser.need), "live: the server's need, marked")
 expectEqual(plain(messerRow.items:GetText()), "3 Items · 3,5 Pkt", "live: the BiS weapon counts 2 points")
 for _, row in ipairs(rows()) do
     for _, expected in ipairs(cross.expected.raiders) do

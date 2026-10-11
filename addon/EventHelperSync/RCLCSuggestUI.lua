@@ -378,33 +378,34 @@ local function build()
     end)
     panel:SetScript("OnDragStop", savePosition)
 
-    local bg = w.solid(panel, "BACKGROUND", 0.05, 0.05, 0.06, 0.94)
-    bg:SetAllPoints()
-    local edges = {
-        { "TOPLEFT", "TOPRIGHT", nil, 1 }, { "BOTTOMLEFT", "BOTTOMRIGHT", nil, 1 },
-        { "TOPLEFT", "BOTTOMLEFT", 1, nil }, { "TOPRIGHT", "BOTTOMRIGHT", 1, nil },
-    }
-    for _, e in ipairs(edges) do
-        local line = w.solid(panel, "BORDER", 0.55, 0.45, 0.25, 1)
-        line:SetPoint(e[1])
-        line:SetPoint(e[2])
-        if e[3] then line:SetWidth(e[3]) end
-        if e[4] then line:SetHeight(e[4]) end
-    end
+    -- Rahmen und Titelleiste aus dem Baukasten (UIKit.lua), wie alle Fenster.
+    local Kit = EHS.Kit
+    Kit.Solid(panel, "BACKGROUND", Kit.C.panel, 0.96):SetAllPoints()
+    Kit.Border(panel, Kit.C.border)
+    local bar = Kit.Solid(panel, "BACKGROUND", Kit.C.bar)
+    bar:SetPoint("TOPLEFT", 1, -1)
+    bar:SetPoint("TOPRIGHT", -1, -1)
+    bar:SetHeight(23)
+    local barLine = Kit.Solid(panel, "BORDER", Kit.C.border)
+    barLine:SetPoint("TOPLEFT", 1, -24)
+    barLine:SetPoint("TOPRIGHT", -1, -24)
+    barLine:SetHeight(1)
 
-    panel.title = w.text(panel, "GameFontNormal")
-    panel.title:SetPoint("TOPLEFT", 10, -9)
+    panel.title = Kit.Text(panel, "label")
+    panel.title:SetPoint("TOPLEFT", 10, -7)
     panel.title:SetText("EventHelper-Vorschlag")
 
-    panel.close = w.textButton(panel, "x", 18, "Schliessen (bis zur nächsten Abstimmung; /ehc vorschlag öffnet wieder)")
-    panel.close:SetPoint("TOPRIGHT", -6, -6)
-    panel.close:SetScript("OnClick", function()
+    panel.close = Kit.CloseButton(panel, function()
         state.closed = true
         state.wanted = false
         panel:Hide()
     end)
+    panel.close:SetSize(18, 18)
+    Kit.Tooltip(panel.close, "Schliessen (bis zur nächsten Abstimmung; /ehc vorschlag öffnet wieder)")
+    panel.close:SetPoint("TOPRIGHT", -4, -3)
 
-    panel.category = w.textButton(panel, "", 124)
+    panel.category = Kit.Button(panel, "", "secondary", 124)
+    panel.category:SetHeight(18)
     panel.category:SetPoint("RIGHT", panel.close, "LEFT", -4, 0)
     panel.category.label:SetWidth(118)
     if panel.category.label.SetWordWrap then panel.category.label:SetWordWrap(false) end

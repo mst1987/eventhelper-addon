@@ -135,7 +135,7 @@ for _, child in ipairs(WoWMock.frames) do
     if child.__parent == council.list and child.__kind == "Button" then rows[#rows + 1] = child end
 end
 expectEqual(rows[1].raider.character, "Neuling", "server order")
-expectEqual(plain(rows[1].need:GetText()), "Bedarf 90", "server need, no marker")
+expectEqual(plain(rows[1].need:GetText()), "90", "server need, no marker")
 
 -- The histories ---------------------------------------------------------------------------
 
@@ -211,7 +211,7 @@ expect(base.categories[1].raiders[1].lootCount == 2 and #base.categories[1].raid
 
 -- re-sorted rows with markers
 expectEqual(rows[1].raider.character, "Karl", "re-sorted: Karl first")
-expectEqual(plain(rows[1].need:GetText()), "Bedarf 32*", "marker on a changed need")
+expectEqual(plain(rows[1].need:GetText()), "32*", "marker on a changed need")
 expectEqual(rows[2].raider.character, "Neuling", "second")
 expectEqual(rows[4].raider.character, "Gemli", "last")
 expectEqual(plain(rows[4].items:GetText()), "3 Items", "item count")
@@ -260,9 +260,9 @@ expectEqual(rows[1].raider.character, "Karl", "not yet (1 s)")
 WoWMock.Run(council, "OnUpdate", 2.5)
 -- avg 2.25: Neuling 27, Naphfß 7, Karl 6, Gemli 3 (server needScore)
 expectEqual(rows[1].raider.character, "Neuling", "recomputed after 3 s")
-expectEqual(plain(rows[1].need:GetText()), "Bedarf 27*", "Neuling")
+expectEqual(plain(rows[1].need:GetText()), "27*", "Neuling")
 expectEqual(rows[3].raider.character, "Karl", "Karl dropped")
-expectEqual(plain(rows[3].need:GetText()), "Bedarf 6*", "Karl need")
+expectEqual(plain(rows[3].need:GetText()), "6*", "Karl need")
 expect(plain(council.header:GetText()):find("vorläufig: 4 Vergaben", 1, true), "four now")
 WoWMock.ShowItem(GameTooltip, 30002)
 expect(not WoWMock.TooltipText(GameTooltip):find("Karl", 1, true), "Karl's BiS wand is his now")
@@ -308,7 +308,7 @@ EventHelperSync_Council = councilData(G + 5000)
 EHS:RefreshCouncil()
 expect(EHS:CouncilData() == Council.Load(), "everything synced: the data as it is")
 expect(not council.header:GetText():find("vorläufig", 1, true), "no provisional header")
-expectEqual(plain(rows[1].need:GetText()), "Bedarf 90", "no markers")
+expectEqual(plain(rows[1].need:GetText()), "90", "no markers")
 
 -- Award reasons kept (setting off): a disenchant counts as an other item ------------------------
 

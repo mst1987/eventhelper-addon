@@ -16,28 +16,24 @@ local EHS = EventHelperSync
 local frame
 
 local function build()
-    frame = CreateFrame("Frame", "EventHelperSyncExportFrame", UIParent, "BasicFrameTemplateWithInset")
-    frame:SetSize(640, 440)
-    frame:SetPoint("CENTER")
-    frame:SetMovable(true)
-    frame:EnableMouse(true)
-    frame:RegisterForDrag("LeftButton")
-    frame:SetScript("OnDragStart", frame.StartMoving)
-    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
-    frame:SetFrameStrata("DIALOG")
+    local Kit = EHS.Kit
+    frame = Kit.Window({
+        name = "EventHelperSyncExportFrame", title = "Loot-Export", width = 640, height = 440,
+        strata = "DIALOG", point = { "CENTER", 0, 0 },
+    })
+    local body = frame.body
 
-    frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    frame.title:SetPoint("TOP", 0, -6)
-    frame.title:SetText("EventHelper - Loot-Export")
-
-    frame.hint = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    frame.hint:SetPoint("TOPLEFT", 14, -32)
-    frame.hint:SetPoint("TOPRIGHT", -14, -32)
-    frame.hint:SetJustifyH("LEFT")
+    frame.hint = Kit.Text(body, "small")
+    frame.hint:SetPoint("TOPLEFT", 14, -12)
+    frame.hint:SetPoint("TOPRIGHT", -14, -12)
+    if frame.hint.SetWordWrap then frame.hint:SetWordWrap(true) end
 
     local scroll = CreateFrame("ScrollFrame", "$parentScroll", frame, "UIPanelScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT", 12, -70)
-    scroll:SetPoint("BOTTOMRIGHT", -32, 40)
+    scroll:SetPoint("TOPLEFT", body, "TOPLEFT", 12, -46)
+    scroll:SetPoint("BOTTOMRIGHT", body, "BOTTOMRIGHT", -32, 44)
+    local well = Kit.Solid(frame, "BACKGROUND", Kit.C.field)
+    well:SetPoint("TOPLEFT", scroll, "TOPLEFT", -4, 4)
+    well:SetPoint("BOTTOMRIGHT", scroll, "BOTTOMRIGHT", 4, -4)
 
     local edit = CreateFrame("EditBox", nil, scroll)
     edit:SetMultiLine(true)
@@ -53,22 +49,14 @@ local function build()
     scroll:SetScrollChild(edit)
     frame.edit = edit
 
-    local selectAll = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    selectAll:SetSize(160, 22)
-    selectAll:SetPoint("BOTTOMLEFT", 14, 12)
-    selectAll:SetText("Alles markieren")
-    selectAll:SetScript("OnClick", function()
+    frame.selectAll = Kit.Button(body, "Alles markieren", "primary", 160, function()
         frame.edit:SetFocus()
         frame.edit:HighlightText()
     end)
+    frame.selectAll:SetPoint("BOTTOMLEFT", 14, 10)
 
-    local close = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    close:SetSize(100, 22)
-    close:SetPoint("BOTTOMRIGHT", -14, 12)
-    close:SetText("Schliessen")
-    close:SetScript("OnClick", function() frame:Hide() end)
-
-    tinsert(UISpecialFrames, "EventHelperSyncExportFrame")
+    frame.closeButton = Kit.Button(body, "Schliessen", "secondary", 100, function() frame:Hide() end)
+    frame.closeButton:SetPoint("BOTTOMRIGHT", -14, 12)
 end
 
 function EHS:ShowExportFrame()
@@ -86,7 +74,8 @@ function EHS:ShowExportFrame()
     end
 
     frame.payload = self:EncodeJSON(envelope)
-    frame.hint:SetText(("%d Raid-Session(s), %d Item(s). Mit Strg+A / Strg+C kopieren und im Admin-Menü unter |cffffd200Historie & Loot -> Import|r einfügen."):format(#envelope.sessions, items))
+    frame.hint:SetText(("%d Raid-Session(s), %d Item(s). Mit Strg+A / Strg+C kopieren und im Admin-Menü unter %s einfügen.")
+        :format(#envelope.sessions, items, self.Kit.Color("Historie & Loot -> Import", "gold")))
     frame.edit:SetText(frame.payload)
     frame:Show()
     frame.edit:SetFocus()

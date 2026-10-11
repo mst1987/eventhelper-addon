@@ -45,7 +45,7 @@ local function addonMetadata(field)
     return nil
 end
 
-EHS.version = addonMetadata("Version") or "1.15.1"
+EHS.version = addonMetadata("Version") or "1.16.0"
 
 --- Ereignisse anmelden, ohne dass ein unbekanntes alles abbricht: WoW Forever
 --- wirft bei RegisterEvent mit einem Ereignis, das es nicht kennt.
@@ -309,6 +309,8 @@ SlashCmdList.EVENTHELPERSYNC = function(msg)
         reportStatus()
     elseif cmd == "module" or cmd == "modules" or cmd == "modul" then
         EHS:ShowModuleChooser()
+    elseif cmd == "einstellungen" or cmd == "settings" or cmd == "config" then
+        EHS:ShowMain("settings")
     elseif cmd == "upload" or cmd == "save" then
         -- Ein getippter Slash-Befehl zählt als Hardware-Event, ReloadUI() ist
         -- von hier aus also erlaubt.
@@ -353,9 +355,10 @@ SlashCmdList.EVENTHELPERSYNC = function(msg)
         EHS:Print("Debug-Ausgaben " .. (EHS.db.settings.debug and "an" or "aus") .. ".")
     else
         EHS:Print("Befehle:")
-        EHS:Print("  /ehs            - Fenster mit Status, Raid-Abenden und Einstellungen")
-        EHS:Print("  /ehs upload     - jetzt speichern (lädt die UI neu) statt auszuloggen")
-        EHS:Print("  /ehs status     - dasselbe kurz im Chat")
+        EHS:Print("  /ehs            - das Fenster: Loot-Sync, Loot-Council, Gildenbank, Einstellungen")
+        EHS:Print("  /ehs upload     - Speichern & hochladen (lädt die UI neu) statt auszuloggen")
+        EHS:Print("  /ehs status     - der Stand kurz im Chat")
+        EHS:Print("  /ehs einstellungen - das Fenster auf den Einstellungen")
         EHS:Print("  /ehs module     - Module wählen: Loot-Sync, Loot-Council, Gildenbank")
         EHS:Print("  /ehs diag       - warum findet er nichts? Zeigt jede Stufe einzeln")
         EHS:Print("  /ehs minimap    - Minimap-Knopf ein-/ausblenden")

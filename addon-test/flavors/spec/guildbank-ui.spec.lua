@@ -36,11 +36,11 @@ local rows = {}
 for _, child in ipairs(WoWMock.frames) do
     if child.__parent == win.list and child.__kind == "Button" then rows[#rows + 1] = child end
 end
-expectEqual(#rows, 12, "12 rows built")
+expectEqual(#rows, 13, "13 rows built")
 for _, row in ipairs(rows) do expect(not row:IsShown(), "no rows without data") end
 local special = false
-for _, name in ipairs(UISpecialFrames) do if name == "EventHelperSyncGuildBankFrame" then special = true end end
-expect(special, "Escape closes the window")
+for _, name in ipairs(UISpecialFrames) do if name == "EventHelperSyncMainFrame" then special = true end end
+expect(special, "Escape closes the main window (and with it the page)")
 
 EventHelperSync_GuildBankHandouts = { format = "eventhelper-guildbank-handouts", version = 9, banks = {} }
 EHS:RefreshGuildBankUI()
@@ -58,8 +58,8 @@ local openButton, allButton
 for _, b in ipairs(win.viewButtons) do
     if b.view == "open" then openButton = b else allButton = b end
 end
-expectEqual(openButton.label.__color[1], 1, "Offen active (gold)")
-expectEqual(allButton.label.__color[1], 0.6, "Alle inactive")
+expect(openButton.selected, "Offen chip selected")
+expect(not allButton.selected, "Alle chip not selected")
 
 -- sorted by recipient: Anna, Naphfss, Raider01..12, Zibbo x2
 local r1, r2, r3 = rows[1], rows[2], rows[3]
@@ -76,7 +76,7 @@ expectEqual(r2.count:GetText(), "|cffffd100nur 1!|r", "the potions run out")
 expectEqual(r3.name:GetText(), "|cff40c7ebRaider01|r", "mage colour")
 expectEqual(r3.count:GetText(), "50 da", "plenty")
 expectEqual(rows[12].entry.recipient, "Raider10", "12 rows visible")
-expect(win.thumb:IsShown(), "scroll position shown for 16 rows")
+expect(win.listScroll.thumb:IsShown(), "scroll position shown for 16 rows")
 expect(not r1.check.mark:IsShown(), "not ticked")
 expectEqual(r1.item.__alpha, 1, "full alpha")
 
@@ -101,16 +101,16 @@ expect(WoWMock.TooltipText(GameTooltip):find("Naphfß - Thunderstrike", 1, true)
 WoWMock.Run(win.list, "OnMouseWheel", -1)
 expectEqual(rows[1].entry.recipient, "Raider02", "scrolled by 3")
 WoWMock.Run(win.list, "OnMouseWheel", -1)
-expectEqual(rows[1].entry.recipient, "Raider03", "scrolled by 4 (16 - 12), not further")
+expectEqual(rows[1].entry.recipient, "Raider02", "scrolled by 3 (16 - 13), not further")
 expect(rows[1].name:GetText() ~= "", "top row keeps the name")
-expectEqual(rows[11].entry.id, P .. "1", "Zibbo's ruby")
-expectEqual(plain(rows[11].name:GetText()), "Zibbo", "name on the first row of the group")
-expectEqual(rows[12].name:GetText(), "", "no name on the second row of the group")
-expectEqual(rows[11].tab:GetText(), "Tab 1/2", "two tabs")
-expectEqual(rows[11].item:GetText(), "|cff0070de2x Bold Living Ruby|r", "rare blue")
-expectEqual(rows[12].count:GetText(), "|cffffd100nur 0!|r", "not in the bank")
-expectEqual(rows[12].tab:GetText(), "-", "no tab")
-WoWMock.Run(rows[11], "OnEnter")
+expectEqual(rows[12].entry.id, P .. "1", "Zibbo's ruby")
+expectEqual(plain(rows[12].name:GetText()), "Zibbo", "name on the first row of the group")
+expectEqual(rows[13].name:GetText(), "", "no name on the second row of the group")
+expectEqual(rows[12].tab:GetText(), "Tab 1/2", "two tabs")
+expectEqual(rows[12].item:GetText(), "|cff0070de2x Bold Living Ruby|r", "rare blue")
+expectEqual(rows[13].count:GetText(), "|cffffd100nur 0!|r", "not in the bank")
+expectEqual(rows[13].tab:GetText(), "-", "no tab")
+WoWMock.Run(rows[12], "OnEnter")
 expect(WoWMock.TooltipText(GameTooltip):find('Zweck | Gruul - "Mag" ...', 1, true), "purpose made Latin-1 by the tool")
 WoWMock.Run(win.list, "OnMouseWheel", 1)
 WoWMock.Run(win.list, "OnMouseWheel", 1)
@@ -124,14 +124,14 @@ expect(mark and mark.via == "manual" and mark.by == "Gemli-Thunderstrike" and ma
 expectEqual(rows[1].entry.id, P .. "4", "Offen hides the ticked row")
 expectEqual(rows[1].count:GetText(), "4 da", "the potions are enough now")
 expectEqual(win.summary:GetText(), "15 Posten offen - 1 abgehakt, wird beim nächsten Sync gemeldet", "summary with ticks")
-expect(win.thumb:IsShown(), "15 rows: still a little scrolling")
+expect(win.listScroll.thumb:IsShown(), "15 rows: still a little scrolling")
 expect(EHS:HandoutsUnsaved(), "worth a reload")
 expectEqual(EHS:HandoutsUnsavedCount(), 1, "one tick not on disk")
 expect(win.upload:IsShown(), "upload button at the guild bank too")
 
 WoWMock.Click(allButton)
 expectEqual(EHS.db.settings.handoutsView, "all", "view remembered")
-expectEqual(allButton.label.__color[1], 1, "Alle active")
+expect(allButton.selected, "Alle chip selected")
 expectEqual(rows[1].entry.id, P .. "3", "Alle shows it again")
 expect(rows[1].check.mark:IsShown(), "check mark")
 expectEqual(rows[1].item.__alpha, 0.45, "dimmed")
@@ -153,11 +153,12 @@ expectEqual(win.empty:GetText(), "Alles abgehakt. Wird beim nächsten Sync gemel
 for _, entry in ipairs((EHS:GetHandoutEntries())) do EHS:UnmarkHandedOut(entry.id) end
 expectEqual(win.empty:GetText(), "", "rows again")
 
--- position is remembered
-win:ClearAllPoints()
-win:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 120, -40)
-WoWMock.Run(win, "OnDragStop")
-expect(EHS.db.guildBankPos.point == "TOPLEFT" and EHS.db.guildBankPos.x == 120, "position saved")
+-- the main window remembers its position (dragged by the title bar)
+local main = EventHelperSyncMainFrame
+main:ClearAllPoints()
+main:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 120, -40)
+WoWMock.Run(main.titleBar, "OnDragStop")
+expect(EHS.db.mainPos.point == "TOPLEFT" and EHS.db.mainPos.x == 120, "position saved")
 
 -- With the guild bank -----------------------------------------------------------------------------
 
@@ -184,11 +185,19 @@ closeBank()
 expect(win:IsShown(), "opened by hand: stays when the bank closes")
 expect(not win.bankOpen:IsShown(), "indicator gone")
 
-win:Hide()
+EHS:HideMain()
 openBank()
 expect(win:IsShown(), "opens by itself with the guild bank")
 closeBank()
-expect(not win:IsShown(), "and closes with it")
+expect(not win:IsShown() and not main:IsShown(), "and closes with it")
+
+-- open on another page: switches over, and stays when the bank closes
+EHS:ShowMain("settings")
+openBank()
+expect(win:IsShown(), "switched to the guild bank page")
+closeBank()
+expect(main:IsShown(), "a window that was open already stays")
+EHS:HideMain()
 
 EHS.db.settings.autoOpenHandouts = false
 openBank()
@@ -218,20 +227,23 @@ WoWMock.ctrl = true
 WoWMock.Click(minimap, "LeftButton")
 expect(win:IsShown(), "ctrl-click on the minimap button")
 WoWMock.ctrl = false
-win:Hide()
+EHS:HideMain()
 WoWMock.Run(minimap, "OnEnter")
 local mtip = WoWMock.TooltipText(GameTooltip)
 expect(mtip:find("Gildenbank-Ausgabe | 16 offen", 1, true), "minimap tooltip count:\n" .. mtip)
-expect(mtip:find("Strg-Linksklick: Gildenbank-Ausgabe", 1, true), "minimap tooltip hint")
+expect(mtip:find("Linksklick: Fenster öffnen", 1, true), "minimap tooltip hint")
 
-EHS:ToggleOptions()
-local options = EventHelperSyncOptionsFrame
-WoWMock.Click(options.guildBank)
-expect(win:IsShown(), "button in the options window")
-win:Hide()
-WoWMock.Click(options.autoHandouts)
-expect(EHS.db.settings.autoOpenHandouts == (options.autoHandouts:GetChecked() and true or false), "auto-open checkbox")
-options:Hide()
+-- the rail of the main window, and the switch in the settings
+EHS:ShowMain("loot")
+WoWMock.Click(main.navs.guildbank)
+expect(win:IsShown(), "rail entry opens the page")
+expectEqual(main.navs.guildbank.badge.label:GetText(), "16", "rail badge: open handouts")
+EHS:ShowMain("settings")
+local switch = EventHelperSyncSettingsPage.bank.rows[1].control
+WoWMock.Click(switch)
+expect(EHS.db.settings.autoOpenHandouts == switch.on, "auto-open switch")
+WoWMock.Click(switch)
+EHS:HideMain()
 
 WoWMock.prints = {}
 SlashCmdList.EVENTHELPERSYNC("help")

@@ -33,8 +33,12 @@ WoWMock.Run(button, "OnEnter")
 local tip = WoWMock.TooltipText(GameTooltip)
 expect(tip:find("^Gildenbank%-Ausgabe\n16 Posten offen\nStand: %d%d%.%d%d%. %d%d:%d%d, vor 1 Std%.\n"), "tooltip head:\n" .. tip)
 expect(not tip:find("abgehakt", 1, true), "nothing ticked yet")
-expect(tip:find("Linksklick: Fenster öffnen/schliessen", 1, true), "left click hint")
-expect(tip:find("Rechtsklick: EventHelper-Fenster und Einstellungen", 1, true), "right click hint")
+expect(tip:find("Linksklick: Gildenbank-Ausgabe öffnen/schliessen", 1, true), "left click hint")
+if WoWMock.flavor == "forever" then
+    expect(tip:find("Rechtsklick: Menü", 1, true), "right click hint (menu)")
+else
+    expect(tip:find("Rechtsklick: Einstellungen", 1, true), "right click hint (no menu on this client)")
+end
 expect(tip:find("Ziehen: um die Minimap bewegen", 1, true), "drag hint")
 
 -- ticking changes number and tooltip
@@ -51,13 +55,24 @@ expectEqual(button.count:GetText(), "16", "back")
 -- clicks
 WoWMock.Click(button, "LeftButton")
 local win = EventHelperSyncGuildBankFrame
-expect(win and win:IsShown(), "left click opens the window")
+expect(win and win:IsShown(), "left click opens the guild bank page")
+expect(EventHelperSyncMainFrame:IsShown(), "in the main window")
 WoWMock.Click(button, "LeftButton")
-expect(not win:IsShown(), "and closes it")
+expect(not win:IsShown() and not EventHelperSyncMainFrame:IsShown(), "and closes it")
 WoWMock.Click(button, "RightButton")
-local options = EventHelperSyncOptionsFrame
-expect(options:IsShown(), "right click opens the options")
-expect(not win:IsShown(), "not the window")
+if WoWMock.flavor == "forever" then
+    local texts = {}
+    for _, e in ipairs(MenuUtil.lastMenu.entries) do texts[#texts + 1] = e.text or e.title end
+    local menu = table.concat(texts, "|")
+    expect(menu:find("Gildenbank-Ausgabe (16)", 1, true), "right click: the menu with the open count: " .. menu)
+    expect(menu:find("Einstellungen öffnen", 1, true), "settings in the menu")
+    for _, e in ipairs(MenuUtil.lastMenu.entries) do
+        if e.text == "Einstellungen öffnen" then e.callback() end
+    end
+end
+local options = EventHelperSyncSettingsPage
+expect(options and options:IsShown(), "right click (or its menu entry) opens the settings")
+expect(not win:IsShown(), "not the guild bank page")
 
 -- dragging: its own angle
 WoWMock.cursorX, WoWMock.cursorY = 0, 10
@@ -82,14 +97,14 @@ SlashCmdList.EVENTHELPERSYNC("bankbutton")
 expect(button:IsShown(), "on again")
 expect(WoWMock.prints[#WoWMock.prints]:find("Gildenbank-Knopf an der Minimap an.", 1, true), "chat on")
 
-expect(options.bankMinimap.__checked, "options checkbox checked")
-options.bankMinimap:SetChecked(false)
-WoWMock.Click(options.bankMinimap)
-expectEqual(EHS.db.settings.showBankMinimap, false, "checkbox off")
-expect(not button:IsShown(), "hidden by the checkbox")
-options.bankMinimap:SetChecked(true)
-WoWMock.Click(options.bankMinimap)
-expect(button:IsShown(), "shown by the checkbox")
+EHS:RefreshMain()
+local switch = options.bank.rows[2].control
+expect(switch.on, "settings switch on")
+WoWMock.Click(switch)
+expectEqual(EHS.db.settings.showBankMinimap, false, "switch off")
+expect(not button:IsShown(), "hidden by the switch")
+WoWMock.Click(switch)
+expect(button:IsShown(), "shown by the switch")
 
 WoWMock.prints = {}
 SlashCmdList.EVENTHELPERSYNC("help")

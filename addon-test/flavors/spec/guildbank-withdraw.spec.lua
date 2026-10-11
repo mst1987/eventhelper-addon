@@ -30,27 +30,28 @@ end
 SlashCmdList.EVENTHELPERBANK("")
 local win = EventHelperSyncGuildBankFrame
 expect(win:IsShown(), "window open")
-expectEqual(L.width, 640, "wider window")
-expectEqual(win:GetWidth(), 640, "frame width")
-expectEqual(win:GetHeight(), 70 + 12 * 30 + 14, "frame height for 12 rows of 30")
+expectEqual(L.width, EHS.MainLayout.pageWidth, "a page of the main window, as wide as its content area")
+expectEqual(EventHelperSyncMainFrame:GetWidth(), 880, "main window width")
 local rows = {}
 for _, child in ipairs(WoWMock.frames) do
     if child.__parent == win.list and child.__kind == "Button" then rows[#rows + 1] = child end
 end
-expectEqual(#rows, 12, "12 rows")
+expectEqual(#rows, 13, "13 rows")
 expectEqual(rows[1]:GetHeight(), 30, "row height 30")
-expectEqual(rows[1]:GetWidth(), 616, "row width")
+local rowWidth = L.width - 2 * 16 - 6
+expectEqual(rows[1]:GetWidth(), rowWidth, "row width")
 expectEqual(rows[1].icon:GetWidth(), 24, "icon 24")
-expectEqual(rows[1].check:GetWidth(), 26, "checkbox 26")
-expectEqual(rows[1].check.box:GetWidth(), 16, "check box 16")
+expectEqual(rows[1].check:GetWidth(), 22, "checkbox 22")
+expectEqual(rows[1].check.box:GetWidth(), 14, "check box 14")
 for _, cell in ipairs({ "name", "item", "tab", "count" }) do
     expectEqual(rows[1][cell].__font, "GameFontHighlight", cell .. " in the normal font")
 end
 expectEqual(win.header.__font, "GameFontHighlightSmall", "header stays small")
 local col = L.columns
-expect(col.count[1] + col.count[2] <= 616, "count column inside the row")
+expect(col.count[1] + col.count[2] <= rowWidth, "count column inside the row")
 expect(col.item[2] >= 250, "room for long item names")
-expectEqual(win.list:GetHeight(), 360, "list height")
+expectEqual(win.list:GetHeight(), 13 * 30, "list height")
+expect(win.bankColumns and win.bankColumns.labels[2]:GetText() == "Für", "column header")
 
 -- Bank closed: a click does nothing ---------------------------------------------------------------------
 
@@ -134,7 +135,7 @@ EHS:RefreshGuildBankUI()
 -- Shift-click: Zibbo's ruby and flask (scroll to the end)
 WoWMock.Run(win.list, "OnMouseWheel", -1)
 WoWMock.Run(win.list, "OnMouseWheel", -1)
-local zibbo = rows[11]
+local zibbo = rows[12]
 expectEqual(zibbo.entry.id, P .. "1", "Zibbo's ruby")
 WoWMock.shift = true
 WoWMock.prints = {}

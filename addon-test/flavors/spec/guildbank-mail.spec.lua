@@ -80,9 +80,9 @@ WoWMock.Click(zibbo.button)
 expectEqual(WoWMock.mailTab, 2, "send tab")
 expectEqual(SendMailNameEditBox:GetText(), "Zibbo", "recipient")
 expectEqual(SendMailSubjectEditBox:GetText(), "Gildenbank: 2 Posten", "subject")
-local body = FOREVER and MailEditBox:GetInputText() or SendMailBodyEditBox:GetText()
-expectEqual(body, 'Gildenbank-Ausgabe (EventHelper)\n2x Bold Living Ruby - Gruul - "Mag" ...\n1x Flask of Supreme Power\nViel Erfolg!',
-    "body (" .. (FOREVER and "MailEditBox" or "SendMailBodyEditBox") .. ")")
+expectEqual(WoWMock.MailBody(), 'Gildenbank-Ausgabe\n2x Bold Living Ruby - Gruul - "Mag" ...\n1x Flask of Supreme Power',
+    "body (" .. (FOREVER and "SendMailBodyEditBox" or "MailEditBox") .. ")")
+expect(not win.upload:IsShown(), "nothing ticked yet: no upload button")
 local a1, a2 = WoWMock.attachments[1], WoWMock.attachments[2]
 expect(a1 and a1.id == RUBY and a1.count == 2, "two rubies split off")
 expect(a2 and a2.id == FLASK and a2.count == 1, "the flask")
@@ -99,8 +99,21 @@ local mark = EHS.db.guildBankDone[P .. "1"]
 expect(mark and mark.via == "mail" and mark.by == "Gemli-Thunderstrike", "ruby ticked off via mail")
 expect(EHS.db.guildBankDone[P .. "2"], "flask ticked off")
 expect(printed("Post an Zibbo gesendet: 2 Posten abgehakt."), "sent line")
-expectEqual(win.summary:GetText(), "14 Spieler offen - Gesendetes wird automatisch abgehakt", "one recipient less")
+expect(printed("Der Server erfährt es erst nach /reload"), "upload hint in the chat")
+expectEqual(win.summary:GetText(), "14 Spieler offen - 2 abgehakt, der Server erfährt es nach /reload", "one recipient less")
 expectEqual(WoWMock.addonSendCalls, 0, "still never SendMail from the addon")
+
+-- the upload button: shown while ticks are not on disk, a click saves and reloads
+expect(win.upload:IsShown(), "upload button at the mailbox")
+expectEqual(win.upload.label:GetText(), "Jetzt hochladen (/reload)", "upload label")
+WoWMock.Run(win.upload, "OnEnter")
+expect(WoWMock.TooltipText(GameTooltip):find("2 abgehakt, der Server weiß es noch nicht.", 1, true), "upload tooltip")
+WoWMock.reloaded = false
+WoWMock.prints = {}
+WoWMock.Click(win.upload)
+expect(WoWMock.reloaded, "ReloadUI from the click")
+expect(printed("Speichere die abgehakten Gildenbank-Ausgaben und lade die UI neu."), "flush line")
+expect(EHS.db.lastFlushedAt and EHS.db.lastFlushedAt > 0, "flush time noted")
 
 -- Combat and the other faction ------------------------------------------------------------------------
 

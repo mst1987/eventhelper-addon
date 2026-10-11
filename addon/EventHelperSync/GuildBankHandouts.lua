@@ -441,13 +441,20 @@ function EHS:IsHandedOut(id)
     return nil
 end
 
+--- How many handouts were ticked since the SavedVariables were last written
+-- (the server learns them only after the next /reload or logout).
+function EHS:HandoutsUnsavedCount()
+    local since = (self.db and self.db.lastFlushedAt) or 0
+    local count = 0
+    for _, entry in pairs(doneStore()) do
+        if type(entry) == "table" and num(entry.at) > since then count = count + 1 end
+    end
+    return count
+end
+
 --- Whether something was ticked since the SavedVariables were last written.
 function EHS:HandoutsUnsaved()
-    local since = (self.db and self.db.lastFlushedAt) or 0
-    for _, entry in pairs(doneStore()) do
-        if type(entry) == "table" and num(entry.at) > since then return true end
-    end
-    return false
+    return self:HandoutsUnsavedCount() > 0
 end
 
 --- Drop marks whose id the downloaded list no longer has: the server knows

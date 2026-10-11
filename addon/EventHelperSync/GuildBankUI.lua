@@ -26,6 +26,11 @@ button "Post", which fills the send frame and attaches the items. A prepared
 mail shows "in der Post" and "Vorbereitet" in gold; what is sent is ticked
 off by itself.
 
+While ticks are not yet on disk (EHS:HandoutsUnsavedCount), the title row
+shows "Jetzt hochladen (/reload)" in both modes: the server learns the ticks
+only from the SavedVariables, and the click is the hardware event ReloadUI()
+needs.
+
 Built like the loot-council window (CouncilUI.lua) and with its building
 blocks: flat frame, no Blizzard templates, the same on TBC Anniversary and
 WoW Forever.
@@ -514,6 +519,23 @@ local function build()
         anchor = button
     end
 
+    -- Ticked handouts reach the server only with the SavedVariables, and WoW
+    -- writes them on /reload or logout only. One click here is the hardware
+    -- event ReloadUI() needs (Core.lua) - no hunting for /ehs upload.
+    frame.upload = W.textButton(frame, "Jetzt hochladen (/reload)", 170)
+    frame.upload:SetPoint("RIGHT", anchor, "LEFT", -10, 0)
+    frame.upload:SetScript("OnClick", function() EHS:FlushAndReload() end)
+    frame.upload:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Abgehakte Posten hochladen")
+        GameTooltip:AddLine(("%d abgehakt, der Server weiß es noch nicht."):format(self.count or 0), 1, 1, 1, true)
+        GameTooltip:AddLine("Speichert und lädt die UI neu - danach meldet das Sync-Tool die Haken dem Server.",
+            1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    frame.upload:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    frame.upload:Hide()
+
     frame.header = W.text(frame, "GameFontHighlightSmall")
     frame.header:SetPoint("TOPLEFT", 12, -32)
     frame.header:SetWidth(WIDTH - 24)
@@ -607,7 +629,13 @@ local function refreshMail(self)
         frame.empty:SetText("")
     else
         frame.header:SetText(Handouts.Header(data, now(), scope, banks))
-        frame.summary:SetText(("%d Spieler offen - Gesendetes wird automatisch abgehakt"):format(#groups))
+        local unsaved = frame.upload.count or 0
+        if unsaved > 0 then
+            frame.summary:SetText(("%d Spieler offen - %d abgehakt, der Server erfährt es nach /reload")
+                :format(#groups, unsaved))
+        else
+            frame.summary:SetText(("%d Spieler offen - Gesendetes wird automatisch abgehakt"):format(#groups))
+        end
         frame.empty:SetText(#groups == 0 and "Nichts per Post auszugeben." or "")
     end
 
@@ -658,6 +686,9 @@ function EHS:RefreshGuildBankUI()
     end
     frame.list:SetShown(mode == "bank")
     frame.mailList:SetShown(mode == "mail")
+    local okCount, unsaved = pcall(self.HandoutsUnsavedCount, self)
+    frame.upload.count = okCount and tonumber(unsaved) or 0
+    frame.upload:SetShown(frame.upload.count > 0)
     for _, button in ipairs(frame.viewButtons) do button:SetShown(mode == "bank") end
     if mode == "mail" then
         frame.bankOpen:SetText("Briefkasten offen")

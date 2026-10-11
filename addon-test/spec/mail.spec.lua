@@ -51,14 +51,14 @@ local body = Mail.Body({
     { amount = 2, name = "Bold Living Ruby", purpose = fancy },
     { amount = 3, name = "Super Mana Potion", purpose = "" },
 })
-expectEqual(body, 'Gildenbank-Ausgabe (EventHelper)\n2x Bold Living Ruby - Gruul - "Mag" ... -> ?\n3x Super Mana Potion\nViel Erfolg!',
+expectEqual(body, 'Gildenbank-Ausgabe\n2x Bold Living Ruby - Gruul - "Mag" ... -> ?\n3x Super Mana Potion',
     "body: one line per handout with its purpose")
 expect(latin1Only(body), "body Latin-1")
 local many = {}
 for i = 1, 30 do many[i] = { amount = 1, name = "A rather long item name number " .. i, purpose = "for the raid tonight" } end
 local long = Mail.Body(many)
 expect(#long <= Mail.MAX_BODY, "body fits the send frame: %d", #long)
-expect(long:find("\n%+%d+ weitere\nViel Erfolg!$"), "the rest as +N weitere:\n" .. long)
+expect(long:find("\n%+%d+ weitere$"), "the rest as +N weitere:\n" .. long)
 
 expectEqual(Mail.SlotLabel(0, 3), "Rucksack Platz 3", "backpack")
 expectEqual(Mail.SlotLabel(2, 5), "Tasche 2 Platz 5", "bag")
@@ -237,7 +237,7 @@ expectEqual(WoWMock.mail.tab, 2, "send tab")
 expectEqual(SendMailNameEditBox:GetText(), "Thrall", "recipient")
 expectEqual(SendMailSubjectEditBox:GetText(), "Gildenbank: 2 Posten", "subject")
 expectEqual(SendMailBodyEditBox:GetText(),
-    'Gildenbank-Ausgabe (EventHelper)\n2x Bold Living Ruby - Gruul - "Mag" ... -> ?\n3x Super Mana Potion\nViel Erfolg!', "body")
+    'Gildenbank-Ausgabe\n2x Bold Living Ruby - Gruul - "Mag" ... -> ?\n3x Super Mana Potion', "body")
 expectEqual(EHS:PreparedMail().mode, "attaching", "attaching")
 expectEqual(rows().Thrall.state, "busy", "row busy while attaching")
 WoWMock.advance(10)

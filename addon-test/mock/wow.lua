@@ -574,10 +574,24 @@ function WoWMock.playerAttach(index, bag, slot)
     WoWMock.fire("MAIL_SEND_INFO_UPDATE")
 end
 
--- The send frame
+-- The send frame. SetText fires the OnTextChanged hooks, as in the game.
+local function hookable(object)
+    object.hooks = {}
+    function object:HookScript(script, fn)
+        self.hooks[script] = self.hooks[script] or {}
+        table.insert(self.hooks[script], fn)
+    end
+    function object:RunHooks(script, ...)
+        for _, fn in ipairs(self.hooks[script] or {}) do fn(self, ...) end
+    end
+    return object
+end
 local function editBox(name)
-    local box = { text = "" }
-    function box:SetText(text) self.text = text end
+    local box = hookable({ text = "" })
+    function box:SetText(text)
+        self.text = text
+        self:RunHooks("OnTextChanged", false)
+    end
     function box:GetText() return self.text end
     _G[name] = box
     return box
@@ -592,6 +606,36 @@ function SendMail(recipient, subject, body)
     local call = { recipient = recipient, subject = subject, body = body, byPlayer = WoWMock.playerClicking == true }
     table.insert(WoWMock.mail.sendCalls, call)
     if not call.byPlayer then WoWMock.mail.addonSendCalls = WoWMock.mail.addonSendCalls + 1 end
+    -- a client that empties the attachment slots while sending
+    if WoWMock.mail.clearOnSend then
+        for index in pairs(WoWMock.mail.attachments) do WoWMock.mail.attachments[index] = nil end
+        WoWMock.fire("MAIL_SEND_INFO_UPDATE")
+    end
+end
+
+local function mailBody()
+    if SendMailBodyEditBox then return SendMailBodyEditBox:GetText() end
+    if MailEditBox and MailEditBox.GetInputText then return MailEditBox:GetInputText() end
+    return ""
+end
+
+-- Blizzard's send code: the button's OnClick calls SendMailFrame_SendMail,
+-- which calls the global SendMail (both looked up when clicked, so a spec can
+-- swap them for another client).
+function SendMailFrame_SendMail()
+    SendMail(SendMailNameEditBox:GetText(), SendMailSubjectEditBox:GetText(), mailBody())
+end
+SendMailMailButton = hookable({ scripts = {} })
+function SendMailMailButton:SetScript(script, fn) self.scripts[script] = fn end
+SendMailMailButton.scripts.OnClick = function() SendMailFrame_SendMail() end
+
+--- A click on a button as the game runs it: PreClick, OnClick, PostClick,
+-- each script first, then its hooks.
+function WoWMock.clickButton(button, mouse)
+    for _, script in ipairs({ "PreClick", "OnClick", "PostClick" }) do
+        if button.scripts and button.scripts[script] then button.scripts[script](button, mouse or "LeftButton") end
+        if button.RunHooks then button:RunHooks(script, mouse or "LeftButton") end
+    end
 end
 
 function hooksecurefunc(a, b, c)
@@ -606,23 +650,25 @@ function hooksecurefunc(a, b, c)
     end
 end
 
---- The player clicks "Senden": Blizzard's SendMailFrame_SendMail calls SendMail.
+--- The player clicks "Senden" (Blizzard's button -> SendMailFrame_SendMail -> SendMail).
 function WoWMock.clickSend()
     WoWMock.playerClicking = true
-    SendMail(SendMailNameEditBox:GetText(), SendMailSubjectEditBox:GetText(), SendMailBodyEditBox:GetText())
+    WoWMock.clickButton(SendMailMailButton)
     WoWMock.playerClicking = false
 end
 
---- The server answers: the attached items leave the bags, the frame resets.
+--- The server answers: the attached items leave the bags; Blizzard's mail
+-- frame, registered long before any addon, resets the send frame before the
+-- addon sees MAIL_SEND_SUCCESS (SendMailFrame_Reset).
 function WoWMock.mailSent()
     for index, a in pairs(WoWMock.mail.attachments) do
         if a.bag and not a.split then WoWMock.bags[a.bag].slots[a.slot] = nil end
         WoWMock.mail.attachments[index] = nil
     end
-    WoWMock.fire("MAIL_SEND_SUCCESS")
     SendMailNameEditBox:SetText("")
     SendMailSubjectEditBox:SetText("")
     if SendMailBodyEditBox then SendMailBodyEditBox:SetText("") end
+    WoWMock.fire("MAIL_SEND_SUCCESS")
 end
 
 function WoWMock.openMailbox(path)

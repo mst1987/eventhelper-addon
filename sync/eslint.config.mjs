@@ -22,6 +22,7 @@ export default [
                 AbortSignal: "readonly",
                 Buffer: "readonly",
                 setTimeout: "readonly",
+                clearTimeout: "readonly",
                 setInterval: "readonly",
                 clearInterval: "readonly",
             },

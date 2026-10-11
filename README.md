@@ -187,7 +187,7 @@ Dabei öffnet sich **nur** ein eigenes Fenster — keine Konsole, kein Browser-T
 
 Die **Übersicht** zeigt oben die Verbindung (Verbunden / Keine Verbindung / Nicht eingerichtet), darunter einen Hinweis, wenn Council-Daten oder Ausgabeliste neu geschrieben wurden, seit WoW zuletzt seine SavedVariables geschrieben hat (dann im Spiel `/reload`), vier Kacheln (Loot-Upload, [Loot-Council](#loot-council-im-spiel), Gildenbank, Ausgabeliste — ein Klick auf Council bzw. Gildenbank öffnet die Seite auf der Webseite) und die Raid-Abende in vier Reitern: **Bereit**, **Wartet** (liegt unbestätigt in der Addon-Inbox, „Bestätigen" öffnet sie), **Erledigt** (importiert oder kein Loot) und **Kommend**. „Hochladen" an einer bereiten Zeile lädt **genau diesen einen Raid** hoch — nicht die ganze Datei; „Alles hochladen" in der Kachel die ganze Datei. ↗ öffnet den Raid auf der Webseite. Lange Listen zeigen die ersten 8, der Rest kommt mit „Weitere N anzeigen".
 
-**Einstellungen** (⚙) ist eine eigene Ansicht: Server und Token (mit „Verbindung testen", auch vor dem Speichern), Addon-Datei, die gefundenen Addon-Ordner mit Spielvariante und Addon-Version (ein älteres Addon als das Tool ist als „veraltet" markiert), „Pfad selbst angeben", das Prüfintervall und „Jetzt ausführen" (Loot hochladen, Council holen, Ausgabeliste holen). Der **Verlauf** (Uhr-Symbol) zeigt die letzten Meldungen, filterbar nach Erfolgen und Problemen, und kopiert sie auf Wunsch in die Zwischenablage.
+**Einstellungen** (⚙) ist eine eigene Ansicht: Server und Token (mit „Verbindung testen", auch vor dem Speichern), Addon-Datei, die gefundenen Addon-Ordner mit Spielvariante und Addon-Version (ein älteres Addon als das Tool ist als „veraltet" markiert), „Pfad selbst angeben", das Prüfintervall, „Jetzt ausführen" (Loot hochladen, Council holen, Ausgabeliste holen) und die Version samt „Nach Updates suchen" (siehe [Updates](#updates)). Der **Verlauf** (Uhr-Symbol) zeigt die letzten Meldungen, filterbar nach Erfolgen und Problemen, und kopiert sie auf Wunsch in die Zwischenablage.
 
 **Ohne bekannten Raid-Termin** (z.B. ein Pug-Abend ohne Raid-Helper-Event) landet trotzdem unter „Bereit" — nur ohne Raid-Namen, mit einem kleinen ✕ daneben, um genau diesen Abend abzuwählen. Das Fenster darf jederzeit zu — der Upload läuft im Hintergrund weiter. Wieder aufrufen: die `.exe` noch einmal doppelklicken. Sie merkt, dass schon eine läuft, öffnet deren Fenster und beendet sich (`lib/instance.js`) — es laufen nie zwei nebeneinander. Ganz beenden: das ✕ oben rechts im Fenster.
 
@@ -202,6 +202,24 @@ Ohne Oberfläche (z.B. als Dienst): `EventHelperSync.exe watch --no-ui` — läu
 > Die Datei enthält die Node-Laufzeit und ist deshalb ~66 MB gross. Sie ist nicht signiert — Windows SmartScreen fragt beim ersten Start nach („Weitere Informationen" → „Trotzdem ausführen").
 
 Selbst bauen: `cd sync && npm install && npm run build:exe` (braucht Node 20+), Ergebnis liegt in `sync/dist/`.
+
+#### Updates
+
+Ab 1.14.0 muss niemand mehr neu herunterladen. Das Sync-Tool fragt beim Start und dann alle 6 Stunden das neueste [Release](https://github.com/mst1987/eventhelper-addon/releases) ab (ohne Anmeldung, weit unter GitHubs Grenze von 60 Abrufen pro Stunde). Gibt es eine neuere Version des Tools **oder** ist in einem der gefundenen Addon-Ordner ein älteres Addon installiert, erscheint oben in der Übersicht ein grüner Hinweis:
+
+```
+ │ ⤓ Update auf v1.15.0 verfügbar                 Was ist neu?  [Installieren] │
+ │   Installiert: Sync-Tool 1.14.0 · Addon TBC Anniversary 1.14.0            │
+```
+
+**Installieren** spielt alles Veraltete ein (`lib/updater.js`):
+
+- **Addon:** Das Zip aus dem Release wird in **jeden** gefundenen Addon-Ordner geschrieben (TBC Anniversary, Forever, …). `CouncilData.lua` und `GuildBankData.lua` bleiben stehen, denn die schreibt das Tool selbst. Danach im Spiel `/reload`. Kommen neue Dateien in der `.toc` dazu, sagt der Hinweis „WoW neu starten“, weil WoW die erst nach einem Neustart lädt.
+- **Sync-Tool:** Die neue `.exe` wird geladen, die laufende umbenannt (`EventHelperSync.old.exe`, Windows erlaubt das auch bei einer laufenden Datei), die neue an ihren Platz gesetzt und gestartet. Das alte Fenster schliesst sich, das neue öffnet sich von selbst. Die alte Datei räumt die neue Version beim Start weg.
+
+Jede Datei wird vor dem Einspielen gegen Grösse und den SHA-256 geprüft, den GitHub zu jedem Release-Anhang angibt. Stimmt etwas nicht, wird nichts angefasst. Liegt die `.exe` in einem Ordner ohne Schreibrecht (etwa unter `C:\Program Files`), sagt der Hinweis das, und die neue Version muss von Hand geladen werden.
+
+In den **Einstellungen** steht unter „Version“, was installiert ist, was das neueste Release ist und wann zuletzt geprüft wurde, dazu **Nach Updates suchen**. Mit Node.js gestartet (Weg b) kann sich das Tool nicht selbst ersetzen: Das Addon wird trotzdem aktualisiert, für das Tool gibt es nur den Link zum Release (`git pull`).
 
 #### b) Mit Node.js
 
@@ -801,6 +819,8 @@ Der Workflow läuft auf einem Windows-Runner (die `.exe` braucht eine Windows-`n
 | `EventHelperSync.exe` | das Sync-Tool, ohne Node.js lauffähig |
 
 Stimmt die Version im Tag nicht mit der in der `.toc` überein, bricht der Workflow ab — ein Zip, dessen `.toc` etwas anderes behauptet als das Release, klärt später niemand mehr auf.
+
+Sobald das Release veröffentlicht ist, sehen es alle laufenden Sync-Tools (ab 1.14.0) beim nächsten Abruf und bieten es zum Installieren an (siehe [Updates](#updates)). Deshalb dürfen sich die **Dateinamen nicht ändern**: `EventHelperSync.exe` und `EventHelperSync-<version>.zip` mit dem Ordner `EventHelperSync/` darin. Ein Entwurf oder ein als Pre-Release markiertes Release zählt für GitHubs `releases/latest` nicht, so lässt sich eine Version erst prüfen und dann freigeben.
 
 Zum Ausprobieren ohne Release: **Actions → Release → Run workflow**. Dann werden beide Dateien gebaut und als Artefakt angehängt, aber kein Release angelegt.
 

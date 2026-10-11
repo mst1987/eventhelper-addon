@@ -126,6 +126,9 @@ jobs:
             beobachtet sie von selbst. Fenster zu = läuft im Hintergrund weiter; erneuter
             Doppelklick holt das Fenster zurück, ✕ im Fenster beendet sie.
 
+            **Schon installiert (ab 1.14.0)?** Nichts herunterladen: das Sync-Tool zeigt die neue
+            Version von selbst an, „Installieren" aktualisiert Tool und Addon in einem Schritt.
+
             > Die .exe enthält die Node-Laufzeit und ist deshalb gross. Sie ist nicht signiert —
             > Windows SmartScreen fragt beim ersten Start nach
             > („Weitere Informationen" → „Trotzdem ausführen").

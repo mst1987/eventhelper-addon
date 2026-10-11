@@ -1,11 +1,12 @@
 "use strict";
 
 /**
- * Ein chromeloses Fenster für die Oberfläche: Edge oder Chrome mit
- * `--app=<url>` gestartet zeigt weder Adressleiste noch Tabs — sieht wie ein
- * eigenständiges Programm aus, ohne dass eine zweite GUI-Laufzeit (Electron,
- * ein natives WebView-Modul) in die .exe müsste. Siehe webui.js's
- * Kopfkommentar für die Abwägung dahinter.
+ * The window for the interface. First choice since 1.16.0: the tool's own
+ * frameless window (WebView2, lib/webviewHost.js) without any browser title
+ * bar. Without it: Edge or Chrome started with `--app=<url>`, which shows
+ * neither address bar nor tabs (but Edge's title bar). See openWindow() below
+ * for the whole chain, and webui.js's head comment for why the interface is a
+ * local web page at all.
  *
  * Kein installierter Edge/Chrome gefunden, oder der Start schlägt fehl: nie
  * hart scheitern, sondern der Aufrufer fällt auf den normalen Browser-Tab
@@ -15,6 +16,7 @@
 const fs = require("fs");
 const path = require("path");
 const { execFile, execFileSync } = require("child_process");
+const webviewHost = require("./webviewHost");
 
 // Reihenfolge = Suchreihenfolge: Edge zuerst, weil es auf jedem Windows 10/11
 // vorinstalliert ist; Chrome als Fallback für Rechner ohne Edge.
@@ -97,4 +99,67 @@ function showMessageBox(text, { title = "EventHelper Sync", error = false } = {}
     }
 }
 
-module.exports = { openAppWindow, findBrowser, showMessageBox };
+/**
+ * Open the interface in the best window this machine offers, never failing:
+ *
+ *   1. the tool's own frameless window (WebView2, lib/webviewHost.js): no
+ *      browser title bar, the page's header is the title bar;
+ *   2. Edge/Chrome with --app (openAppWindow above);
+ *   3. a normal browser tab.
+ *
+ * Closing the window behaves the same in all three: the sync keeps running in
+ * the background, a second start of the .exe opens the window again, and only
+ * the page's ✕ (/api/quit) ends the tool.
+ *
+ * @param {string} url
+ * @param {object} [options]
+ * @param {number} [options.parentPid]  the sync process the window belongs to
+ *   (for a second start: the running instance's, see lib/instance.js)
+ * @param {string} [options.version]    host folder name (the tool's version)
+ * @param {(level: string, text: string) => void} [options.log]
+ * @param {(url: string) => boolean} [options.openTab]  default: webui.js's openInBrowser
+ * @param {object} [options.host]  lib/webviewHost.js (tests)
+ * @returns {"host"|"app"|"tab"}  what was started (the host may still fall
+ *   back later, if WebView2 fails to come up)
+ */
+function openWindow(url, options = {}) {
+    const {
+        parentPid = process.pid, version, log = () => {}, host = webviewHost,
+    } = options;
+    const openTab = options.openTab || ((u) => require("./webui").openInBrowser(u));
+    const fallback = () => {
+        if (openAppWindow(url)) return "app";
+        openTab(url);
+        return "tab";
+    };
+
+    let exe = null;
+    try {
+        exe = host.findHost({ version });
+    } catch {
+        exe = null;
+    }
+    if (!exe) return fallback();
+
+    const child = host.spawnHost(exe, url, {
+        parentPid,
+        onError: (e) => {
+            log("error", `Fenster ließ sich nicht starten (${e.message}), öffne es im Browser.`);
+            fallback();
+        },
+        onExit: (code, failedEarly) => {
+            if (failedEarly) {
+                log("error", "WebView2 ließ sich nicht starten, öffne das Fenster im Browser. "
+                    + "Details: %LOCALAPPDATA%\\EventHelperSync\\window.log");
+                fallback();
+            } else if (code !== host.EXIT_HANDED_OVER) {
+                // EXIT_HANDED_OVER: the window was already open and came back to the front.
+                log("info", "Fenster geschlossen. Der Sync läuft im Hintergrund weiter, "
+                    + "ein erneuter Start der .exe öffnet es wieder.");
+            }
+        },
+    });
+    return child ? "host" : fallback();
+}
+
+module.exports = { openAppWindow, openWindow, findBrowser, showMessageBox };

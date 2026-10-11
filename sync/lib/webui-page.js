@@ -20,7 +20,8 @@ const SVG_SHIELD = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" 
 const SVG_CLOCK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
 const SVG_GEAR = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>';
 const SVG_X = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-const SVG_BACK = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>';
+const SVG_MIN = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg>';
+const SVG_BACK ='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>';
 const SVG_RELOAD = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>';
 const SVG_DOWNLOAD = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>';
 
@@ -30,6 +31,8 @@ const PILL = '<span class="pill off js-pill" role="status"><span class="pdot"></
 const BTN_LOG = '<button type="button" class="ibtn" data-act="nav" data-arg="log" aria-label="Verlauf" title="Verlauf">' + SVG_CLOCK + "</button>";
 const BTN_SETTINGS = '<button type="button" class="ibtn" data-act="nav" data-arg="settings" aria-label="Einstellungen" title="Einstellungen">' + SVG_GEAR + "</button>";
 const BTN_QUIT = '<button type="button" class="ibtn" data-act="quit" aria-label="Sync beenden" title="Sync beenden">' + SVG_X + "</button>";
+// Only in the tool's own window (WebView2): Edge --app has its own title bar.
+const BTN_MIN = '<button type="button" class="ibtn host-only" data-act="minimize" aria-label="Minimieren" title="Minimieren">' + SVG_MIN + "</button>";
 const BTN_BACK = '<button type="button" class="back" data-act="nav" data-arg="main">' + SVG_BACK + "Übersicht</button>";
 
 // Fenster-/Taskleisten-Icon: Edge/Chrome übernehmen im --app=-Modus das
@@ -50,6 +53,7 @@ module.exports.PAGE = String.raw`<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#1f232b">
 <title>EventHelper Sync</title>
 <link rel="icon" type="image/svg+xml" href="${FAVICON}">
 <style>
@@ -98,6 +102,18 @@ module.exports.PAGE = String.raw`<!doctype html>
   .back { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px 0 8px; border-radius: 8px; border: 1px solid rgba(56,189,248,.55); background: rgba(56,189,248,.14); color: var(--cyan); font-weight: 600; font-size: 13px; }
   .back:hover { background: rgba(56,189,248,.22); }
   .hdr-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+  /* The tool's own window (WebView2, lib/webviewHost.js): no OS title bar, so
+     the header is one (moves the window), the edges resize it, and a 1 px
+     frame keeps it apart from dark backgrounds. Edge --app and tabs: unchanged. */
+  .host-only { display: none; }
+  .in-host .host-only { display: grid; }
+  .in-host .hdr { user-select: none; }
+  .in-host body::after { content: ""; position: fixed; inset: 0; border: 1px solid var(--line); pointer-events: none; z-index: 1000; }
+  html[data-edge="left"], html[data-edge="left"] *, html[data-edge="right"], html[data-edge="right"] * { cursor: ew-resize !important; }
+  html[data-edge="top"], html[data-edge="top"] *, html[data-edge="bottom"], html[data-edge="bottom"] * { cursor: ns-resize !important; }
+  html[data-edge="top-left"], html[data-edge="top-left"] *, html[data-edge="bottom-right"], html[data-edge="bottom-right"] * { cursor: nwse-resize !important; }
+  html[data-edge="top-right"], html[data-edge="top-right"] *, html[data-edge="bottom-left"], html[data-edge="bottom-left"] * { cursor: nesw-resize !important; }
 
   /* Buttons */
   .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); font-size: 13px; font-weight: 700; }
@@ -245,7 +261,7 @@ module.exports.PAGE = String.raw`<!doctype html>
 
 <!-- Einrichtung: erster Start, Adresse oder Token fehlen -->
 <section class="view" id="v-setup" hidden>
-  <header class="hdr">${CREST}<span class="brand"><b>EventHelper Sync</b></span><span class="hdr-right">${PILL}${BTN_LOG}${BTN_QUIT}</span></header>
+  <header class="hdr">${CREST}<span class="brand"><b>EventHelper Sync</b></span><span class="hdr-right">${PILL}${BTN_LOG}${BTN_MIN}${BTN_QUIT}</span></header>
   <div class="setup-body grow scroll">
     <div>
       <h1>Einmal einrichten</h1>
@@ -285,7 +301,7 @@ module.exports.PAGE = String.raw`<!doctype html>
 
 <!-- Übersicht -->
 <section class="view" id="v-main" hidden>
-  <header class="hdr">${CREST}${BRAND}${PILL}${BTN_LOG}${BTN_SETTINGS}${BTN_QUIT}</header>
+  <header class="hdr">${CREST}${BRAND}${PILL}${BTN_LOG}${BTN_SETTINGS}${BTN_MIN}${BTN_QUIT}</header>
   <div class="main-body grow">
     <div class="strip upd" id="upd" role="status" hidden>${SVG_DOWNLOAD}<span class="upd-text"><b id="upd-title">Update verfügbar</b><small id="upd-text"></small></span><button type="button" class="linkbtn" data-act="update-notes">Was ist neu?</button><button type="button" class="btn sm primary" data-act="update-install" id="upd-btn">Installieren</button></div>
     <div class="problems" id="problems" role="alert" hidden></div>
@@ -415,6 +431,21 @@ const post = (path, body) => api(path, {
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(body || {}),
 });
+
+// The tool's own window (WebView2) answers messages; see "Eigenes Fenster" below.
+const HOST = window.chrome && window.chrome.webview ? window.chrome.webview : null;
+function hostPost(msg) {
+  if (!HOST) return false;
+  try {
+    HOST.postMessage(msg);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function closeWindow() {
+  if (!hostPost({ type: "close" })) window.close();
+}
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
@@ -588,8 +619,9 @@ const actions = {
   quit() {
     // Beendet das ganze Sync-Tool (die .exe hat keine Konsole) und schliesst
     // danach das Fenster — in dieser Reihenfolge, sonst käme die Anfrage nie an.
-    post("/api/quit").catch(() => {}).finally(() => window.close());
+    post("/api/quit").catch(() => {}).finally(closeWindow);
   },
+  minimize() { hostPost({ type: "minimize" }); },
   tab(arg) { pickedTab = arg; render(); },
   more(arg) { expanded[arg] = true; render(); },
   open(arg) { if (arg) openExternal(arg); },
@@ -686,7 +718,7 @@ const actions = {
       if (r.restarting) {
         // The new version opens its own window; this one belongs to the old process.
         flash("Update installiert – das Sync-Tool startet neu …", "ok");
-        setTimeout(() => window.close(), 1500);
+        setTimeout(closeWindow, 1500);
         return;
       }
       const addons = r.addons || [];
@@ -1350,14 +1382,67 @@ function fitWindow() {
   v.classList.remove("measure");
   if (!content || content === fittedHeight) return;
   fittedHeight = content;
-  const extraW = window.outerWidth - window.innerWidth;
-  const extraH = window.outerHeight - window.innerHeight;
+  // The own window has no frame around the page; it sizes itself from CSS
+  // pixels (DPI-correct, lib/webviewHost.js) instead of window.resizeTo.
+  const extraW = HOST ? 0 : window.outerWidth - window.innerWidth;
+  const extraH = HOST ? 0 : window.outerHeight - window.innerHeight;
   const height = Math.max(360, Math.min(content + extraH, Math.round(screen.availHeight * 0.9)));
+  if (HOST) {
+    hostPost({ type: "resize", width: APP_WIDTH, height: height });
+    return;
+  }
   try {
     window.resizeTo(APP_WIDTH + extraW, height);
   } catch {
     // Nicht erlaubt (normaler Tab) — dann bleibt es, wie es ist.
   }
+}
+
+// --- Eigenes Fenster (WebView2) ----------------------------------------------
+// In the tool's own window (lib/webviewHost.js, webview-host/Host.cs) there is
+// no OS title bar: the header moves the window, the outer 5 px resize it, and
+// minimize/close/resize are messages to the window program. In Edge --app or
+// a browser tab window.chrome.webview does not exist and none of this runs.
+const EDGE_PX = 5;
+function edgeAt(x, y) {
+  const v = y < EDGE_PX ? "top" : y >= window.innerHeight - EDGE_PX ? "bottom" : "";
+  const h = x < EDGE_PX ? "left" : x >= window.innerWidth - EDGE_PX ? "right" : "";
+  return v && h ? v + "-" + h : v || h;
+}
+if (HOST) {
+  const root = document.documentElement;
+  root.classList.add("in-host");
+  let dragFrom = null;
+  const setEdge = (edge) => { if ((root.dataset.edge || "") !== edge) root.dataset.edge = edge; };
+  document.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    const edge = edgeAt(e.clientX, e.clientY);
+    if (edge) {
+      e.preventDefault();
+      hostPost({ type: "edge", edge: edge });
+      return;
+    }
+    // The header is the title bar, except for its buttons and the filter.
+    if (e.target.closest(".hdr") && !e.target.closest("button, a, input, select, textarea, label, [data-act]")) {
+      e.preventDefault();
+      dragFrom = { x: e.screenX, y: e.screenY };
+    }
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (dragFrom && (e.buttons & 1)) {
+      // A few pixels first, so a plain click on the header stays a click.
+      if (Math.abs(e.screenX - dragFrom.x) + Math.abs(e.screenY - dragFrom.y) > 3) {
+        dragFrom = null;
+        hostPost({ type: "drag" });
+      }
+      return;
+    }
+    dragFrom = null;
+    // While a button is down (resizing) the cursor keeps its shape.
+    if (!e.buttons) setEdge(edgeAt(e.clientX, e.clientY));
+  });
+  document.addEventListener("mouseup", () => { dragFrom = null; });
+  root.addEventListener("mouseleave", () => setEdge(""));
 }
 
 refresh().then(refreshRaids);

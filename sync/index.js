@@ -25,7 +25,7 @@ const { createRunner } = require("./lib/runner");
 const council = require("./lib/council");
 const guildbankHandouts = require("./lib/guildbankHandouts");
 const { createWebUI, openInBrowser } = require("./lib/webui");
-const { openAppWindow, showMessageBox } = require("./lib/appWindow");
+const { openWindow, showMessageBox } = require("./lib/appWindow");
 const instance = require("./lib/instance");
 const { createUpdater, relaunch } = require("./lib/updater");
 
@@ -273,16 +273,27 @@ function isGuiExe() {
     }
 }
 
-/** Die Oberfläche öffnen: bevorzugt als eigenes Fenster, sonst als Browser-Tab. */
-function openUi(url) {
-    if (!openAppWindow(url)) openInBrowser(url);
+/**
+ * Die Oberfläche öffnen: bevorzugt im eigenen rahmenlosen Fenster (WebView2),
+ * sonst Edge/Chrome --app, sonst als Browser-Tab (lib/appWindow.js).
+ * @param {string} url
+ * @param {number} [parentPid]  the sync process the window belongs to
+ */
+function openUi(url, parentPid = process.pid) {
+    openWindow(url, {
+        parentPid,
+        version: SYNC_VERSION,
+        log: (level, text) => (level === "error" ? fail(text) : log(text)),
+        openTab: openInBrowser,
+    });
 }
 
 /**
- * Dauerbetrieb. Standardmässig mit Oberfläche: ein eigenes Fenster (Edge/
- * Chrome ohne Adressleiste und Tabs, siehe lib/appWindow.js) zeigt Stand und
- * Raid-Liste, ohne dass jemand einen Befehl kennen muss. Mit --no-ui bleibt es
- * bei den Konsolenzeilen (für den Betrieb als Dienst).
+ * Dauerbetrieb. Standardmässig mit Oberfläche: ein eigenes Fenster (WebView2
+ * ohne Browser-Titelleiste, sonst Edge/Chrome ohne Adressleiste und Tabs,
+ * siehe lib/appWindow.js) zeigt Stand und Raid-Liste, ohne dass jemand einen
+ * Befehl kennen muss. Mit --no-ui bleibt es bei den Konsolenzeilen (für den
+ * Betrieb als Dienst).
  */
 async function cmdWatch() {
     const withUi = !process.argv.includes("--no-ui");
@@ -292,10 +303,10 @@ async function cmdWatch() {
     if (withUi) {
         // Läuft schon eine Instanz (Fenster nur zugemacht), deren Fenster
         // wieder öffnen statt eine zweite daneben zu starten (lib/instance.js).
-        const running = await instance.findRunning();
+        const running = await instance.findRunningEntry();
         if (running) {
-            log(`Läuft bereits — öffne das vorhandene Fenster: ${running}`);
-            openUi(running);
+            log(`Läuft bereits — öffne das vorhandene Fenster: ${running.url}`);
+            openUi(running.url, running.pid);
             return;
         }
     }

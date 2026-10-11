@@ -13,6 +13,10 @@
  * Die Schritte:
  *   1. esbuild fasst index.js samt lib/ zu einer einzigen CommonJS-Datei
  *      zusammen. SEA kann nur ein Bündel aufnehmen, keinen Ordner.
+ *   1b. The own window (webview-host/Host.cs, scripts/buildHost.js), built
+ *      with the .NET Framework csc.exe, travels along as SEA assets. Without
+ *      csc/NuGet the .exe is built without it (Edge --app as before), unless
+ *      EHS_REQUIRE_HOST=1.
  *   2. `node --experimental-sea-config` macht daraus einen Blob.
  *   3. postject spleisst den Blob in eine Kopie der node.exe.
  *   4. Die .exe bekommt Icon und Versionsinfos (Windows).
@@ -27,6 +31,7 @@ const fs = require("fs");
 const path = require("path");
 const esbuild = require("esbuild");
 const { applyResources, setSubsystem, SUBSYSTEM } = require("./exeResources");
+const { buildHost, seaAssets } = require("./buildHost");
 const { version } = require("../package.json");
 
 const ROOT = path.join(__dirname, "..");
@@ -60,8 +65,11 @@ async function main() {
         process.exit(1);
     }
 
-    fs.rmSync(BUILD, { recursive: true, force: true });
+    // Everything but build/cache/ (the WebView2 NuGet package, scripts/buildHost.js).
     fs.mkdirSync(BUILD, { recursive: true });
+    for (const name of fs.readdirSync(BUILD)) {
+        if (name !== "cache") fs.rmSync(path.join(BUILD, name), { recursive: true, force: true });
+    }
     fs.mkdirSync(DIST, { recursive: true });
 
     step("Bündele den Quelltext …");
@@ -78,6 +86,18 @@ async function main() {
     });
     console.log(`  ${path.relative(ROOT, BUNDLE)} (${humanSize(BUNDLE)})`);
 
+    step("Baue das eigene Fenster (WebView2) …");
+    const host = await buildHost({ root: ROOT, buildDir: BUILD, version, log: (line) => console.log(line) });
+    if (host.skipped) {
+        if (process.env.EHS_REQUIRE_HOST === "1") {
+            throw new Error(`Fenster nicht gebaut: ${host.skipped}`);
+        }
+        console.log(`  übersprungen: ${host.skipped}`);
+        console.log("  Die .exe öffnet ihre Oberfläche dann wie bisher mit Edge/Chrome --app.");
+    } else {
+        for (const file of Object.values(host.files)) console.log(`  ${path.relative(ROOT, file)} (${humanSize(file)})`);
+    }
+
     step("Erzeuge den SEA-Blob …");
     fs.writeFileSync(SEA_CONFIG, JSON.stringify({
         main: BUNDLE,
@@ -87,6 +107,8 @@ async function main() {
         // hier nichts ausser einer weiteren Fehlerquelle.
         useSnapshot: false,
         useCodeCache: false,
+        // The window program and its DLLs (lib/webviewHost.js extracts them).
+        assets: seaAssets(host),
     }, null, 2));
     execFileSync(process.execPath, ["--experimental-sea-config", SEA_CONFIG], { stdio: "inherit" });
     console.log(`  ${path.relative(ROOT, BLOB)} (${humanSize(BLOB)})`);

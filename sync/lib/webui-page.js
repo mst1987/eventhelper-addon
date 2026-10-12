@@ -157,6 +157,12 @@ module.exports.PAGE = String.raw`<!doctype html>
   .tile-head .kicker { flex: 1; min-width: 0; }
   .tile-body { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; }
   .tile-val { font-weight: 800; font-size: 15.5px; overflow-wrap: anywhere; }
+  .tile-head .tbtn { width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel2); color: var(--muted); display: grid; place-items: center; flex: none; padding: 0; }
+  .tile-head .tbtn:hover:not(:disabled) { color: var(--accent); border-color: #3a404c; }
+  .tile-head .tbtn.spin svg { animation: tile-spin .9s linear infinite; }
+  @keyframes tile-spin { to { transform: rotate(360deg); } }
+  div.tile[data-act] { cursor: pointer; }
+  div.tile[data-act]:hover { border-color: #3a404c; background: #232831; }
   .tile-sub { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
   .tile-sub.err-text { color: #ff9b8f; }
   .tile .btn { align-self: flex-start; min-height: 32px; padding: 0 12px; }
@@ -775,6 +781,8 @@ document.addEventListener("click", (ev) => {
 });
 
 document.addEventListener("keydown", (ev) => {
+  const tile = ev.target.closest && ev.target.closest('div.tile[data-act="open"]');
+  if (tile && tile === ev.target && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); actions.open(tile.dataset.arg); return; }
   if (ev.key === "Escape" && (view === "settings" || view === "log") && activeView() && activeView().id !== "v-setup") {
     if (view === "settings") actions.cancel(); else actions.nav("main");
   }
@@ -975,10 +983,19 @@ function councilSummary(c) {
 function tileHtml(t) {
   const head = '<span class="tile-head"><img src="' + t.icon + '" alt="" width="30" height="30">'
     + '<span class="kicker">' + esc(t.kicker) + "</span>"
+    + (t.fetchAct
+      ? '<button type="button" class="tbtn' + (t.fetching ? " spin" : "") + '" data-act="' + t.fetchAct + '" aria-label="' + esc(t.fetchLabel)
+        + '" title="' + esc(t.fetchLabel) + '"' + (t.fetching ? " disabled" : "") + ">" + SVG_RELOAD + "</button>"
+      : "")
     + '<span class="dot ' + (t.dot || "") + '" title="' + esc(t.dotTitle || "") + '"></span></span>';
   const body = '<span class="tile-body"><span class="tile-val">' + esc(t.value) + "</span>"
     + '<span class="tile-sub' + (t.subErr ? " err-text" : "") + '"' + (t.subTitle ? ' title="' + esc(t.subTitle) + '"' : "")
     + ">" + esc(t.sub || "") + "</span></span>";
+  if (t.link && t.fetchAct) {
+    // Ein Knopf darf nicht in einem Knopf stehen: die Kachel wird zum Link-Feld.
+    return '<div class="tile" role="link" tabindex="0" data-act="open" data-arg="' + esc(t.link) + '" title="'
+      + esc((t.title ? t.title + "\n\n" : "") + "Auf der Website öffnen") + '">' + head + body + "</div>";
+  }
   if (t.link) {
     return '<button type="button" class="tile" data-act="open" data-arg="' + esc(t.link) + '" title="'
       + esc((t.title ? t.title + "\n\n" : "") + "Auf der Website öffnen") + '">' + head + body + "</button>";
@@ -1013,7 +1030,18 @@ function uploadTile(d, g) {
   return t;
 }
 
+// Abfrage-Knopf in der Kachel; während des Holens gesperrt, Unterzeile "wird geholt …".
+function withFetch(t, act, label, isBusy) {
+  const r = { ...t, fetchAct: act, fetchLabel: label, fetching: isBusy };
+  if (isBusy) { r.sub = "wird geholt …"; r.subErr = false; r.subTitle = ""; }
+  return r;
+}
+
 function councilTile(c) {
+  return withFetch(councilTileBase(c), "council", "Council jetzt holen", busy.has("council") || !!(c && c.fetching));
+}
+
+function councilTileBase(c) {
   const t = { kicker: "Loot-Council", icon: ICON.council, link: siteUrl("/lootcouncil") };
   if (!c || (!c.lastFetch && !c.lastError && !c.fetching)) {
     return { ...t, value: "Noch nicht geholt", sub: configured() ? "Wird gleich geholt" : "Nach der Einrichtung", dot: "", dotTitle: "Noch nichts" };
@@ -1064,6 +1092,10 @@ function guildBankTile(gb) {
 }
 
 function handoutsTile(h) {
+  return withFetch(handoutsTileBase(h), "handouts", "Ausgabeliste jetzt abfragen", busy.has("handouts") || !!(h && h.fetching));
+}
+
+function handoutsTileBase(h) {
   const t = { kicker: "Ausgabeliste", icon: ICON.handouts };
   if (!h || (!h.lastFetch && !h.lastError && !h.fetching && !h.done && !h.reportError)) {
     return { ...t, value: "Noch nicht geholt", sub: configured() ? "Wird gleich geholt" : "Nach der Einrichtung", dot: "", dotTitle: "Noch nichts" };

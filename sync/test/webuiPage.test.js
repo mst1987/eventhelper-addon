@@ -61,3 +61,40 @@ describe("Seite im eigenen Fenster (WebView2)", () => {
         expect(PAGE).toContain("--panel: #1f232b");
     });
 });
+
+describe("Abfrage-Knopf auf den Kacheln", () => {
+    it("hängt an Ausgabeliste (/api/handouts) und Council (/api/council)", () => {
+        expect(script).toContain('"handouts", "Ausgabeliste jetzt abfragen"');
+        expect(script).toContain('"council", "Council jetzt holen"');
+        expect(script).toContain('await post("/api/handouts")');
+        expect(script).toContain('await post("/api/council")');
+    });
+
+    it("zeigt das Reload-Symbol mit aria-label und Titel", () => {
+        expect(script).toContain('class="tbtn');
+        expect(script).toContain("aria-label=\"' + esc(t.fetchLabel)");
+        expect(script).toContain("SVG_RELOAD + \"</button>\"");
+    });
+
+    it("sperrt den Knopf und zeigt 'wird geholt …' während des Holens", () => {
+        expect(script).toContain('busy.has("handouts") || !!(h && h.fetching)');
+        expect(script).toContain('busy.has("council") || !!(c && c.fetching)');
+        expect(script).toContain('r.sub = "wird geholt …"');
+        expect(script).toContain('(t.fetching ? " disabled" : "")');
+        expect(PAGE).toMatch(/\.tile-head \.tbtn\.spin svg \{ animation: tile-spin/);
+    });
+
+    it("steckt keinen Knopf in den Knopf: die Council-Kachel wird zum Link-Feld", () => {
+        expect(script).toContain("if (t.link && t.fetchAct) {");
+        expect(script).toContain('<div class="tile" role="link" tabindex="0" data-act="open"');
+    });
+
+    it("öffnet beim Klick auf den Knopf nicht den Kachel-Link (innerster data-act gewinnt)", () => {
+        expect(script).toContain('ev.target.closest("[data-act]")');
+    });
+
+    it("lässt die Einträge in den Einstellungen stehen", () => {
+        expect(PAGE).toContain('data-act="council" id="act-council"');
+        expect(PAGE).toContain('data-act="handouts" id="act-handouts"');
+    });
+});

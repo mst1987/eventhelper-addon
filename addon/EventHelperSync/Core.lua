@@ -45,7 +45,7 @@ local function addonMetadata(field)
     return nil
 end
 
-EHS.version = addonMetadata("Version") or "1.16.3"
+EHS.version = addonMetadata("Version") or "1.16.4"
 
 --- Ereignisse anmelden, ohne dass ein unbekanntes alles abbricht: WoW Forever
 --- wirft bei RegisterEvent mit einem Ereignis, das es nicht kennt.

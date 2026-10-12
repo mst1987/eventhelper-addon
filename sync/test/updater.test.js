@@ -144,6 +144,8 @@ function installedAddon(name = "_anniversary_") {
     fs.writeFileSync(path.join(dir, "EventHelperSync.toc"), TOC_OLD);
     fs.writeFileSync(path.join(dir, "Core.lua"), "-- alt");
     fs.writeFileSync(path.join(dir, "CouncilData.lua"), "-- echte Council-Daten");
+    fs.mkdirSync(path.join(dir, "media"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "media", "icon.tga"), "altes bild");
     return dir;
 }
 
@@ -272,6 +274,14 @@ describe("installAddonFiles", () => {
     it("neue Dateien in der .toc: WoW muss neu starten", () => {
         const dir = installedAddon();
         const r = installAddonFiles(addonFiles(readZip(addonZip(TOC_NEW_FILES))), dir);
+        expect(r.restartNeeded).toBe(true);
+    });
+
+    it("ein neues Bild: WoW muss neu starten, auch wenn die .toc gleich bleibt", () => {
+        const dir = installedAddon();
+        fs.rmSync(path.join(dir, "media"), { recursive: true });
+        const r = installAddonFiles(addonFiles(readZip(addonZip())), dir);
+        expect(fs.readFileSync(path.join(dir, "media", "icon.tga"), "utf8")).toBe("bild");
         expect(r.restartNeeded).toBe(true);
     });
 });

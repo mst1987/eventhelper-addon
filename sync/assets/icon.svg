@@ -1,15 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- Quelle des Programm-Icons (EventHelperSync.exe) und des Fenster-Icons
-       (Favicon in lib/webui-page.js): das Wappen der Oberfläche, ein Schild
-       auf dem violett-türkisen Verlauf der EventHelper-Webseite. icon.ico
-       daneben wird daraus erzeugt: npm run build:icon (scripts/render-icon.js). -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Die EventHelper-Marke (Logo-Canvas Okt. 2026, Richtung D "Kalender mit
+       Haken"): der Kalender der Raids mit dem Haken der Anmeldung, auf dem
+       violett-türkisen Verlauf der Webseite. Dieselbe Marke ist das Favicon
+       der Webseite (eventhelper src/web-client/public/favicon.svg).
+       Quelle von drei Dingen, alle per npm run build:icon (scripts/render-icon.js):
+       icon.ico (Programm-Icon der .exe) und die beiden Bilder des Addons
+       (addon/EventHelperSync/media/logo.tga, logo-round.tga). Das Favicon des
+       Fensters (FAVICON in lib/webui-page.js) von Hand mitziehen. -->
   <defs>
-    <linearGradient id="g" x1=".25" y1=".07" x2=".75" y2=".93">
+    <linearGradient id="g" x1=".15" y1="0" x2=".85" y2="1">
       <stop offset="0" stop-color="#8a7cff"/>
       <stop offset="1" stop-color="#35d6c4"/>
     </linearGradient>
   </defs>
-  <rect width="32" height="32" rx="8" fill="url(#g)"/>
-  <path transform="translate(2.8 2.8) scale(1.1)" d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"
-        fill="none" stroke="#130f26" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect width="64" height="64" rx="15" fill="url(#g)"/>
+  <g fill="none" stroke="#130f26" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="12" y="17" width="40" height="36" rx="6"/>
+    <path d="M23 11 V21 M41 11 V21 M12 28 H52"/>
+    <path d="M23.5 40.5 L29 46 L40.5 34.5"/>
+  </g>
 </svg>

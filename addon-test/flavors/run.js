@@ -273,6 +273,29 @@ function checkLatin1() {
     return 0;
 }
 
+// Every texture of the addon's own folder that the Lua or the .toc names must
+// be in the folder as .tga — the game draws a missing one as a green square.
+function checkMedia() {
+    const sources = [tocText(), ...fs.readdirSync(ADDON_DIR).filter((f) => f.endsWith(".lua"))
+        .map((file) => fs.readFileSync(path.join(ADDON_DIR, file), "utf8"))];
+    const pattern = new RegExp(`Interface\\\\+AddOns\\\\+${ADDON_NAME}\\\\+([\\w\\\\-]+)`, "g");
+    const missing = new Set();
+    let count = 0;
+    for (const text of sources) {
+        for (const m of text.matchAll(pattern)) {
+            count += 1;
+            const rel = m[1].split(/\\+/).join(path.sep);
+            if (!fs.existsSync(path.join(ADDON_DIR, `${rel}.tga`))) missing.add(m[0]);
+        }
+    }
+    if (missing.size) {
+        console.log(`FAIL media: no .tga for ${[...missing].join(", ")}\n`);
+        return 1;
+    }
+    console.log(`ok   media (${count} texture path(s) of the addon folder, all present)`);
+    return 0;
+}
+
 function main() {
     const only = process.argv[2];
     const fixtures = {
@@ -290,7 +313,7 @@ function main() {
     };
     const specDir = path.join(__dirname, "spec");
     const specs = fs.readdirSync(specDir).filter((f) => f.endsWith(".lua") && (!only || f.includes(only))).sort();
-    let failed = only ? 0 : checkLatin1();
+    let failed = only ? 0 : checkLatin1() + checkMedia();
     let runs = 0;
     for (const spec of specs) {
         for (const flavor of FLAVORS) {

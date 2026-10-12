@@ -49,6 +49,12 @@ Kit.C = {
     switchOff = { 0.16, 0.15, 0.13 },
 }
 
+-- Die EventHelper-Marke (Kalender mit Haken), dieselbe wie auf der Webseite
+-- und im Sync-Tool. Erzeugt aus sync/assets/icon.svg (npm run build:icon);
+-- die runde Fassung ist fuer den Minimap-Knopf.
+Kit.LOGO = "Interface\\AddOns\\EventHelperSync\\media\\logo"
+Kit.LOGO_ROUND = "Interface\\AddOns\\EventHelperSync\\media\\logo-round"
+
 -- Dieselben Farben als Hex fuer |cff...|r im Text.
 Kit.HEX = { gold = "ffd100", green = "4fd34f", red = "e05a4f", mute = "8d877a", text = "e9e3d2" }
 
@@ -654,16 +660,23 @@ function Kit.Window(opts)
     bar:SetScript("OnDragStop", function() savePosition(frame) end)
     frame.titleBar = bar
 
+    -- Das Wappen: ohne opts.icon die EventHelper-Marke, sonst ein Spiel-Icon
+    -- mit Rahmen (der Rand der Spiel-Icons wird abgeschnitten).
+    local icon = opts.icon or Kit.LOGO
     bar.crest = CreateFrame("Frame", nil, bar)
     bar.crest:SetSize(20, 20)
     bar.crest:SetPoint("LEFT", 8, 0)
-    Kit.Solid(bar.crest, "BACKGROUND", Kit.C.field):SetAllPoints()
-    Kit.Border(bar.crest, Kit.C.border)
     bar.crest.icon = bar.crest:CreateTexture(nil, "ARTWORK")
-    bar.crest.icon:SetPoint("TOPLEFT", 2, -2)
-    bar.crest.icon:SetPoint("BOTTOMRIGHT", -2, 2)
-    bar.crest.icon:SetTexture(opts.icon or "Interface\\Icons\\INV_Misc_Note_02")
-    bar.crest.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    bar.crest.icon:SetTexture(icon)
+    if icon == Kit.LOGO then
+        bar.crest.icon:SetAllPoints()
+    else
+        Kit.Solid(bar.crest, "BACKGROUND", Kit.C.field):SetAllPoints()
+        Kit.Border(bar.crest, Kit.C.border)
+        bar.crest.icon:SetPoint("TOPLEFT", 2, -2)
+        bar.crest.icon:SetPoint("BOTTOMRIGHT", -2, 2)
+        bar.crest.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    end
 
     frame.title = Kit.Text(bar, "title")
     frame.title:SetPoint("LEFT", bar.crest, "RIGHT", 8, 0)

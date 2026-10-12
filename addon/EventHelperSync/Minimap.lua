@@ -79,13 +79,12 @@ local function build()
     button:RegisterForDrag("LeftButton")
     button:SetMovable(true)
 
-    -- Das Symbol. Ein vorhandenes Blizzard-Icon statt einer eigenen Grafik:
-    -- so bleibt das Addon ohne Medien-Dateien.
+    -- Das Symbol: die EventHelper-Marke in ihrer runden Fassung, damit sie in
+    -- den runden Rahmen passt (media/logo-round.tga, siehe Kit.LOGO_ROUND).
     local icon = button:CreateTexture(nil, "BACKGROUND")
-    icon:SetTexture("Interface\\Icons\\INV_Misc_Note_02")
+    icon:SetTexture(EHS.Kit.LOGO_ROUND)
     icon:SetSize(20, 20)
     icon:SetPoint("CENTER", 0, 1)
-    icon:SetTexCoord(.07, .93, .07, .93)
     button.icon = icon
 
     -- Der übliche runde Rahmen, den auch die Blizzard-Knöpfe tragen.

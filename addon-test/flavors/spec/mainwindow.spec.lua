@@ -21,6 +21,10 @@ expectEqual(main:GetWidth(), 880, "width")
 expectEqual(main.title:GetText(), "EventHelper Sync", "title in the title bar")
 expectEqual(main.subtitle:GetText(), "v" .. __TOC_VERSION, "version next to it")
 expect(main.close and main.titleBar, "close button and title bar")
+expectEqual(main.titleBar.crest.icon.__texture, "Interface\\AddOns\\EventHelperSync\\media\\logo",
+    "the EventHelper mark as crest")
+expectEqual(EventHelperSyncMinimapButton.icon.__texture, "Interface\\AddOns\\EventHelperSync\\media\\logo-round",
+    "and its round version on the minimap button")
 expectEqual(EHS:MainPage(), "loot", "first page: the first module")
 
 local function y(nav) return nav.__points[#nav.__points][5] end

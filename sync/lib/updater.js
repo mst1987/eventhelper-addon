@@ -20,8 +20,9 @@
  * "deflate" — mehr erzeugt Compress-Archive nicht) und Datei für Datei atomar
  * in den Addon-Ordner geschrieben. CouncilData.lua und GuildBankData.lua
  * bleiben stehen: die schreibt das Sync-Tool selbst, im Zip liegen nur leere
- * Platzhalter. Neue Dateien in der .toc lädt WoW erst nach einem Neustart des
- * Spiels, geänderte schon nach /reload — deshalb wird beides unterschieden.
+ * Platzhalter. Neue Dateien in der .toc und neue Bilder (media/*.tga) lädt
+ * WoW erst nach einem Neustart des Spiels, geänderte schon nach /reload —
+ * deshalb wird beides unterschieden.
  *
  * Die .exe: eine laufende .exe lässt sich unter Windows nicht überschreiben,
  * wohl aber umbenennen. Also: neue Datei daneben, alte zur Seite
@@ -220,8 +221,8 @@ function tocFiles(text) {
 /**
  * Das Addon aus dem Zip in einen Addon-Ordner schreiben.
  * @returns {{ files: number, restartNeeded: boolean }}  restartNeeded: die
- *   .toc nennt andere Dateien als vorher — WoW liest sie erst nach einem
- *   Neustart des Spiels, /reload reicht dafür nicht.
+ *   .toc nennt andere Dateien als vorher oder ein Bild ist neu — WoW liest
+ *   beides erst nach einem Neustart des Spiels, /reload reicht dafür nicht.
  */
 function installAddonFiles(files, dir) {
     const tocPath = path.join(dir, `${wowPaths.ADDON_FOLDER}.toc`);
@@ -232,16 +233,20 @@ function installAddonFiles(files, dir) {
         // keine .toc — dann ist ein Neustart ohnehin fällig
     }
     let written = 0;
+    let newMedia = false;
     for (const { rel, data } of files) {
         const target = path.join(dir, ...rel.split("/"));
         if (PRESERVED_FILES.includes(rel) && fs.existsSync(target)) continue;
+        // .lua und .toc deckt der Vergleich der .toc ab; alles andere (Bilder)
+        // kennt das Spiel nur, wenn es beim Start schon da war.
+        if (!/\.(lua|toc)$/i.test(rel) && !fs.existsSync(target)) newMedia = true;
         fs.mkdirSync(path.dirname(target), { recursive: true });
         writeAtomic(target, data);
         written += 1;
     }
     const newToc = files.find((f) => f.rel === `${wowPaths.ADDON_FOLDER}.toc`).data.toString("utf8");
     const before = tocFiles(oldToc).join("\n");
-    return { files: written, restartNeeded: before !== tocFiles(newToc).join("\n") };
+    return { files: written, restartNeeded: newMedia || before !== tocFiles(newToc).join("\n") };
 }
 
 // ---------------------------------------------------------------------------

@@ -142,7 +142,7 @@ end
 local function build()
     frame = Kit.Window({
         name = "EventHelperSyncMainFrame", title = "EventHelper Sync", width = WIDTH, height = HEIGHT,
-        posKey = "mainPos", strata = "HIGH", icon = "Interface\\Icons\\INV_Misc_Note_02",
+        posKey = "mainPos", strata = "HIGH",
     })
     frame.subtitle:SetText("v" .. tostring(EHS.version))
 

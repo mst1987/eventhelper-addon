@@ -28,6 +28,7 @@ const { createWebUI, openInBrowser } = require("./lib/webui");
 const { openWindow, showMessageBox } = require("./lib/appWindow");
 const instance = require("./lib/instance");
 const { createUpdater, relaunch } = require("./lib/updater");
+const { handOver } = require("./lib/restart");
 
 const stamp = () => new Date().toLocaleTimeString("de-DE");
 const log = (...args) => console.log(`[${stamp()}]`, ...args);
@@ -327,15 +328,14 @@ async function cmdWatch() {
         canSelfUpdate: isGuiExe(),
         exePath: process.execPath,
         onRestart: () => {
-            // Erst alles freigeben (Port, Instanz-Datei), dann die neue .exe
-            // starten — sie fände sonst diese Instanz und würde nur deren
-            // Fenster öffnen.
-            runner.stop();
-            updater.stop();
-            if (ui) ui.stop();
-            instance.unregister();
-            relaunch(process.execPath);
-            process.exit(0);
+            // Hand over to the new .exe; stays up (with the error on the
+            // update strip) if it does not come up (lib/restart.js).
+            handOver({
+                runner, updater, ui, instance, relaunch, exePath: process.execPath,
+                exit: (code) => process.exit(code),
+                notify: (text) => showMessageBox(text, { error: true }),
+                log: runner.log,
+            }).catch((e) => fail(`Neustart: ${e.message}`));
         },
     }) : null;
 

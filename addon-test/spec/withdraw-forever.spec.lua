@@ -1,8 +1,9 @@
 -- GuildBankWithdraw.lua on a Retail-like client (WoW Forever): guild bank
 -- via the interaction manager, C_Container only. First it works (split into
 -- a free slot with C_Container.PickupContainerItem), then the client ignores
--- the calls silently: a whole stack that never arrives only times out (no
--- block), an empty cursor after the split counts as blocked.
+-- the calls silently: a whole stack that never arrives and an empty cursor
+-- after the split only time out (logged, no session block), and once the
+-- client answers again the next click works.
 -- withdraw-blocked.spec.lua has the same with ADDON_ACTION_BLOCKED.
 WOW_PROJECT_ID = 1
 WoWMock.build.interface = 16001
@@ -61,18 +62,36 @@ WoWMock.guildBank.block = "silent"
 WoWMock.prints = {}
 expect(take("f3"), "started")
 WoWMock.advance(10)
-expect(WoWMock.printed("Entnehmen hat nicht geklappt. Bitte selbst nehmen:"), "timeout line")
+expect(WoWMock.printed("Entnehmen hat nicht geklappt (keine Antwort der Gildenbank). Bitte selbst nehmen:"), "timeout line")
 expect(WoWMock.printed("  Tab 1 Platz 4: 5x Super Healing Potion"), "slot line")
 expect(not EHS:GuildBankWithdrawBlocked(), "a timeout is no block")
 expect(not EHS:WithdrawingHandout(), "stopped")
 expectEqual(WoWMock.guildBank.tabs[1].slots[4].count, 5, "nothing moved")
+local log = EventHelperSyncDB.withdrawLog
+local function lastOf(kind)
+    for i = #log, 1, -1 do
+        if log[i].kind == kind then return log[i] end
+    end
+end
+local timeout = lastOf("timeout")
+expect(timeout and timeout.wait == "bags" and timeout.tab == 1 and timeout.slot == 4 and timeout.before == 0
+    and timeout.after == 0, "log: the bags never got it")
+expect(lastOf("stop").reason == "timeout", "log: stopped by the timeout")
 
--- silent split: the cursor stays empty - blocked
+-- silent split: the cursor stays empty - also only a timeout, no session block
 WoWMock.prints = {}
 expect(take("f2"), "started")
 WoWMock.advance(5)
-expect(EHS:GuildBankWithdrawBlocked(), "empty cursor after the split: blocked")
-expect(WoWMock.printed("Entnehmen aus der Gildenbank ist auf diesem Client gesperrt."), "blocked line")
+expect(not EHS:GuildBankWithdrawBlocked(), "empty cursor after the split: no session block")
+expect(WoWMock.printed("Entnehmen hat nicht geklappt (keine Antwort der Gildenbank). Bitte selbst nehmen:"), "timeout line")
 expect(WoWMock.printed("  Tab 1 Platz 3: 1x Bold Living Ruby (von 8, Shift-Klick teilt den Stapel)"), "slot line")
 expect(WoWMock.cursor == nil, "cursor clean")
 expectEqual(WoWMock.guildBank.tabs[1].slots[3].count, 8, "nothing moved")
+expectEqual(lastOf("timeout").wait, "cursor", "log: the cursor stayed empty")
+
+-- the client answers again: the next click works
+WoWMock.guildBank.block = nil
+WoWMock.prints = {}
+expect(take("f2"), "started again")
+WoWMock.advance(5)
+expect(WoWMock.printed("Aus der Gildenbank genommen: 1x Bold Living Ruby"), "taken")

@@ -4,7 +4,9 @@
 -- AutoStoreGuildBankItem (whole) and SplitGuildBankItem + PickupContainerItem
 -- (part), the stored scan following, querying a tab the client lost, the
 -- limit, no bag space, combat, scanning, a closed bank, the bank closing
--- mid-way, the fallback when the client raises, and every chat line Latin-1.
+-- mid-way, switching to the step's tab and back, the fallback when the client
+-- raises (no session block), a refusal of the server (UI_ERROR_MESSAGE), the
+-- withdraw log in the SavedVariables, and every chat line Latin-1.
 loadAddon()
 WoWMock.login({ lastFlushedAt = 1, settings = { autoOpenHandouts = false } })
 local EHS = EventHelperSync
@@ -218,6 +220,9 @@ expect(WoWMock.printed("Aus der Gildenbank genommen: 1x Super Healing Potion"), 
 expect(WoWMock.printed("Super Healing Potion: 1 von 2 nicht genommen - Tageslimit des Tabs erreicht."), "limit line")
 expectEqual(WoWMock.guildBank.tabs[2].remaining, 0, "tab 2 used up")
 expectEqual(W.EntriesFor(entry("h4"))[1].bagMissing, 1, "one still missing")
+-- the client acts on the current tab only: tab 2 selected, then tab 1 again
+expectEqual(table.concat(WoWMock.guildBank.switches or {}, ","), "2,1", "tab 2 for the step, then the tab shown before")
+expectEqual(WoWMock.guildBank.current, 1, "tab 1 shown again")
 
 before = calls()
 WoWMock.prints = {}
@@ -279,7 +284,7 @@ WoWMock.advance(2)
 expect(not WoWMock.printed("Bold Living Ruby"), "the ruby is not taken again")
 expect(WoWMock.printed("Flask of Supreme Power: 1 von 1 nicht genommen"), "the flask hits the limit")
 
--- The client raises on the item calls: list the slots ---------------------------------------------------------
+-- The client raises on the item calls: list the slots, no session block -----------------------------------------
 
 WoWMock.guildBank.block = "error"
 WoWMock.prints = {}
@@ -288,21 +293,68 @@ expect(take("h3", false) == false, "Thrall is complete")
 WoWMock.prints = {}
 take("h6")
 WoWMock.advance(2)
-expect(EHS:GuildBankWithdrawBlocked(), "remembered for the session")
-expect(WoWMock.printed("Entnehmen aus der Gildenbank ist auf diesem Client gesperrt. Bitte selbst in die Taschen nehmen:"),
-    "blocked line")
+expect(not EHS:GuildBankWithdrawBlocked(), "an error is no session block")
+expect(WoWMock.printed("Entnehmen hat nicht geklappt (Fehler im Client). Bitte selbst nehmen:"), "error line")
 expect(WoWMock.printed("  Tab 4 Platz 1: 1x Robe - \"Neu\""), "slot line, Latin-1")
 expect(WoWMock.cursor == nil, "cursor clean")
 expect(not EHS:WithdrawingHandout(), "stopped")
 
--- next click: the slots straight away, no client call
+-- next click: tried again, and it works
 WoWMock.guildBank.block = nil
 before = calls()
 WoWMock.prints = {}
-take("h6")
-WoWMock.advance(2)
-expectEqual(calls(), before, "no further call this session")
-expect(WoWMock.printed("  Tab 4 Platz 1: 1x Robe - \"Neu\""), "slot line again")
+expect(take("h6"), "started again")
+WoWMock.advance(3)
+expectEqual(calls(), before + 1, "one call")
+expect(WoWMock.printed("Aus der Gildenbank genommen: 1x Robe - \"Neu\""), "the robe this time")
+
+-- The server refuses (UI_ERROR_MESSAGE): stop, say why, no session block -----------------------------------------
+
+local REFUSAL = "Ihr k\195\182nnt heute keine weiteren Gegenst\195\164nde aus diesem Fach entnehmen."
+WoWMock.guildBank.current = 1
+WoWMock.guildBank.switches = {}
+WoWMock.guildBank.refuse = REFUSAL
+WoWMock.prints = {}
+expect(take("h7"), "started")
+WoWMock.advance(3)
+expect(WoWMock.printed("Gildenbank lehnt ab: " .. REFUSAL), "the server's message")
+expect(WoWMock.printed("Entnehmen abgebrochen. Den Rest bitte selbst nehmen:"), "stopped line")
+expect(WoWMock.printed("  Tab 4 Platz 2: 1x Living Ruby"), "slot line")
+expect(not EHS:GuildBankWithdrawBlocked(), "a refusal is no session block")
+expect(not EHS:WithdrawingHandout(), "stopped")
+expectEqual(WoWMock.guildBank.tabs[4].slots[2].count, 1, "still in the bank")
+expectEqual(table.concat(WoWMock.guildBank.switches, ","), "4,1", "tab 4 for the step, tab 1 again after the stop")
+WoWMock.guildBank.refuse = nil
+WoWMock.prints = {}
+expect(take("h7"), "next click tries again")
+WoWMock.advance(3)
+expect(WoWMock.printed("Aus der Gildenbank genommen: 1x Living Ruby"), "and takes it")
+
+-- every action ran on the current tab
+for _, name in ipairs(WoWMock.guildBank.calls) do
+    expect(not name:find("@other", 1, true), "an action on a tab that is not the current one: %s", name)
+end
+
+-- Diagnostics: the last steps in the SavedVariables ----------------------------------------------------------------
+
+local logBuffer = EventHelperSyncDB.withdrawLog
+expect(type(logBuffer) == "table" and #logBuffer > 0, "withdraw log written")
+expectEqual(#logBuffer, W.LOG_MAX, "only the last " .. W.LOG_MAX .. " kept")
+local function lastOf(kind)
+    for i = #logBuffer, 1, -1 do
+        if logBuffer[i].kind == kind then return logBuffer[i] end
+    end
+end
+local refused = lastOf("refused")
+expect(refused and refused.err == REFUSAL and refused.cur == 4, "the refusal, on tab 4")
+local acted = lastOf("act")
+expect(acted and acted.tab == 4 and acted.slot == 2 and acted.item == GEM and acted.cur == 4 and acted.before == 0,
+    "the last action: tab, slot, current tab, item, bags before")
+local done = lastOf("done")
+expect(done and done.reason == "finished", "the job finished")
+expect(lastOf("tab") and lastOf("tab").tab == 4, "the tab switch")
+expect(lastOf("restore") and lastOf("restore").tab == 1, "the restore")
+expect(type(logBuffer[1].t) == "number", "with the time")
 
 -- every chat line of this spec is Latin-1
 expect(#everything > 20, "chat lines collected")

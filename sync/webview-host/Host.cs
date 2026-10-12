@@ -151,6 +151,8 @@ namespace EventHelperSync
         private readonly System.Windows.Forms.Timer resizeTimer;
         private Process parent;
         private bool fitted;
+        // What the mouse loop does: an edge ("top-left", ...) resizes, MoveEdge moves.
+        private const string MoveEdge = "move";
         private string resizeEdge;
         private Point resizeFrom;
         private Rectangle resizeBounds;
@@ -377,15 +379,18 @@ namespace EventHelperSync
             try { return Convert.ToDouble(v, CultureInfo.InvariantCulture); } catch (Exception) { return 0; }
         }
 
-        // Hand the mouse to Windows' own move loop, as if the press had been on
-        // a title bar. Posted, not sent: the loop is modal and must not run
-        // inside a WebView2 event handler.
+        // Moving: follow the mouse here until the button is released, the same
+        // way as resizing. Windows' own move loop (WM_NCLBUTTONDOWN with
+        // HTCAPTION, 1.16.0) does not start reliably: the mouse is captured by
+        // the WebView2 browser process, and ReleaseCapture here cannot free it,
+        // so the window did not move at all.
         private void BeginMove()
         {
             if (WindowState != FormWindowState.Normal) return;
-            Native.ReleaseCapture();
-            Point p = Cursor.Position;
-            Native.PostMessage(Handle, Native.WM_NCLBUTTONDOWN, (IntPtr)Native.HTCAPTION, Native.MakeLParam(p.X, p.Y));
+            resizeEdge = MoveEdge;
+            resizeFrom = Cursor.Position;
+            resizeBounds = Bounds;
+            resizeTimer.Start();
         }
 
         // Resizing: Windows' size loop refuses a window without a sizing frame
@@ -412,6 +417,12 @@ namespace EventHelperSync
             Point p = Cursor.Position;
             int dx = p.X - resizeFrom.X;
             int dy = p.Y - resizeFrom.Y;
+            if (resizeEdge == MoveEdge)
+            {
+                Point to = new Point(resizeBounds.Left + dx, resizeBounds.Top + dy);
+                if (to != Location) Location = to;
+                return;
+            }
             int left = resizeBounds.Left, top = resizeBounds.Top, right = resizeBounds.Right, bottom = resizeBounds.Bottom;
             if (resizeEdge.IndexOf("left", StringComparison.Ordinal) >= 0) left = Math.Min(left + dx, right - MinimumSize.Width);
             if (resizeEdge.IndexOf("right", StringComparison.Ordinal) >= 0) right = Math.Max(right + dx, left + MinimumSize.Width);

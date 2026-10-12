@@ -464,6 +464,9 @@ const ICON = {
   guildbank: "${ICONS.guildbank}",
   handouts: "${ICONS.handouts}",
 };
+// Die SVG_*-Konstanten oben leben nur in Node; was das Seiten-Skript selbst
+// braucht, muss hier hinein (sonst "SVG_RELOAD is not defined", 1.16.4).
+const SVG_RELOAD = ${JSON.stringify(SVG_RELOAD)};
 const SVG = {
   ready: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
   wait: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 3h12M6 21h12M7 3c0 5 10 5 10 9s-10 4-10 9M17 3c0 5-10 5-10 9s10 4 10 9"/></svg>',

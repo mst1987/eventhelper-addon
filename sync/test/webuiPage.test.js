@@ -13,6 +13,15 @@ describe("Seite im eigenen Fenster (WebView2)", () => {
         expect(() => new Function(script)).not.toThrow();
     });
 
+    it("definiert jede SVG_*-Konstante, die das Seiten-Skript benutzt", () => {
+        // 1.16.4: tileHtml() nahm SVG_RELOAD, das nur in Node existiert -> ReferenceError im Fenster
+        const used = new Set(script.match(/\bSVG_[A-Z_]+\b/g) || []);
+        expect(used.size).toBeGreaterThan(0);
+        for (const name of used) {
+            expect(script).toMatch(new RegExp("\\bconst " + name + " = "));
+        }
+    });
+
     it("erkennt das eigene Fenster an window.chrome.webview", () => {
         expect(script).toMatch(/const HOST = window\.chrome && window\.chrome\.webview \? window\.chrome\.webview : null;/);
         expect(script).toMatch(/if \(HOST\) \{\s*const root = document\.documentElement;\s*root\.classList\.add\("in-host"\);/);

@@ -16,17 +16,33 @@ the mail is sent or by the checkbox.
      first), else the smallest larger stack is split. Every stack counts as
      one withdrawal against the tab's daily limit (GetGuildBankTabInfo,
      remainingWithdrawals, -1 = unlimited); what the limit or the stock does
-     not allow stays out and is named in chat.
-  3. One step at a time with small pauses: a whole stack goes into the bags
+     not allow stays out and is named in chat. The steps run grouped by tab,
+     the tab shown right now first.
+  3. Item actions only work on the CURRENT guild bank tab: Blizzard's frame
+     only ever acts on GetCurrentGuildBankTab(), Baganator calls
+     SetCurrentGuildBankTab(tab) before every pick up (ItemButton.lua), and
+     the server reports slot changes (GUILDBANKBAGSLOTS_CHANGED) only for the
+     current tab. So before the steps of a tab: SetCurrentGuildBankTab(tab) +
+     QueryGuildBankTab(tab), wait for the answer. Afterwards the tab shown
+     before is selected again (Baganator's view follows the current tab).
+  4. One step at a time with small pauses: a whole stack goes into the bags
      with AutoStoreGuildBankItem, a part with SplitGuildBankItem and then
      PickupContainerItem on a free bag slot. Every step waits until the items
      are really in the bags. Each step needs a free plain bag slot.
 
-Whether a Retail-based client (WoW Forever) lets addon code move guild bank
-items is unknown. If a call errors, the cursor stays empty or the client fires
-ADDON_ACTION_BLOCKED / ADDON_ACTION_FORBIDDEN for this addon, it stops, clears
-the cursor, lists "Tab 1 Platz 5: 2x Item" in chat and outlines the slots of
-the shown tab in the guild bank frame. That is remembered for the session.
+When something goes wrong it stops, clears the cursor and lists the rest as
+"Tab 1 Platz 5: 2x Item" in chat (outlined in Blizzard's guild bank frame if
+that is the visible frame and shows the tab - not with a bag addon such as
+Baganator, then the chat lines are all):
+  - the server refuses (UI_ERROR_MESSAGE while a job runs): "Gildenbank lehnt
+    ab: <message>";
+  - no answer in time (a wait times out) or a client call raises: "hat nicht
+    geklappt";
+  - ADDON_ACTION_BLOCKED / ADDON_ACTION_FORBIDDEN for this addon: only this
+    is remembered for the session (the next clicks list the slots at once).
+
+Diagnostics: the last LOG_MAX steps go to EventHelperSyncDB.withdrawLog
+(see log() below), with /ehs debug also live in chat.
 
 Never in combat; every client call runs under pcall.
 ]]
@@ -49,10 +65,14 @@ local POLL = 0.1
 local POLL_TRIES = 40
 -- How long to wait for GUILDBANKBAGSLOTS_CHANGED after a query.
 local QUERY_TIMEOUT = 3
+-- Pause after a tab switch was answered, before the first item action on it.
+local TAB_SETTLE = 0.3
+-- Entries kept in EventHelperSyncDB.withdrawLog.
+Withdraw.LOG_MAX = 30
 
 -- Runtime state only, nothing of this is saved.
 local state = {
-    blocked = false, -- moving items was blocked this session: list the slots straight away
+    blocked = false, -- ADDON_ACTION_BLOCKED/FORBIDDEN this session: list the slots straight away
     token = 0,       -- invalidates a running job and its timers
     job = nil,
     query = nil,     -- function waiting for GUILDBANKBAGSLOTS_CHANGED
@@ -106,6 +126,58 @@ end
 local function bagCount(itemId)
     return Mail.BagCounts()[itemId] or 0
 end
+
+--- The guild bank tab the client acts on right now (nil if unknown).
+local function currentTab()
+    return tonumber(try(GetCurrentGuildBankTab))
+end
+
+--- A message argument as plain text; nil for a secret value (WoW Forever) or
+-- anything that is not a string.
+local function plainText(value)
+    if type(issecretvalue) == "function" then
+        local ok, secret = pcall(issecretvalue, value)
+        if not ok or secret then return nil end
+    end
+    if type(value) == "string" then return value end
+    return nil
+end
+
+-- ---------------------------------------------------------------------------
+-- Diagnostics: EventHelperSyncDB.withdrawLog
+-- ---------------------------------------------------------------------------
+
+-- The fields of a log entry, in the order /ehs debug prints them:
+--   t       time()
+--   kind    start | query | tab | act | done | timeout | refused | info |
+--           error | blocked | stop | restore
+--   tab, slot, cur (the current tab when it was written), item (item id),
+--   count, before / after (that item in the bags), wait (what timed out:
+--   query | tab | slot | cursor | bags), reason (stop), err (UI message or
+--   Lua error, Latin-1), blocked (the session block was on)
+local LOG_FIELDS = { "tab", "slot", "cur", "item", "count", "before", "after", "wait", "reason", "err", "blocked" }
+
+--- Add an entry to the withdraw log (the last Withdraw.LOG_MAX are kept in
+-- the SavedVariables) and with /ehs debug print it.
+local function log(kind, fields)
+    local entry = { t = time and time() or 0, kind = kind, cur = currentTab() }
+    for key, value in pairs(fields or {}) do entry[key] = value end
+    if state.blocked then entry.blocked = true end
+    if type(entry.err) == "string" then entry.err = Mail.Latin1(entry.err) end
+    local db = EHS.db
+    if type(db) == "table" then
+        if type(db.withdrawLog) ~= "table" then db.withdrawLog = {} end
+        local buffer = db.withdrawLog
+        buffer[#buffer + 1] = entry
+        while #buffer > Withdraw.LOG_MAX do table.remove(buffer, 1) end
+    end
+    local parts = { "Entnehmen:", kind }
+    for _, key in ipairs(LOG_FIELDS) do
+        if entry[key] ~= nil then parts[#parts + 1] = key .. "=" .. tostring(entry[key]) end
+    end
+    pcall(EHS.Debug, EHS, table.concat(parts, " "))
+end
+Withdraw.Log = log
 
 -- ---------------------------------------------------------------------------
 -- The guild bank as the client shows it right now
@@ -212,6 +284,22 @@ function Withdraw.Plan(needs, stacks, limits)
     return plan
 end
 
+--- The steps grouped by tab (each tab is selected once): the tab shown right
+-- now first, then ascending; within a tab the planned order stays.
+function Withdraw.OrderByTab(steps, first)
+    local keyed = {}
+    for i, step in ipairs(steps) do
+        keyed[i] = { step = step, index = i, rank = step.tab == first and 0 or step.tab }
+    end
+    table.sort(keyed, function(a, b)
+        if a.rank ~= b.rank then return a.rank < b.rank end
+        return a.index < b.index
+    end)
+    local out = {}
+    for i, k in ipairs(keyed) do out[i] = k.step end
+    return out
+end
+
 -- ---------------------------------------------------------------------------
 -- Which entries need what (bag check as at the mailbox)
 -- ---------------------------------------------------------------------------
@@ -249,21 +337,31 @@ end
 -- Outlining the guild bank slots (fallback)
 -- ---------------------------------------------------------------------------
 
---- The button of the guild bank frame that shows this slot, if its tab is
--- the one shown (TBC: GuildBankColumnXButtonY, Retail: GuildBankFrame.Columns).
+--- Whether a frame is on screen: a bag addon such as Baganator keeps
+-- Blizzard's guild bank frame shown but parents it to a hidden frame.
+local function visible(frame)
+    if type(frame.IsVisible) ~= "function" then return true end
+    local ok, shown = pcall(frame.IsVisible, frame)
+    return not ok or (shown and true or false)
+end
+
+--- The button of Blizzard's guild bank frame that shows this slot, if its tab
+-- is the one shown and the frame is visible (TBC: GuildBankColumnXButtonY,
+-- Retail: GuildBankFrame.Columns).
 function Withdraw.FindBankButton(tab, slot)
-    local current = tonumber(try(GetCurrentGuildBankTab))
-    if current ~= tab then return nil end
+    if currentTab() ~= tab then return nil end
     local column = math.floor((slot - 1) / SLOTS_PER_COLUMN) + 1
     local index = (slot - 1) % SLOTS_PER_COLUMN + 1
     local button = _G["GuildBankColumn" .. column .. "Button" .. index]
-    if button then return button end
-    local frame = _G.GuildBankFrame
-    local columns = type(frame) == "table" and frame.Columns
-    local col = type(columns) == "table" and columns[column]
-    local buttons = type(col) == "table" and col.Buttons
-    if type(buttons) == "table" then return buttons[index] end
-    return nil
+    if not button then
+        local frame = _G.GuildBankFrame
+        local columns = type(frame) == "table" and frame.Columns
+        local col = type(columns) == "table" and columns[column]
+        local buttons = type(col) == "table" and col.Buttons
+        if type(buttons) == "table" then button = buttons[index] end
+    end
+    if type(button) ~= "table" or not visible(button) then return nil end
+    return button
 end
 
 --- Outline the slots of these steps in the guild bank frame.
@@ -333,26 +431,57 @@ local function report(job)
     end
 end
 
-local function stop(job, reason)
-    if job.token ~= state.token then return end
+local function live(job)
+    return job.token == state.token
+end
+
+--- End a job: no timer or event of it does anything any more.
+local function close(job)
     state.job = nil
     state.query = nil
+    state.token = state.token + 1
+    job.token = -1
+end
+
+--- Select the tab that was shown before the job again (Baganator follows).
+local function restoreTab(job)
+    local tab = job.restoreTab
+    job.restoreTab = nil
+    if not tab or not bankOpen() or currentTab() == tab then return end
+    log("restore", { tab = tab })
+    call(SetCurrentGuildBankTab, tab)
+    call(QueryGuildBankTab, tab)
+end
+
+local STOP_TEXT = {
+    combat = "Kampf: Entnehmen abgebrochen. Den Rest bitte selbst nehmen:",
+    blocked = "Entnehmen aus der Gildenbank ist auf diesem Client gesperrt. Bitte selbst in die Taschen nehmen:",
+    bags = "Taschen voll: Entnehmen abgebrochen. Den Rest bitte selbst nehmen:",
+    timeout = "Entnehmen hat nicht geklappt (keine Antwort der Gildenbank). Bitte selbst nehmen:",
+    error = "Entnehmen hat nicht geklappt (Fehler im Client). Bitte selbst nehmen:",
+}
+STOP_TEXT.known = STOP_TEXT.blocked
+
+--- Stop a job: the rest is named in chat. Only a real ADDON_ACTION_BLOCKED /
+-- ADDON_ACTION_FORBIDDEN (reason "blocked") is remembered for the session.
+local function stop(job, reason, detail)
+    if not live(job) then return end
+    close(job)
     Mail.ClearCursor()
     if reason == "blocked" then state.blocked = true end
+    log("stop", { reason = reason, wait = detail and detail.wait, err = detail and detail.err })
     local todo = {}
     for k = job.index, #job.steps do todo[#todo + 1] = job.steps[k] end
     if reason == "closed" then
         EHS:Print("Gildenbank geschlossen - Entnehmen abgebrochen.")
         todo = {}
-    elseif reason == "combat" then
-        EHS:Print("Kampf: Entnehmen abgebrochen. Den Rest bitte selbst nehmen:")
-    elseif reason == "blocked" or reason == "known" then
-        EHS:Print("Entnehmen aus der Gildenbank ist auf diesem Client gesperrt. Bitte selbst in die Taschen nehmen:")
-    elseif reason == "bags" then
-        EHS:Print("Taschen voll: Entnehmen abgebrochen. Den Rest bitte selbst nehmen:")
+    elseif reason == "refused" then
+        EHS:Print("Gildenbank lehnt ab: " .. Mail.Latin1(detail and detail.err or "?"))
+        EHS:Print("Entnehmen abgebrochen. Den Rest bitte selbst nehmen:")
     else
-        EHS:Print("Entnehmen hat nicht geklappt. Bitte selbst nehmen:")
+        EHS:Print(STOP_TEXT[reason] or STOP_TEXT.timeout)
     end
+    if reason ~= "closed" then restoreTab(job) end
     for _, line in ipairs(Withdraw.ManualLines(todo, names(job))) do EHS:Print("  " .. line) end
     if #todo > 0 then Withdraw.Highlight(todo) end
     report(job)
@@ -360,30 +489,73 @@ local function stop(job, reason)
 end
 
 local function finish(job)
-    if job.token ~= state.token then return end
-    state.job = nil
+    if not live(job) then return end
+    close(job)
+    log("done", { reason = "finished" })
+    restoreTab(job)
     report(job)
     refresh()
 end
 
---- Wait until check() is true, polling; then onOk(), else stop(job, reason).
-local function waitFor(job, check, onOk, reason)
+--- Wait until check() is true, polling; then onOk(), else stop the job with
+-- "timeout" (`wait` names what was awaited, `detail()` adds log fields).
+local function waitFor(job, check, onOk, wait, detail)
     local function poll(n)
-        if job.token ~= state.token then return end
+        if not live(job) then return end
         if job.blocked then return stop(job, "blocked") end
         local ok, done = pcall(check)
         if ok and done then return onOk() end
-        if n >= POLL_TRIES then return stop(job, reason or "timeout") end
+        if n >= POLL_TRIES then
+            local fields = detail and select(2, pcall(detail)) or {}
+            if type(fields) ~= "table" then fields = {} end
+            fields.wait = wait
+            log("timeout", fields)
+            return stop(job, "timeout", { wait = wait })
+        end
         after(POLL, function() poll(n + 1) end)
     end
     poll(0)
 end
 
---- A client call that moves items. False if it errors or the client blocked it.
-local function act(job, fn, ...)
-    if type(fn) ~= "function" then return false end
-    local ok = pcall(fn, ...)
-    return ok and not job.blocked
+--- A client call that moves items: true, or false and the stop reason
+-- ("error" if it raised, "blocked" if the client blocked it).
+local function act(job, step, fn, ...)
+    log("act", { tab = step.tab, slot = step.slot, item = step.itemId, count = step.count,
+        before = bagCount(step.itemId) })
+    if type(fn) ~= "function" then
+        log("error", { err = "no such client function" })
+        return false, "error"
+    end
+    local ok, err = pcall(fn, ...)
+    if not ok then
+        log("error", { tab = step.tab, slot = step.slot, err = str(err) })
+        return false, "error"
+    end
+    if job.blocked then return false, "blocked" end
+    return true
+end
+
+--- Make `tab` the current guild bank tab, then onOk(). Without
+-- SetCurrentGuildBankTab (unknown client) it goes on as before.
+local function selectTab(job, tab, onOk)
+    local current = currentTab()
+    if current == tab or type(SetCurrentGuildBankTab) ~= "function" then return onOk() end
+    if job.restoreTab == nil then job.restoreTab = current or false end
+    log("tab", { tab = tab })
+    local answered = false
+    local function go(timedOut)
+        if answered or not live(job) then return end
+        answered = true
+        state.query = nil
+        if timedOut then log("timeout", { tab = tab, wait = "tab" }) end
+        after(TAB_SETTLE, function()
+            if live(job) then onOk() end
+        end)
+    end
+    state.query = function() go(false) end
+    call(SetCurrentGuildBankTab, tab)
+    call(QueryGuildBankTab, tab)
+    after(QUERY_TIMEOUT, function() go(true) end)
 end
 
 local doStep
@@ -399,7 +571,7 @@ local function stepDone(job, step)
     job.index = job.index + 1
     refresh()
     after(STEP_GAP, function()
-        if job.token == state.token then doStep(job) end
+        if live(job) then doStep(job) end
     end)
 end
 
@@ -408,17 +580,15 @@ local function bagSlotHas(bag, slot, itemId, count)
     return info ~= nil and not info.locked and info.itemId == itemId and info.count == count
 end
 
-doStep = function(job)
-    if job.token ~= state.token then return end
-    if not bankOpen() then return stop(job, "closed") end
-    local step = job.steps[job.index]
-    if not step then return finish(job) end
-    if inCombat() then return stop(job, "combat") end
+--- One step on the current tab: wait for the stack, move it, wait for the bags.
+local function runStep(job, step)
     -- the stack must still be there and unlocked (an earlier split locks it)
     waitFor(job, function()
         local info = Withdraw.SlotInfo(step.tab, step.slot)
         return info and not info.locked and info.itemId == step.itemId and info.count >= step.count
     end, function()
+        if not bankOpen() then return stop(job, "closed") end
+        if inCombat() then return stop(job, "combat") end
         local info = Withdraw.SlotInfo(step.tab, step.slot)
         step.stackCount = info.count
         step.kind = info.count > step.count and "split" or "whole"
@@ -426,35 +596,57 @@ doStep = function(job)
         local target = free[1]
         if not target then return stop(job, "bags") end
         local before = bagCount(step.itemId)
-        -- done once the bags hold the items and the bank stack is that much
-        -- smaller (a refused move puts the items back)
+        -- done once the bags hold the items (a refused move puts them back;
+        -- a split stack is placed locked until the server agrees)
         local function arrived()
-            if bagCount(step.itemId) < before + step.count then return false end
-            local now = Withdraw.SlotInfo(step.tab, step.slot)
-            return not now or now.itemId ~= step.itemId or now.count <= step.stackCount - step.count
+            return bagCount(step.itemId) >= before + step.count
+        end
+        local function bagsDetail()
+            local slotInfo = Withdraw.SlotInfo(step.tab, step.slot)
+            return { tab = step.tab, slot = step.slot, item = step.itemId, count = slotInfo and slotInfo.count,
+                before = before, after = bagCount(step.itemId) }
+        end
+        local function done()
+            log("done", { tab = step.tab, slot = step.slot, item = step.itemId, count = step.count,
+                before = before, after = bagCount(step.itemId) })
+            stepDone(job, step)
         end
 
         if step.kind == "whole" then
-            if not act(job, AutoStoreGuildBankItem, step.tab, step.slot) then return stop(job, "blocked") end
-            return waitFor(job, arrived, function() stepDone(job, step) end)
+            local ok, why = act(job, step, AutoStoreGuildBankItem, step.tab, step.slot)
+            if not ok then return stop(job, why) end
+            return waitFor(job, arrived, done, "bags", bagsDetail)
         end
-        if not act(job, SplitGuildBankItem, step.tab, step.slot, step.count) then return stop(job, "blocked") end
+        local ok, why = act(job, step, SplitGuildBankItem, step.tab, step.slot, step.count)
+        if not ok then return stop(job, why) end
         waitFor(job, Mail.CursorHasItem, function()
-            if not act(job, Mail.ContainerFn("PickupContainerItem"), target.bag, target.slot) then
-                return stop(job, "blocked")
-            end
+            local placed, reason = act(job, step, Mail.ContainerFn("PickupContainerItem"), target.bag, target.slot)
+            if not placed then return stop(job, reason) end
             waitFor(job, function()
                 return bagSlotHas(target.bag, target.slot, step.itemId, step.count) and arrived()
-            end, function() stepDone(job, step) end)
-        end, "blocked")
-    end, "locked")
+            end, done, "bags", bagsDetail)
+        end, "cursor", bagsDetail)
+    end, "slot", function()
+        local info = Withdraw.SlotInfo(step.tab, step.slot)
+        return { tab = step.tab, slot = step.slot, item = info and info.itemId, count = info and info.count,
+            err = info and info.locked and "locked" or nil }
+    end)
+end
+
+doStep = function(job)
+    if not live(job) then return end
+    if not bankOpen() then return stop(job, "closed") end
+    local step = job.steps[job.index]
+    if not step then return finish(job) end
+    if inCombat() then return stop(job, "combat") end
+    selectTab(job, step.tab, function() runStep(job, step) end)
 end
 
 --- Query the tabs whose data the client may not have yet, one after another.
 local function queryTabs(job, tabs, onDone)
     local index = 0
     local function nextTab()
-        if job.token ~= state.token then return end
+        if not live(job) then return end
         index = index + 1
         local tab = tabs[index]
         if not tab then
@@ -462,15 +654,17 @@ local function queryTabs(job, tabs, onDone)
             return onDone()
         end
         local answered = false
-        local function go()
-            if answered or job.token ~= state.token then return end
+        local function go(timedOut)
+            if answered or not live(job) then return end
             answered = true
             state.query = nil
+            if timedOut then log("timeout", { tab = tab, wait = "query" }) end
             nextTab()
         end
-        state.query = go
+        state.query = function() go(false) end
+        log("query", { tab = tab })
         call(QueryGuildBankTab, tab)
-        after(QUERY_TIMEOUT, go)
+        after(QUERY_TIMEOUT, function() go(true) end)
     end
     nextTab()
 end
@@ -497,9 +691,10 @@ end
 local function planAndRun(job)
     local stacks, limits = Withdraw.BankStacks(job.wanted)
     job.plan = Withdraw.Plan(job.needs, stacks, limits)
-    job.steps = job.plan.steps
+    job.steps = Withdraw.OrderByTab(job.plan.steps, currentTab())
     if #job.steps == 0 then
-        state.job = nil
+        close(job)
+        log("done", { reason = "nothing" })
         report(job)
         refresh()
         return
@@ -556,6 +751,7 @@ function EHS:WithdrawHandouts(entries)
     local job = { token = state.token, needs = needs, wanted = wanted, steps = {}, index = 1,
         plan = { steps = {}, short = {} } }
     state.job = job
+    log("start", { item = needs[1].itemId, count = needs[1].need, reason = #needs .. " Posten" })
 
     -- Tabs the client may not have loaded: the scan or the server saw the
     -- item there, but the client shows none of it.
@@ -622,9 +818,9 @@ end)
 
 local frame = CreateFrame("Frame")
 EHS:RegisterEvents(frame, "GUILDBANKBAGSLOTS_CHANGED", "BAG_UPDATE_DELAYED",
-    "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN")
+    "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN", "UI_ERROR_MESSAGE", "UI_INFO_MESSAGE")
 
-frame:SetScript("OnEvent", function(_, event, arg1)
+frame:SetScript("OnEvent", function(_, event, arg1, arg2)
     if event == "GUILDBANKBAGSLOTS_CHANGED" then
         local go = state.query
         if go then go() end
@@ -632,8 +828,20 @@ frame:SetScript("OnEvent", function(_, event, arg1)
         if bankOpen() then refresh() end
     elseif event == "ADDON_ACTION_BLOCKED" or event == "ADDON_ACTION_FORBIDDEN" then
         if arg1 == EHS.name and state.job then
+            log("blocked", { err = event .. " " .. str(plainText(arg2)) })
             state.job.blocked = true
             state.blocked = true
         end
+    elseif event == "UI_ERROR_MESSAGE" or event == "UI_INFO_MESSAGE" then
+        -- (messageType, message) on current clients, (message) on old ones
+        local job = state.job
+        if not job then return end
+        local text = plainText(arg2) or plainText(arg1) or "?"
+        if event == "UI_INFO_MESSAGE" then
+            log("info", { err = text })
+            return
+        end
+        log("refused", { err = text })
+        stop(job, "refused", { err = text })
     end
 end)

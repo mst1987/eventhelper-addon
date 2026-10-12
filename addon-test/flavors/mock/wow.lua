@@ -112,6 +112,15 @@ function Widget:Show() self.__shown = true end
 function Widget:Hide() self.__shown = false end
 function Widget:SetShown(shown) self.__shown = shown and true or false end
 function Widget:IsShown() return self.__shown end
+--- Shown and every parent shown (a frame parented to a hidden one is not visible).
+function Widget:IsVisible()
+    local w = self
+    while w do
+        if not w.__shown then return false end
+        w = w.__parent
+    end
+    return true
+end
 function Widget:SetText(text)
     self.__text = text
     -- an edit box fires OnTextChanged on SetText too (only hooks here: the
@@ -362,7 +371,7 @@ end
 -- calls raise, as a client that forbids them.
 
 for _, event in ipairs({ "MAIL_SHOW", "MAIL_CLOSED", "MAIL_SEND_SUCCESS", "MAIL_FAILED", "MAIL_SEND_INFO_UPDATE",
-    "BAG_UPDATE_DELAYED", "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN" }) do
+    "BAG_UPDATE_DELAYED", "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN", "UI_ERROR_MESSAGE", "UI_INFO_MESSAGE" }) do
     KNOWN_EVENTS[event] = true
 end
 Enum.PlayerInteractionType = Enum.PlayerInteractionType or {}
@@ -462,20 +471,39 @@ function ClearCursor() WoWMock.cursor = nil end
 
 -- The guild bank (immediate) ------------------------------------------------------------------
 -- WoWMock.bank.tabs[i] = { name, remaining (-1 = unlimited), slots = { [slot] = { id, count } } };
--- WoWMock.bankBlock = true makes the withdraw calls raise. Calls are listed in
--- WoWMock.bank.calls. The bag frames of the guild bank: Anniversary has
--- GuildBankColumnXButtonY, Forever GuildBankFrame.Columns[x].Buttons[y].
+-- The withdraw calls act on the current tab only (WoWMock.bank.current,
+-- SetCurrentGuildBankTab; on another tab nothing happens, listed as
+-- "<name>@other"). WoWMock.bankBlock = "event" fires ADDON_ACTION_BLOCKED for
+-- them (they do nothing), "error" makes them raise; WoWMock.bankRefuse =
+-- "text" answers them with UI_ERROR_MESSAGE. Calls are listed in
+-- WoWMock.bank.calls, tab selects in WoWMock.bank.switches. The bag frames of
+-- the guild bank: Anniversary has GuildBankColumnXButtonY, Forever
+-- GuildBankFrame.Columns[x].Buttons[y].
 
-WoWMock.bank = { tabs = {}, current = 1, calls = {}, queries = {} }
+WoWMock.bank = { tabs = {}, current = 1, calls = {}, queries = {}, switches = {} }
 
 local function bankItem(tab, slot)
     local t = WoWMock.bank.tabs[tab]
     return t and t.slots[slot] or nil
 end
 
-local function bankGuard(fname)
+--- Whether a withdraw call does nothing (another tab, blocked, refused).
+local function bankGuard(fname, tab)
+    if tab ~= WoWMock.bank.current then
+        table.insert(WoWMock.bank.calls, fname .. "@other")
+        return true
+    end
     table.insert(WoWMock.bank.calls, fname)
+    if WoWMock.bankBlock == "event" then
+        WoWMock.Fire("ADDON_ACTION_BLOCKED", "EventHelperSync", fname)
+        return true
+    end
     if WoWMock.bankBlock then error("Interface action failed because of an AddOn: " .. fname) end
+    if WoWMock.bankRefuse then
+        WoWMock.Fire("UI_ERROR_MESSAGE", 51, WoWMock.bankRefuse)
+        return true
+    end
+    return false
 end
 
 function WoWMock.BankTook(tab, slot, count)
@@ -505,12 +533,16 @@ function GetGuildBankItemInfo(tab, slot)
 end
 function GetGuildBankMoney() return 0 end
 function GetCurrentGuildBankTab() return WoWMock.bank.current end
+function SetCurrentGuildBankTab(tab)
+    table.insert(WoWMock.bank.switches, tab)
+    WoWMock.bank.current = tab
+end
 function QueryGuildBankTab(tab)
     table.insert(WoWMock.bank.queries, tab)
     WoWMock.Fire("GUILDBANKBAGSLOTS_CHANGED")
 end
 function AutoStoreGuildBankItem(tab, slot)
-    bankGuard("AutoStoreGuildBankItem")
+    if bankGuard("AutoStoreGuildBankItem", tab) then return end
     local item = bankItem(tab, slot)
     if not item or WoWMock.bank.tabs[tab].remaining == 0 then return end
     for bag = 0, 4 do
@@ -525,7 +557,7 @@ function AutoStoreGuildBankItem(tab, slot)
     end
 end
 function SplitGuildBankItem(tab, slot, count)
-    bankGuard("SplitGuildBankItem")
+    if bankGuard("SplitGuildBankItem", tab) then return end
     local item = bankItem(tab, slot)
     if item and not WoWMock.cursor and count < item.count and WoWMock.bank.tabs[tab].remaining ~= 0 then
         WoWMock.cursor = { id = item.id, count = count, bankTab = tab, bankSlot = slot, split = true }

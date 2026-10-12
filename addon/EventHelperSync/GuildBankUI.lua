@@ -274,7 +274,9 @@ local function buildRow(parent, index)
         if button ~= "LeftButton" or not entry or entry.done or not EHS:IsGuildBankOpen() then return end
         local all = IsShiftKeyDown and IsShiftKeyDown() and true or false
         local ok, entries = pcall(EHS.Withdraw.EntriesFor, entry, all)
-        if ok then EHS:WithdrawHandouts(entries) end
+        if not ok then return EHS:Debug("Entnehmen: Posten nicht lesbar:", tostring(entries)) end
+        local started, reason = EHS:WithdrawHandouts(entries)
+        if not started then EHS:Debug("Entnehmen nicht gestartet:", tostring(reason)) end
     end)
     row:SetScript("OnEnter", showRowTooltip)
     row:SetScript("OnLeave", function() GameTooltip:Hide() end)

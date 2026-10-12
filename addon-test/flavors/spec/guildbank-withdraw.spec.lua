@@ -3,8 +3,11 @@
 -- closed does nothing (tooltip says how), with the bank open a split and a
 -- whole stack go into the bags (old bag globals on Anniversary, C_Container
 -- on Forever), the row then shows "in den Taschen", nothing is ticked, the
--- checkbox still only ticks, Shift-click takes all of a recipient, and the
--- fallback outlines the slot in the guild bank frame of each client.
+-- checkbox still only ticks, Shift-click takes all of a recipient. The client
+-- acts on the current tab only: the row's tab is selected and the shown one
+-- restored. A refusal of the server is named in chat, ADDON_ACTION_BLOCKED
+-- outlines the slot in the guild bank frame of each client - but not when a
+-- bag addon (Baganator) hides that frame.
 local EHS = EventHelperSync
 local L = EHS.GuildBankLayout
 local FOREVER = WoWMock.flavor == "forever"
@@ -84,10 +87,13 @@ local tip = WoWMock.TooltipText(GameTooltip)
 expect(tip:find("Klick: in die Taschen nehmen", 1, true), "click hint:\n" .. tip)
 expect(tip:find("Shift-Klick: alles für Raider01", 1, true), "shift hint")
 
--- a part of a stack: split
+-- a part of a stack: split (the bank shows tab 1, the powder is in tab 3)
 WoWMock.prints = {}
+expectEqual(WoWMock.bank.current, 1, "tab 1 shown")
 WoWMock.Click(raider, "LeftButton")
-expectEqual(WoWMock.bank.calls[1], "SplitGuildBankItem", "split 1 off the 50")
+expectEqual(WoWMock.bank.calls[1], "SplitGuildBankItem", "split 1 off the 50, on the current tab")
+expectEqual(table.concat(WoWMock.bank.switches, ","), "3,1", "tab 3 selected for it, tab 1 again afterwards")
+expectEqual(WoWMock.bank.current, 1, "tab 1 shown again")
 local slot = WoWMock.bags[0].slots[1]
 expect(slot and slot.id == POWDER and slot.count == 1, "powder in the bags")
 expectEqual(WoWMock.bank.tabs[3].slots[1].count, 49, "49 left")
@@ -148,9 +154,30 @@ expectEqual(zibbo.count:GetText(), "|cff59e659in den Taschen|r", "Zibbo's ruby i
 WoWMock.Run(win.list, "OnMouseWheel", 1)
 WoWMock.Run(win.list, "OnMouseWheel", 1)
 
+-- every action ran on the current tab
+for _, name in ipairs(WoWMock.bank.calls) do
+    expect(not name:find("@other", 1, true), "an action on a tab that is not the current one: " .. name)
+end
+
+-- The server refuses: its message in chat, the slot listed, no session block ---------------------------------
+
+WoWMock.bankRefuse = "Das k\195\182nnt Ihr gerade nicht tun."
+WoWMock.prints = {}
+WoWMock.Click(rows[5], "LeftButton")
+expect(printed("Gildenbank lehnt ab: Das k\195\182nnt Ihr gerade nicht tun."), "refusal line")
+expect(printed("  Tab 3 Platz 1: 1x Arcane Powder (von 49, Shift-Klick teilt den Stapel)"), "slot line")
+expect(not EHS:GuildBankWithdrawBlocked(), "no session block")
+expectEqual(WoWMock.bank.current, 1, "tab 1 shown again")
+expect(not EHS.Withdraw.Highlights()[1] or not EHS.Withdraw.Highlights()[1]:IsShown(),
+    "nothing outlined: tab 3 is not shown")
+WoWMock.bankRefuse = nil
+local refusal
+for _, e in ipairs(EventHelperSyncDB.withdrawLog) do if e.kind == "refused" then refusal = e end end
+expect(refusal and refusal.cur == 3, "logged on tab 3")
+
 -- Blocked: the slot in chat and outlined in the guild bank frame --------------------------------------------
 
-WoWMock.bankBlock = true
+WoWMock.bankBlock = "event"
 WoWMock.bank.current = 3
 WoWMock.prints = {}
 WoWMock.Click(rows[5], "LeftButton")
@@ -164,6 +191,23 @@ expect(outline.button == WoWMock.bankButtons[1], "on slot 1 of the shown tab ("
     .. (FOREVER and "GuildBankFrame.Columns" or "GuildBankColumn1Button1") .. ")")
 expect(WoWMock.cursor == nil, "cursor clean")
 WoWMock.bankBlock = false
+
+-- Baganator keeps Blizzard's frame shown but parents it to a hidden frame: no
+-- outline floating somewhere, the chat lines are all
+local hidden = WoWMock.newWidget("Frame", nil)
+hidden:Hide()
+local parents = {}
+for i, button in ipairs(WoWMock.bankButtons) do
+    parents[i] = button.__parent
+    button.__parent = hidden
+end
+calls = #WoWMock.bank.calls
+WoWMock.prints = {}
+WoWMock.Click(rows[5], "LeftButton")
+expectEqual(#WoWMock.bank.calls, calls, "blocked this session: no call")
+expect(printed("  Tab 3 Platz 1: 1x Arcane Powder (von 49, Shift-Klick teilt den Stapel)"), "slot line")
+expect(not outline:IsShown(), "no outline on an invisible frame")
+for i, button in ipairs(WoWMock.bankButtons) do button.__parent = parents[i] end
 
 if FOREVER then
     WoWMock.Fire("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", Enum.PlayerInteractionType.GuildBanker)

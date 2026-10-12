@@ -235,6 +235,14 @@ function GetGuildBankItemInfo(tab, slot)
 end
 
 function GetCurrentGuildBankTab() return WoWMock.guildBank.current or 1 end
+-- The client acts on the current tab only (Blizzard's frame and Baganator
+-- select it before every item action); guildBank.switches lists the selects.
+function SetCurrentGuildBankTab(tab)
+    local gb = WoWMock.guildBank
+    gb.switches = gb.switches or {}
+    gb.switches[#gb.switches + 1] = tab
+    gb.current = tab
+end
 
 --- Open the guild bank the way the given client family does.
 function WoWMock.openGuildBank(path)
@@ -451,14 +459,25 @@ end
 -- `remaining` (-1 = unlimited). `guildBank.block` works like `mail.block`;
 -- the calls are listed in `guildBank.calls`.
 
-local function bankBlocked(fname)
+-- An action on a tab that is not the current one does nothing (listed as
+-- "<name>@other" in `guildBank.calls`). `guildBank.refuse = "text"` makes the
+-- server refuse the action with UI_ERROR_MESSAGE (messageType, text).
+local function bankBlocked(fname, tab)
     local gb = WoWMock.guildBank
     gb.calls = gb.calls or {}
+    if tab ~= GetCurrentGuildBankTab() then
+        gb.calls[#gb.calls + 1] = fname .. "@other"
+        return true
+    end
     gb.calls[#gb.calls + 1] = fname
     local mode = gb.block
     if mode == "error" then error("Interface action failed because of an AddOn") end
     if mode == "event" then
         WoWMock.fire("ADDON_ACTION_BLOCKED", "EventHelperSync", fname)
+        return true
+    end
+    if gb.refuse then
+        WoWMock.fire("UI_ERROR_MESSAGE", 51, gb.refuse)
         return true
     end
     return mode == "silent"
@@ -489,7 +508,7 @@ local function firstFreeBagSlot()
 end
 
 function AutoStoreGuildBankItem(tab, slot)
-    if bankBlocked("AutoStoreGuildBankItem") then return end
+    if bankBlocked("AutoStoreGuildBankItem", tab) then return end
     local t = bankTab(tab)
     local item = bankSlot(tab, slot)
     if not item or item.locked or t.remaining == 0 then return end
@@ -511,7 +530,7 @@ function AutoStoreGuildBankItem(tab, slot)
 end
 
 function SplitGuildBankItem(tab, slot, count)
-    if bankBlocked("SplitGuildBankItem") then return end
+    if bankBlocked("SplitGuildBankItem", tab) then return end
     local t = bankTab(tab)
     local item = bankSlot(tab, slot)
     if WoWMock.cursor or not item or item.locked or count >= (item.count or 1) or t.remaining == 0 then return end

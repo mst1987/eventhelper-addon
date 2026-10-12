@@ -147,6 +147,9 @@ module.exports.PAGE = String.raw`<!doctype html>
   .strip small { font-size: 12.5px; color: #c9c2ff; }
   .strip.upd { border-color: rgba(127,209,127,.45); background: rgba(127,209,127,.10); color: var(--good); }
   .strip.upd small { color: #b8e6b8; }
+  .strip.upd.err { border-color: rgba(224,82,79,.5); background: rgba(224,82,79,.12); color: #ffc9c4; }
+  .strip.upd.err small { color: #ffc9c4; word-break: break-word; }
+  .sec-err { padding: 7px 10px; border-radius: 8px; background: rgba(224,82,79,.12); border: 1px solid rgba(224,82,79,.45); color: #ffc9c4; font-size: 12px; line-height: 1.4; word-break: break-word; }
   .strip .upd-text { flex: 1; min-width: 0; }
   .strip .btn, .strip .linkbtn { flex: none; }
   .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -312,7 +315,7 @@ module.exports.PAGE = String.raw`<!doctype html>
 <section class="view" id="v-main" hidden>
   <header class="hdr">${CREST}${BRAND}${PILL}${BTN_LOG}${BTN_SETTINGS}${BTN_MIN}${BTN_QUIT}</header>
   <div class="main-body grow">
-    <div class="strip upd" id="upd" role="status" hidden>${SVG_DOWNLOAD}<span class="upd-text"><b id="upd-title">Update verfügbar</b><small id="upd-text"></small></span><button type="button" class="linkbtn" data-act="update-notes">Was ist neu?</button><button type="button" class="btn sm primary" data-act="update-install" id="upd-btn">Installieren</button></div>
+    <div class="strip upd" id="upd" role="status" hidden>${SVG_DOWNLOAD}<span class="upd-text"><b id="upd-title">Update verfügbar</b><small id="upd-text"></small></span><button type="button" class="linkbtn" data-act="update-notes" id="upd-notes">Was ist neu?</button><button type="button" class="btn sm" data-act="update-notes" id="upd-dl" hidden>Neue Version herunterladen</button><button type="button" class="btn sm primary" data-act="update-install" id="upd-btn">Installieren</button></div>
     <div class="problems" id="problems" role="alert" hidden></div>
     <div class="strip" id="strip" hidden>${SVG_RELOAD.replace(/14/g, "18")}<span><b>Neue Daten fürs Spiel</b><small id="strip-text"></small></span></div>
     <div class="tiles" id="tiles"></div>
@@ -499,6 +502,10 @@ let logFilter = "all";
 let editing = false;
 let setupEditing = false;
 let setupPathOpen = false;
+// When "Installieren" was clicked: until the server confirms (state.installing)
+// the click counts as running, but never longer than a few seconds, so a lost
+// answer cannot keep the strip on "Wird installiert …" forever.
+let updateClickedAt = 0;
 // Laufende Aktionen (Knöpfe gesperrt): "upload", "one:<id>", "council", ...
 const busy = new Set();
 
@@ -568,14 +575,42 @@ function hostOf(url) {
 
 // --- Daten holen ------------------------------------------------------------
 
+// Only a failed request is a connection problem; render() never throws (every
+// section is isolated, see safely()), so a render bug cannot show up here.
 async function refresh() {
+  let state;
   try {
-    lastState = await api("/api/state");
-    render();
+    state = await api("/api/state");
   } catch (e) {
-    const f = $("f-status");
-    if (f) f.textContent = "Oberfläche nicht erreichbar: " + e.message;
+    onConnectionLost(e);
+    return;
   }
+  lastState = state;
+  render();
+}
+
+// While the tool restarts after an update the old instance goes away on
+// purpose: not an error, and the old window has nothing left to show.
+let restartingSince = 0;
+function onConnectionLost(e) {
+  const f = $("f-status");
+  if (restartingSince) {
+    if (f) f.textContent = "Starte neu …";
+    closeWindow();
+    return;
+  }
+  if (f) f.textContent = "Oberfläche nicht erreichbar: " + e.message;
+}
+
+// Poll the state every 3 s, once per second while an update installs (that is
+// when the progress changes). One timer chain: calls never overlap.
+function pollDelay() {
+  return isInstallActive() ? 1000 : 3000;
+}
+function schedulePoll() {
+  setTimeout(async () => {
+    try { await refresh(); } finally { schedulePoll(); }
+  }, pollDelay());
 }
 
 async function refreshRaids() {
@@ -725,12 +760,15 @@ const actions = {
     const u = lastState && lastState.update;
     // Started with Node.js the tool cannot replace itself: only the link.
     if (u && !canInstall(u)) { actions["update-notes"](); return; }
+    updateClickedAt = Date.now();
     run("update", async () => {
       const r = await post("/api/update/install");
       if (r.restarting) {
-        // The new version opens its own window; this one belongs to the old process.
-        flash("Update installiert – das Sync-Tool startet neu …", "ok");
-        setTimeout(closeWindow, 1500);
+        // The new version opens its own window and this old process exits,
+        // which closes this window. Until then the strip says "Starte neu …";
+        // if the new one does not come up, the error shows there instead.
+        restartingSince = Date.now();
+        refresh();
         return;
       }
       const addons = r.addons || [];
@@ -874,17 +912,49 @@ function viewId() {
   return "v-" + view;
 }
 
+// One broken section must not freeze the page: every render function runs on
+// its own. A failure goes to the console and shows a small notice next to that
+// section only; everything else keeps updating.
+function safely(name, getEl, fn) {
+  let el = null;
+  try { el = getEl ? getEl() : null; } catch { el = null; }
+  try {
+    fn();
+    if (el && el._err) el._err.hidden = true;
+  } catch (e) {
+    console.error("Abschnitt „" + name + "“ lässt sich nicht darstellen:", e);
+    try {
+      if (!el || !el.parentNode) return;
+      if (!el._err) {
+        el._err = document.createElement("div");
+        el._err.className = "sec-err";
+        el._err.setAttribute("role", "alert");
+        el.parentNode.insertBefore(el._err, el);
+      }
+      el._err.textContent = "„" + name + "“ lässt sich gerade nicht anzeigen (" + (e && e.message ? e.message : e) + ").";
+      el._err.hidden = false;
+    } catch (e2) {
+      console.error("Fehleranzeige fehlgeschlagen:", e2);
+    }
+  }
+}
+
 function render() {
   if (!lastState) return;
-  const id = viewId();
-  for (const v of document.querySelectorAll(".view")) v.hidden = v.id !== id;
-  renderChrome();
-  renderUpdate();
-  if (id === "v-setup") renderSetup();
+  let id = null;
+  safely("Ansicht", null, () => {
+    id = viewId();
+    for (const v of document.querySelectorAll(".view")) v.hidden = v.id !== id;
+  });
+  const headerOf = () => document.querySelector(".view:not([hidden]) .hdr");
+  safely("Kopfzeile", headerOf, renderChrome);
+  safely("Update", () => $("upd"), renderUpdate);
+  safely("Version", () => $("ver-lines"), renderVersionCard);
+  if (id === "v-setup") safely("Einrichtung", () => $("su-connect"), renderSetup);
   else if (id === "v-main") renderMain();
-  else if (id === "v-settings") renderSettings();
-  else if (id === "v-log") renderLog();
-  fitWindow();
+  else if (id === "v-settings") safely("Einstellungen", () => $("settings"), renderSettings);
+  else if (id === "v-log") safely("Verlauf", () => $("log"), renderLog);
+  safely("Fenstergrösse", null, fitWindow);
 }
 
 // Kopfzeile: Version, Host und die Verbindungs-Pille auf jeder Ansicht.
@@ -926,34 +996,86 @@ function updateParts(u) {
   return parts;
 }
 
-// The green strip on the overview and the version card in the settings.
+// MB with a decimal only for small files: "25 von 74 MB", "0,3 von 0,5 MB".
+function mb(bytes, ref) {
+  const m = bytes / 1048576;
+  return (ref < 10 * 1048576 ? m.toFixed(1) : String(Math.round(m))).replace(".", ",");
+}
+
+// What the update is doing right now (u.progress from lib/updater.js).
+function progressText(p) {
+  if (!p) return "Wird installiert …";
+  if (p.phase === "restart") return "Starte neu …";
+  if (p.step === "verify") return "Prüfe …";
+  if (p.step === "install") return "Installiere …";
+  if (p.total > 0) {
+    const pct = Math.min(100, Math.floor((p.received / p.total) * 100));
+    return "Lädt herunter … " + pct + " % (" + mb(p.received, p.total) + " von " + mb(p.total, p.total) + " MB)";
+  }
+  return p.received ? "Lädt herunter … " + mb(p.received, p.received) + " MB" : "Lädt herunter …";
+}
+
+// Whether an update is being installed (or restarting) right now.
+function isInstallActive() {
+  const u = lastState && lastState.update;
+  if (u && (u.installing || (u.progress && u.progress.phase === "restart"))) return true;
+  return busy.has("update") && Date.now() - updateClickedAt < 5000;
+}
+
+// The green strip on the overview: update available, progress, or the error.
 function renderUpdate() {
   const u = lastState.update;
   const show = !!(u && u.available && u.latest);
-  const installing = busy.has("update") || !!(u && u.installing);
-  const label = installing ? "Wird installiert …" : canInstall(u) ? "Installieren" : "Herunterladen";
+  const working = isInstallActive();
+  if (u && u.progress && u.progress.phase === "restart" && !restartingSince) restartingSince = Date.now();
+  if (u && !working && !(u.progress && u.progress.phase === "restart")) restartingSince = 0;
+  const err = !working && u && u.installError ? u.installError : null;
+  const strip = $("upd");
 
-  $("upd").hidden = !show;
-  if (show) {
-    $("upd-title").textContent = "Update auf v" + u.latest.version + " verfügbar";
-    $("upd-text").textContent = "Installiert: " + updateParts(u).join(" · ");
-    $("upd-btn").textContent = label;
-    $("upd-btn").disabled = installing;
+  strip.hidden = !(show || err || working);
+  strip.classList.toggle("err", !!err);
+  if (!strip.hidden) {
+    const version = u && u.latest ? "v" + u.latest.version : "";
+    if (err) {
+      $("upd-title").textContent = "Update fehlgeschlagen";
+      $("upd-text").textContent = err.message;
+    } else if (working) {
+      $("upd-title").textContent = "Update" + (version ? " auf " + version : "") + " wird installiert";
+      $("upd-text").textContent = progressText(u && u.progress);
+    } else {
+      $("upd-title").textContent = "Update auf " + version + " verfügbar";
+      $("upd-text").textContent = "Installiert: " + updateParts(u).join(" · ");
+    }
+    $("upd-notes").hidden = !!err || working;
+    $("upd-dl").hidden = !err;
+    $("upd-btn").hidden = working && !!(u && u.progress && u.progress.phase === "restart");
+    $("upd-btn").textContent = working ? "Wird installiert …" : err ? "Erneut versuchen" : canInstall(u) ? "Installieren" : "Herunterladen";
+    $("upd-btn").disabled = working;
   }
+}
+
+// The version card in the settings.
+function renderVersionCard() {
+  const u = lastState.update;
+  const show = !!(u && u.available && u.latest);
+  const working = isInstallActive();
+  const err = !working && u && u.installError ? u.installError : null;
 
   const lines = ["Sync-Tool v" + lastState.version];
   if (u) {
     if (u.latest) lines.push("Neueste Version: v" + u.latest.version + (show ? "" : " – alles aktuell"));
     if (show) lines.push("Veraltet: " + updateParts(u).join(" · "));
     lines.push(u.checking ? "Prüfe gerade …" : "Zuletzt geprüft: " + ago(u.checkedAt) + " (alle 6 Stunden von selbst)");
-    if (u.lastError) lines.push("Fehler: " + u.lastError.message);
+    if (working) lines.push(progressText(u.progress));
+    else if (err) lines.push("Update fehlgeschlagen: " + err.message);
+    else if (u.lastError) lines.push("Fehler: " + u.lastError.message);
   }
   setHtml($("ver-lines"), lines.map((l) => "<span>" + esc(l) + "</span>").join(""));
   $("btn-update-check").hidden = !u;
-  $("btn-update-check").disabled = busy.has("update-check") || !!(u && u.checking) || installing;
-  $("btn-update-install").hidden = !show;
-  $("btn-update-install").textContent = installing ? "Wird installiert …" : canInstall(u) ? "Update installieren" : "Neue Version herunterladen";
-  $("btn-update-install").disabled = installing;
+  $("btn-update-check").disabled = busy.has("update-check") || !!(u && u.checking) || working;
+  $("btn-update-install").hidden = !(show || err);
+  $("btn-update-install").textContent = working ? "Wird installiert …" : err ? "Erneut versuchen" : canInstall(u) ? "Update installieren" : "Neue Version herunterladen";
+  $("btn-update-install").disabled = working;
 }
 
 // Raids vom Server + lokale Sessions in die vier Reiter sortieren:
@@ -1221,8 +1343,16 @@ const TABS = [
 
 function renderMain() {
   const d = lastState;
-  const g = buildGroups();
+  let g = null;
+  safely("Raid-Daten", () => $("tiles"), () => { g = buildGroups(); });
+  safely("Hinweise", () => $("problems"), () => renderProblems(d));
+  safely("Neue Daten", () => $("strip"), () => renderDataStrip(d));
+  safely("Kacheln", () => $("tiles"), () => renderTiles(d, g));
+  safely("Raid-Abende", () => $("rows"), () => renderRaidNights(d, g));
+  safely("Fusszeile", () => $("btn-check"), () => renderMainFooter(d));
+}
 
+function renderProblems(d) {
   // Probleme als Kasten oben — nur sichtbar, wenn wirklich etwas fehlt.
   const problems = [];
   if (!d.file) {
@@ -1239,7 +1369,9 @@ function renderMain() {
   if (raidsError) problems.push("Raid-Liste vom Server: " + esc(raidsError));
   $("problems").hidden = !problems.length;
   setHtml($("problems"), problems.map((p) => "<div>" + p + "</div>").join(""));
+}
 
+function renderDataStrip(d) {
   // Neue Daten fürs Spiel: Council/Ausgabeliste nach dem letzten Schreiben
   // der SavedVariables geschrieben — also seitdem kein /reload im Spiel.
   const sv = d.file ? d.fileMtime : 0;
@@ -1250,8 +1382,13 @@ function renderMain() {
   $("strip").hidden = !parts.length;
   if (parts.length) $("strip-text").textContent = parts.join(" und ") + " von " + stamp(newest) + " · im Spiel /reload";
 
-  setHtml($("tiles"), [uploadTile(d, g), councilTile(d.council), guildBankTile(d.guildBank), handoutsTile(d.handouts)].map(tileHtml).join(""));
+}
 
+function renderTiles(d, g) {
+  setHtml($("tiles"), [uploadTile(d, g), councilTile(d.council), guildBankTile(d.guildBank), handoutsTile(d.handouts)].map(tileHtml).join(""));
+}
+
+function renderRaidNights(d, g) {
   // Reiter
   const rows = buildRows(d, g);
   const counts = { ready: rows.ready.length, wait: rows.wait.length, done: rows.done.length, upcoming: rows.upcoming.length };
@@ -1275,7 +1412,9 @@ function renderMain() {
     }
   }
   setHtml($("rows"), html);
+}
 
+function renderMainFooter(d) {
   $("f-status").textContent = d.file ? "Addon-Datei geprüft " + ago(d.lastCheck) : "Warte auf die Addon-Datei …";
   $("btn-check").disabled = busy.has("check");
 }
@@ -1484,7 +1623,7 @@ if (HOST) {
 }
 
 refresh().then(refreshRaids);
-setInterval(refresh, 3000);
+schedulePoll();
 // Ein fremder Server soll nicht bei jedem der 3-s-Zyklen mit angefragt werden.
 setInterval(refreshRaids, 12000);
 </script>

@@ -50,6 +50,8 @@ const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const SNAPSHOT_TTL_MS = 30 * 1000;
 // Die .exe ist ~70 MB; alles weit darüber ist kein Release von uns.
 const MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024;
+// No bytes for this long: the download is stuck, give up and say so.
+const STALL_MS = 30 * 1000;
 // Diese Dateien schreibt das Sync-Tool; ein Update darf sie nicht leeren.
 const PRESERVED_FILES = [COUNCIL_FILE, HANDOUTS_FILE];
 
@@ -117,20 +119,85 @@ async function fetchLatestRelease({ fetchImpl = fetch, timeoutMs = 15000 } = {})
     return parseRelease(await res.json());
 }
 
-/** Eine Release-Datei laden und gegen Grösse und SHA-256 prüfen. */
-async function download(asset, { fetchImpl = fetch, timeoutMs = 10 * 60 * 1000 } = {}) {
+/**
+ * Eine Release-Datei laden und gegen Grösse und SHA-256 prüfen.
+ *
+ * Der Körper wird gestreamt, damit die Oberfläche einen Fortschritt zeigen
+ * kann (onProgress). Kommen `stallMs` lang keine Bytes, bricht der Download
+ * ab, statt endlos zu hängen; `timeoutMs` bleibt die Obergrenze für alles.
+ * @param {object} asset
+ * @param {object} [options]
+ * @param {(p: { step: "download"|"verify", received: number, total: number }) => void} [options.onProgress]
+ */
+async function download(asset, {
+    fetchImpl = fetch, timeoutMs = 10 * 60 * 1000, stallMs = STALL_MS, onProgress = () => {},
+} = {}) {
     if (!asset || !asset.url) throw new UpdateError("Die Datei fehlt im Release.");
-    let res;
+    const ctrl = new AbortController();
+    let stalled = false;
+    let timedOut = false;
+    let stallTimer = null;
+    const overallTimer = setTimeout(() => { timedOut = true; ctrl.abort(); }, timeoutMs);
+    const armStall = () => {
+        clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => { stalled = true; ctrl.abort(); }, stallMs);
+    };
+    // A fetch/read that ignores the signal must not keep us waiting either.
+    const aborted = new Promise((_, reject) => {
+        ctrl.signal.addEventListener("abort", () => reject(new Error("abgebrochen")), { once: true });
+    });
+    aborted.catch(() => {});
+    const guard = (promise) => Promise.race([promise, aborted]);
+
+    let buf;
     try {
-        res = await fetchImpl(asset.url, {
-            headers: { "User-Agent": `EventHelperSync/${SYNC_VERSION}` },
-            signal: AbortSignal.timeout(timeoutMs),
-        });
+        armStall();
+        let res;
+        try {
+            res = await guard(fetchImpl(asset.url, {
+                headers: { "User-Agent": `EventHelperSync/${SYNC_VERSION}` },
+                signal: ctrl.signal,
+            }));
+        } catch (e) {
+            if (stalled || timedOut) throw e;
+            throw new UpdateError(`${asset.name} nicht geladen: ${e.message}`);
+        }
+        if (!res.ok) throw new UpdateError(`${asset.name} nicht geladen: HTTP ${res.status}.`);
+
+        const header = Number(res.headers && res.headers.get ? res.headers.get("content-length") : 0) || 0;
+        const total = header || asset.size || 0;
+        onProgress({ step: "download", received: 0, total });
+        if (res.body && typeof res.body.getReader === "function") {
+            const reader = res.body.getReader();
+            const chunks = [];
+            let received = 0;
+            try {
+                for (;;) {
+                    const { done, value } = await guard(reader.read());
+                    if (done) break;
+                    armStall();
+                    chunks.push(value);
+                    received += value.length;
+                    if (received > MAX_DOWNLOAD_BYTES) throw new UpdateError(`${asset.name} ist unerwartet gross.`);
+                    onProgress({ step: "download", received, total });
+                }
+            } finally {
+                reader.cancel().catch(() => {});
+            }
+            buf = Buffer.concat(chunks.map((c) => Buffer.from(c.buffer, c.byteOffset, c.byteLength)));
+        } else {
+            buf = Buffer.from(await guard(res.arrayBuffer()));
+        }
+        onProgress({ step: "verify", received: buf.length, total: total || buf.length });
     } catch (e) {
+        if (stalled) throw new UpdateError(`Download hängt – keine Daten seit ${Math.round(stallMs / 1000)} s`);
+        if (timedOut) throw new UpdateError(`${asset.name}: Download dauert zu lange (Zeitlimit ${Math.round(timeoutMs / 60000)} min).`);
+        if (e instanceof UpdateError) throw e;
         throw new UpdateError(`${asset.name} nicht geladen: ${e.message}`);
+    } finally {
+        clearTimeout(stallTimer);
+        clearTimeout(overallTimer);
     }
-    if (!res.ok) throw new UpdateError(`${asset.name} nicht geladen: HTTP ${res.status}.`);
-    const buf = Buffer.from(await res.arrayBuffer());
     if (buf.length > MAX_DOWNLOAD_BYTES) throw new UpdateError(`${asset.name} ist unerwartet gross.`);
     if (asset.size && buf.length !== asset.size) {
         throw new UpdateError(`${asset.name} ist unvollständig (${buf.length} statt ${asset.size} Bytes).`);
@@ -298,11 +365,29 @@ function cleanupOldExe(exePath) {
     }
 }
 
-/** Die (neue) .exe starten, losgelöst von diesem Prozess. */
-function relaunch(exePath, { spawnImpl = spawn } = {}) {
-    const child = spawnImpl(exePath, [], { detached: true, stdio: "ignore" });
-    if (child && child.on) child.on("error", () => {});
-    if (child && child.unref) child.unref();
+/**
+ * Die (neue) .exe starten, losgelöst von diesem Prozess.
+ * @returns {Promise<{ ok: boolean, error?: string }>}  ob der Start geklappt hat
+ *   (der Aufrufer beendet sich erst danach)
+ */
+function relaunch(exePath, { spawnImpl = spawn, waitMs = 3000 } = {}) {
+    return new Promise((resolve) => {
+        let child;
+        try {
+            child = spawnImpl(exePath, [], { detached: true, stdio: "ignore" });
+        } catch (e) {
+            resolve({ ok: false, error: e.message });
+            return;
+        }
+        if (child && child.on) {
+            child.on("error", (e) => resolve({ ok: false, error: e.message }));
+            child.on("spawn", () => resolve({ ok: true }));
+        }
+        if (child && child.unref) child.unref();
+        // Mocked children never say "spawn"; no error within a moment counts as started.
+        const t = setTimeout(() => resolve({ ok: true }), waitMs);
+        if (t.unref) t.unref();
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -345,6 +430,16 @@ function createUpdater(options) {
         available: false,
         installing: false,
         lastError: null,
+        /**
+         * Why the last install failed (null while running or after success).
+         * The page shows it on the update strip with retry / manual download.
+         */
+        installError: null,
+        /**
+         * While installing: { phase: "addon"|"exe"|"restart", step: "download"|"verify"|"install",
+         * received, total } - bytes of the current download.
+         */
+        progress: null,
         /** { at, addons: [{ label, dir, files, restartNeeded }], restarting } */
         lastInstall: null,
     };
@@ -405,9 +500,15 @@ function createUpdater(options) {
      * nötig und möglich — die .exe samt Neustart.
      * @returns {Promise<{ addons: object[], restarting: boolean }>}
      */
+    const trackProgress = (phase) => (p) => {
+        state.progress = { phase, step: p.step, received: p.received, total: p.total };
+    };
+
     async function install() {
         if (state.installing) throw new UpdateError("Ein Update läuft bereits.");
         state.installing = true;
+        state.installError = null;
+        state.progress = null;
         try {
             await check();
             if (!release) throw new UpdateError(state.lastError ? state.lastError.message : "Kein Release gefunden.");
@@ -415,7 +516,8 @@ function createUpdater(options) {
 
             const addons = [];
             if (state.addons.length) {
-                const files = addonFiles(readZip(await download(release.zip, { fetchImpl })));
+                const files = addonFiles(readZip(await download(release.zip, { fetchImpl, onProgress: trackProgress("addon") })));
+                state.progress = { phase: "addon", step: "install", received: 0, total: 0 };
                 for (const a of state.addons) {
                     try {
                         const r = installAddonFiles(files, a.dir);
@@ -431,12 +533,15 @@ function createUpdater(options) {
 
             let restarting = false;
             if (state.toolOutdated && canSelfUpdate) {
-                replaceExe(await download(release.exe, { fetchImpl }), exePath);
+                const data = await download(release.exe, { fetchImpl, onProgress: trackProgress("exe") });
+                state.progress = { phase: "exe", step: "install", received: data.length, total: data.length };
+                replaceExe(data, exePath);
                 log("info", `Sync-Tool auf ${release.version} aktualisiert — starte neu.`);
                 restarting = true;
             }
 
             state.lastInstall = { at: Date.now(), version: release.version, addons, restarting };
+            state.progress = restarting ? { phase: "restart", step: "install", received: 0, total: 0 } : null;
             evaluate();
             if (restarting && onRestart) setTimeout(onRestart, 300);
             const failed = addons.find((a) => a.error);
@@ -444,10 +549,24 @@ function createUpdater(options) {
             return { addons, restarting };
         } catch (e) {
             state.lastError = { at: Date.now(), message: e.message };
+            state.installError = { at: Date.now(), message: e.message };
+            state.progress = null;
+            log("error", `Update fehlgeschlagen: ${e.message}`);
             throw e;
         } finally {
             state.installing = false;
         }
+    }
+
+    /**
+     * The new instance did not come up after the .exe was replaced (see
+     * lib/restart.js): the old one keeps running and says so.
+     */
+    function failRestart(message) {
+        state.progress = null;
+        state.installError = { at: Date.now(), message };
+        state.lastError = state.installError;
+        if (state.lastInstall) state.lastInstall.restarting = false;
     }
 
     function start() {
@@ -476,11 +595,11 @@ function createUpdater(options) {
         return state;
     }
 
-    return { state, check, install, start, stop, snapshot };
+    return { state, check, install, start, stop, snapshot, failRestart };
 }
 
 module.exports = {
     createUpdater, fetchLatestRelease, parseRelease, download, readZip, addonFiles, tocFiles, installAddonFiles,
-    replaceExe, cleanupOldExe, oldExePath, relaunch, UpdateError,
+    replaceExe, cleanupOldExe, oldExePath, relaunch, UpdateError, STALL_MS,
     REPO, LATEST_URL, RELEASES_PAGE, CHECK_INTERVAL_MS, FIRST_CHECK_MS, PRESERVED_FILES,
 };

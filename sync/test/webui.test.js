@@ -249,6 +249,42 @@ describe("webui", () => {
             await post("/api/settings", { baseUrl: "x", pollSeconds: 99999 });
             expect(config.save.mock.calls[0][0].pollSeconds).toBe(600);
         });
+
+        // The LevelHelper module switch (config.modules.levelhelper).
+        it("schaltet das Modul LevelHelper-Bestzeiten ein und aus", async () => {
+            await startUI(fakeRunner());
+            await post("/api/settings", { baseUrl: "x", modules: { levelhelper: false } });
+            expect(config.save.mock.calls[0][0].modules).toEqual({ levelhelper: false });
+            config.save.mockClear();
+            await post("/api/settings", { baseUrl: "x", modules: { levelhelper: true } });
+            expect(config.save.mock.calls[0][0].modules).toEqual({ levelhelper: true });
+        });
+
+        it("lässt das Modul automatisch, wenn das Formular es nicht schickt (Einrichtung)", async () => {
+            config.load.mockReturnValue({ ...CONFIG, modules: {} });
+            await startUI(fakeRunner());
+            await post("/api/settings", { baseUrl: "x" });
+            const saved = config.save.mock.calls[0][0];
+            expect(saved.modules === undefined || saved.modules.levelhelper === undefined).toBe(true);
+        });
+
+        it("nimmt nur boolesche Werte für das Modul an", async () => {
+            await startUI(fakeRunner());
+            await post("/api/settings", { baseUrl: "x", modules: { levelhelper: "ja" } });
+            expect(config.save.mock.calls[0][0].modules.levelhelper).toBeUndefined();
+        });
+    });
+
+    describe("GET /api/state — LevelHelper", () => {
+        it("reicht den LevelHelper-Stand und die Modulwahl durch", async () => {
+            const levelHelper = { show: true, enabled: true, found: true, runs: 12, golds: 4 };
+            const runner = fakeRunner({ config: { ...CONFIG, modules: { levelhelper: true } } });
+            runner.state.levelHelper = levelHelper;
+            await startUI(runner);
+            const body = await (await get("/api/state")).json();
+            expect(body.levelHelper).toEqual(levelHelper);
+            expect(body.config.modules).toEqual({ levelhelper: true });
+        });
     });
 
     describe("POST /api/upload", () => {

@@ -228,6 +228,7 @@ module.exports.PAGE = String.raw`<!doctype html>
   .poll { display: flex; align-items: center; gap: 12px; }
   .poll-text { flex: 1; display: flex; flex-direction: column; line-height: 1.3; }
   .poll-text b { font-size: 13.5px; font-weight: 600; }
+  .poll input[type="checkbox"] { width: 20px; height: 20px; flex: none; accent-color: var(--accent); cursor: pointer; }
   .poll .input { width: 74px; min-height: 34px; padding: 6px 10px; text-align: right; }
   .static-lines { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
   .actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
@@ -388,6 +389,14 @@ module.exports.PAGE = String.raw`<!doctype html>
       </section>
 
       <section class="card">
+        <span class="kicker">Module</span>
+        <label class="poll">
+          <span class="poll-text"><b>LevelHelper-Bestzeiten hochladen</b><span class="hint" id="lh-hint">Dungeon-Läufe und Erfolge der Gilde aus den SavedVariables des LevelHelper-Addons.</span></span>
+          <input type="checkbox" name="lhModule" id="lh-module">
+        </label>
+      </section>
+
+      <section class="card">
         <span class="kicker">Jetzt ausführen</span>
         <div class="actions">
           <button type="button" class="action" data-act="upload-all" id="act-upload"><img src="${ICONS.upload}" alt="">Loot hochladen</button>
@@ -466,6 +475,7 @@ const ICON = {
   council: "${ICONS.council}",
   guildbank: "${ICONS.guildbank}",
   handouts: "${ICONS.handouts}",
+  levelhelper: "${ICONS.levelhelper}",
 };
 // Die SVG_*-Konstanten oben leben nur in Node; was das Seiten-Skript selbst
 // braucht, muss hier hinein (sonst "SVG_RELOAD is not defined", 1.16.4).
@@ -735,6 +745,7 @@ const actions = {
   },
   cancel() {
     editing = false;
+    lhTouched = false;
     const f = $("settings");
     f.token.value = "";
     f.manualPath.value = "";
@@ -829,7 +840,9 @@ document.addEventListener("keydown", (ev) => {
   }
 });
 
+let lhTouched = false;
 $("settings").addEventListener("input", () => { editing = true; });
+$("settings").addEventListener("change", (ev) => { if (ev.target && ev.target.name === "lhModule") lhTouched = true; });
 $("settings").addEventListener("submit", (ev) => {
   ev.preventDefault();
   const f = ev.target;
@@ -840,10 +853,13 @@ $("settings").addEventListener("submit", (ev) => {
       savedVariablesPath: f.savedVariablesPath.value,
       manualPath: f.manualPath.value.trim(),
       pollSeconds: Number(f.pollSeconds.value),
+      // Only when the switch was touched: untouched stays "automatic".
+      ...(lhTouched ? { modules: { levelhelper: !!f.lhModule.checked } } : {}),
     });
     f.token.value = "";
     f.manualPath.value = "";
     editing = false;
+    lhTouched = false;
     flash("Gespeichert.", "ok");
     view = "main";
     reloadAll();
@@ -1216,6 +1232,33 @@ function guildBankTile(gb) {
   };
 }
 
+// LevelHelper dungeon runs and achievements (lib/levelhelper.js). Shown when
+// the module is on or LevelHelper data exists; null state (older fixtures,
+// tool without the module) shows nothing.
+function levelHelperTile(lh) {
+  const t = { kicker: "LevelHelper", icon: ICON.levelhelper };
+  if (!lh.enabled) {
+    return { ...t, value: "Ausgeschaltet", sub: "In den Einstellungen unter Module einschalten", dot: "", dotTitle: "Aus" };
+  }
+  if (!lh.found) {
+    return { ...t, value: "Keine LevelHelper-Daten", sub: "Im Spiel einloggen, dann erscheinen sie hier", dot: "", dotTitle: "Noch nichts" };
+  }
+  const t2 = { ...t, value: plural(lh.runs || 0, "Run", "Runs") + " · " + (lh.golds || 0) + " Gold" };
+  const title = plural(lh.characters || 0, "Charakter", "Charaktere") + " in " + plural(lh.guilds || 0, "Gilde", "Gilden")
+    + ((lh.versions || []).length ? " · " + lh.versions.join(", ") : "");
+  if (lh.unsupported) {
+    return { ...t2, title, sub: "Server kennt den LevelHelper-Upload noch nicht", subErr: true, dot: "medium", dotTitle: "Server zu alt" };
+  }
+  if (lh.lastError) {
+    return { ...t2, title, sub: lh.lastError.message, subErr: true, dot: "high", dotTitle: "Upload fehlgeschlagen – neuer Versuch folgt" };
+  }
+  if (lh.uploading) return { ...t2, title, sub: "Lädt hoch …", dot: "pending", dotTitle: "Lädt hoch" };
+  if (lh.lastUpload) {
+    return { ...t2, title, sub: "Zuletzt hochgeladen " + stamp(lh.lastUpload), dot: "good", dotTitle: "Hochgeladen" };
+  }
+  return { ...t2, title, sub: configured() ? "Wartet auf den ersten Upload" : "Nach der Einrichtung", dot: "", dotTitle: "Noch nichts hochgeladen" };
+}
+
 function handoutsTile(h) {
   return withFetch(handoutsTileBase(h), "handouts", "Ausgabeliste jetzt abfragen", busy.has("handouts") || !!(h && h.fetching));
 }
@@ -1385,7 +1428,9 @@ function renderDataStrip(d) {
 }
 
 function renderTiles(d, g) {
-  setHtml($("tiles"), [uploadTile(d, g), councilTile(d.council), guildBankTile(d.guildBank), handoutsTile(d.handouts)].map(tileHtml).join(""));
+  const tiles = [uploadTile(d, g), councilTile(d.council), guildBankTile(d.guildBank), handoutsTile(d.handouts)];
+  if (d.levelHelper && d.levelHelper.show) tiles.push(levelHelperTile(d.levelHelper));
+  setHtml($("tiles"), tiles.map(tileHtml).join(""));
 }
 
 function renderRaidNights(d, g) {
@@ -1425,6 +1470,12 @@ function renderSettings() {
   if (!editing) {
     f.baseUrl.value = d.config.baseUrl || "";
     f.pollSeconds.value = d.config.pollSeconds || 15;
+    const lh = d.levelHelper;
+    f.lhModule.checked = !!(lh && lh.enabled);
+    lhTouched = false;
+    $("lh-hint").textContent = !lh ? "" : lh.found
+      ? "Dungeon-Läufe und Erfolge der Gilde aus den SavedVariables des LevelHelper-Addons" + (lh.auto ? " (automatisch eingeschaltet)." : ".")
+      : "Kein LevelHelper gefunden (WoW Forever); einschalten lädt erst hoch, wenn Daten da sind.";
     f.token.placeholder = d.config.hasToken ? "unverändert lassen" : "ehl_…";
     $("token-hint").textContent = d.config.hasToken
       ? "Gespeichert, endet auf …" + d.config.tokenHint + ". Leer lassen, um ihn zu behalten."

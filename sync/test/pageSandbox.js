@@ -99,7 +99,7 @@ function loadPage({ state, raids = [], routes = {} }) {
     }
     // The settings form exposes its fields as properties.
     const form = byId.settings;
-    for (const name of ["baseUrl", "pollSeconds", "token", "manualPath", "savedVariablesPath"]) form[name] = makeElement("input", name);
+    for (const name of ["baseUrl", "pollSeconds", "token", "manualPath", "savedVariablesPath", "lhModule"]) form[name] = makeElement("input", name);
 
     const views = elements.filter((e) => e.classList.contains("view"));
     const pills = elements.filter((e) => e.classList.contains("js-pill"));

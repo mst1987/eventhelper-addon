@@ -241,3 +241,101 @@ describe("Neustart nach dem Update (Seite)", () => {
         expect(page.byId["f-status"].textContent).toBe("Starte neu …");
     });
 });
+
+describe("LevelHelper-Kachel und Modulschalter", () => {
+    const lhState = (over = {}) => ({
+        show: true, enabled: true, auto: true, found: true, versions: ["forever"], runs: 12, golds: 4, characters: 30, guilds: 1,
+        pending: 0, lastUpload: new Date(2020, 2, 7, 21, 5).getTime(), lastResult: null, lastError: null, unsupported: false,
+        uploading: false, ...over,
+    });
+    const tiles = (page) => page.byId.tiles.innerHTML;
+    const tile = (over) => open({ levelHelper: lhState(over) });
+
+    it("zeigt Kicker, Wert, letzten Upload und einen grünen Punkt", async () => {
+        const page = await tile();
+        const html = tiles(page);
+        expect(html).toContain(">LevelHelper<");
+        expect(html).toContain("12 Runs · 4 Gold");
+        expect(html).toContain("Zuletzt hochgeladen 7.3. 21:05");
+        expect(html).toMatch(/class="dot good"/);
+        expect(html).toContain("data:image/svg+xml;base64,");
+        expect(page.consoleErrors).toEqual([]);
+        // The other four tiles are still there.
+        for (const kicker of ["Loot-Upload", "Loot-Council", "Gildenbank", "Ausgabeliste"]) expect(html).toContain(kicker);
+    });
+
+    it("sagt Run im Singular", async () => {
+        expect(tiles(await tile({ runs: 1, golds: 0 }))).toContain("1 Run · 0 Gold");
+    });
+
+    it("zeigt ohne den Zustand oder bei show: false keine Kachel (älteres Tool, kein LevelHelper)", async () => {
+        expect(tiles(await open())).not.toContain("LevelHelper");
+        expect(tiles(await tile({ show: false, enabled: false, found: false }))).not.toContain("LevelHelper");
+    });
+
+    it("zeigt ausgeschaltet, ohne Daten, wartend, lädt hoch, Fehler und alten Server", async () => {
+        expect(tiles(await tile({ enabled: false, auto: false }))).toContain("Ausgeschaltet");
+        expect(tiles(await tile({ found: false, auto: false }))).toContain("Keine LevelHelper-Daten");
+        const waiting = tiles(await tile({ lastUpload: 0 }));
+        expect(waiting).toContain("Wartet auf den ersten Upload");
+        expect(waiting).toMatch(/class="dot "/);
+        expect(tiles(await tile({ uploading: true }))).toContain("Lädt hoch …");
+        const failed = tiles(await tile({ lastError: { at: NOW, message: "Server weg" } }));
+        expect(failed).toContain("Server weg");
+        expect(failed).toMatch(/class="dot high"/);
+        const old = tiles(await tile({ unsupported: true }));
+        expect(old).toContain("Server kennt den LevelHelper-Upload noch nicht");
+        expect(old).toMatch(/class="dot medium"/);
+    });
+
+    it("macht aus dem Zustand eines kaputten Tools keinen Seitenfehler", async () => {
+        const page = await tile({ runs: undefined, golds: undefined, versions: undefined, lastUpload: undefined });
+        expect(tiles(page)).toContain("0 Runs · 0 Gold");
+        expect(page.consoleErrors).toEqual([]);
+    });
+
+    describe("Einstellungen", () => {
+        const form = (page) => page.byId.settings;
+
+        it("zeigt den Schalter so, wie das Modul gerade steht", async () => {
+            let page = await tile();
+            page.run("view = 'settings'; render();");
+            expect(form(page).lhModule.checked).toBe(true);
+            expect(page.byId["lh-hint"].textContent).toContain("automatisch eingeschaltet");
+            page = await tile({ enabled: false, auto: false });
+            page.run("view = 'settings'; render();");
+            expect(form(page).lhModule.checked).toBe(false);
+            expect(page.consoleErrors).toEqual([]);
+        });
+
+        it("rendert die Einstellungen auch ohne LevelHelper-Zustand", async () => {
+            const page = await open();
+            page.run("view = 'settings'; render();");
+            expect(form(page).lhModule.checked).toBe(false);
+            expect(page.byId["lh-hint"].textContent).toBe("");
+            expect(page.consoleErrors).toEqual([]);
+        });
+
+        async function save(page, touch) {
+            if (touch !== undefined) {
+                form(page).lhModule.checked = touch;
+                const ev = { target: { name: "lhModule" } };
+                for (const type of ["input", "change"]) for (const fn of form(page)._listeners[type] || []) fn(ev);
+            }
+            for (const fn of form(page)._listeners.submit) fn({ preventDefault() {}, target: form(page) });
+            await page.settle();
+        }
+
+        it("schickt das Modul nur mit, wenn der Schalter bedient wurde (sonst bleibt es automatisch)", async () => {
+            const bodies = [];
+            const page = await open({ levelHelper: lhState() }, { routes: { "POST /api/settings": (b) => { bodies.push(b); return { ok: true }; } } });
+            page.run("view = 'settings'; render();");
+            await save(page);
+            expect(bodies[0]).not.toHaveProperty("modules");
+
+            page.run("view = 'settings'; render();");
+            await save(page, false);
+            expect(bodies[1].modules).toEqual({ levelhelper: false });
+        });
+    });
+});

@@ -75,6 +75,9 @@ function safeConfig(cfg) {
         tokenHint: cfg.token ? String(cfg.token).slice(-4) : "",
         savedVariablesPath: cfg.savedVariablesPath || "",
         pollSeconds: cfg.pollSeconds || 15,
+        // Explicit module switches only; a module that is missing here is
+        // "automatic" (state.levelHelper.enabled says what that came to).
+        modules: { ...(cfg.modules || {}) },
     };
 }
 
@@ -155,6 +158,7 @@ function createWebUI(runner, { onQuit, updater } = {}) {
                     council: s.council || null,
                     guildBank: s.guildBank || null,
                     handouts: s.handouts || null,
+                    levelHelper: s.levelHelper || null,
                     log: s.log,
                     logLimit: s.logLimit || s.log.length,
                     intervals: s.intervals || null,
@@ -206,6 +210,13 @@ function createWebUI(runner, { onQuit, updater } = {}) {
                 // Token nach jedem Speichern der anderen Werte weg.
                 const token = String(body.token || "").trim();
                 if (token) next.token = token;
+                // Module switches: only what the form sends is changed (the
+                // setup step sends none), so "automatic" stays automatic.
+                if (body.modules && typeof body.modules === "object") {
+                    const modules = { ...(current.modules || {}) };
+                    if (typeof body.modules.levelhelper === "boolean") modules.levelhelper = body.modules.levelhelper;
+                    next.modules = modules;
+                }
 
                 config.save(next);
                 runner.reload();

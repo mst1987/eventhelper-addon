@@ -53,6 +53,14 @@ const DEFAULTS = {
     // the SavedVariables still list them; pruned after 30 days
     // (lib/guildbankHandouts.js).
     guildBankDoneReported: {},
+    // Modules the tool runs besides loot and council: { levelhelper: true|false }.
+    // A module that is not in here is "automatic": on when its addon data
+    // exists (LevelHelper: a LevelHelper.lua in the SavedVariables).
+    modules: {},
+    // LevelHelper runs / characters already uploaded, to send only changes:
+    // { ["<versionId>|<account>"]: { [guild]: { at (ms), runs: { id: hash },
+    // chars: { key: hash } } } } (lib/levelhelper.js).
+    levelHelperUploads: {},
 };
 
 function load() {

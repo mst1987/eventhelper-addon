@@ -19,6 +19,7 @@ const {
 } = require("./uploader");
 const council = require("./council");
 const handouts = require("./guildbankHandouts");
+const levelhelper = require("./levelhelper");
 
 // Wie viele Log-Zeilen aufgehoben werden. Genug für einen Raid-Abend, wenig
 // genug, dass der Speicher nicht mitwächst.
@@ -43,6 +44,12 @@ const HANDOUTS_MIN_GAP_MS = 60 * 1000;
 // After a failed report of ticked entries: wait this long before the next
 // try (a changed file retries at once).
 const HANDOUTS_REPORT_RETRY_MS = 5 * 60 * 1000;
+
+// LevelHelper runs and achievements (lib/levelhelper.js): after a failed
+// upload wait this long (a changed LevelHelper file retries at once); the list
+// of installations is looked up anew at most once a minute.
+const LEVELHELPER_RETRY_MS = 5 * 60 * 1000;
+const LEVELHELPER_INSTALLS_TTL_MS = 60 * 1000;
 
 /** "1 Kategorie" / "3 Kategorien". */
 function councilCategoriesLabel(count) {
@@ -69,6 +76,17 @@ function createRunner(options = {}) {
          * or null if there is none.
          */
         guildBank: null,
+        /**
+         * LevelHelper runs and achievements, for the tile: show (tile visible),
+         * enabled (module on, explicitly or automatically), auto, found (a
+         * LevelHelper.lua exists), versions, runs, golds, characters, guilds,
+         * pending, lastUpload (ms, 0 = never), lastResult, lastError,
+         * unsupported (the server answered 404), uploading.
+         */
+        levelHelper: {
+            show: false, enabled: false, auto: true, found: false, versions: [], runs: 0, golds: 0, characters: 0,
+            guilds: 0, pending: 0, lastUpload: 0, lastResult: null, lastError: null, unsupported: false, uploading: false,
+        },
         log: [],
         /** How many log lines are kept (for "the last N entries" in the UI). */
         logLimit: LOG_LIMIT,
@@ -143,6 +161,16 @@ function createRunner(options = {}) {
     let councilSignature = "";
     let handoutsContent = "";
     let handoutsHad = 0;
+    // LevelHelper upload: the found installations, the file stamp of the last
+    // good pass, the pause after a failure, and "the server has no endpoint".
+    let lhInstalls = null;
+    let lhInstallsAt = 0;
+    let lhSignature = null;
+    let lhFailedSignature = null;
+    let lhRetryAt = 0;
+    let lhUnsupported = false;
+    let lhRun = null;
+    const lhSkippedLogged = new Set();
 
     /**
      * Record what a request against the server says about the connection.
@@ -538,6 +566,120 @@ function createRunner(options = {}) {
         return run;
     }
 
+    /** The installations with LevelHelper data; looked up at most once a minute. */
+    function levelHelperInstalls() {
+        if (!lhInstalls || Date.now() - lhInstallsAt > LEVELHELPER_INSTALLS_TTL_MS) {
+            try {
+                const found = levelhelper.findInstalls(cfg.extraRoots, { savedVariablesPath: cfg.savedVariablesPath || "" });
+                lhInstalls = found.installs;
+                for (const flavor of found.skipped) {
+                    if (lhSkippedLogged.has(flavor)) continue;
+                    lhSkippedLogged.add(flavor);
+                    log("warn", `LevelHelper in ${wowPaths.flavorLabel(flavor)} gefunden, aber die Spielversion ist unbekannt — nicht hochgeladen.`);
+                }
+            } catch {
+                lhInstalls = [];
+            }
+            lhInstallsAt = Date.now();
+        }
+        return lhInstalls;
+    }
+
+    /** "3 neu, 1 zusammengeführt, 5 Charaktere aktualisiert" for the log. */
+    function levelHelperSummary(sent) {
+        const parts = [];
+        if (sent.runsAdded) parts.push(`${sent.runsAdded} Lauf/Läufe neu`);
+        if (sent.runsMerged) parts.push(`${sent.runsMerged} zusammengeführt`);
+        if (sent.runsSkipped) parts.push(`${sent.runsSkipped} übersprungen`);
+        if (sent.charactersUpdated) parts.push(`${sent.charactersUpdated} Charakter(e) aktualisiert`);
+        return parts.length ? parts.join(", ") : `${sent.runs} Lauf/Läufe, ${sent.characters} Charakter(e) gesendet`;
+    }
+
+    /**
+     * Upload the LevelHelper runs and achievement summaries that changed
+     * (lib/levelhelper.js). Runs on every tick but does work only when a
+     * LevelHelper file was written, and never throws: a failure here must not
+     * hold up the loot. A failed upload is retried after a pause or when a
+     * file changes; a 404 (an older server) is logged once and not retried
+     * until the tool is restarted.
+     * @param {{ force?: boolean }} [opts] force: ignore file stamp and pause
+     * @returns {Promise<boolean>} whether something was uploaded
+     */
+    function syncLevelHelper(opts = {}) {
+        if (lhRun) return lhRun;
+        const run = (async () => {
+            const lh = state.levelHelper;
+            try {
+                const installs = levelHelperInstalls();
+                const explicit = (cfg.modules || {}).levelhelper;
+                lh.found = installs.length > 0;
+                lh.versions = [...new Set(installs.map((i) => i.versionId))];
+                lh.auto = explicit === undefined || explicit === null;
+                lh.enabled = lh.auto ? lh.found : !!explicit;
+                lh.show = lh.enabled || lh.found;
+                lh.lastUpload = levelhelper.lastUploadAt(cfg.levelHelperUploads);
+                lh.unsupported = lhUnsupported;
+                if (!lh.enabled || !lh.found || lhUnsupported || (config.missing(cfg) || []).length) return false;
+
+                const stamp = levelhelper.signature(installs);
+                if (!opts.force) {
+                    if (stamp === lhSignature) return false;
+                    if (stamp === lhFailedSignature && Date.now() < lhRetryAt) return false;
+                }
+                lh.uploading = true;
+                const result = await levelhelper.syncInstalls(cfg, { installs, known: cfg.levelHelperUploads || {} });
+                if (JSON.stringify(result.known) !== JSON.stringify(cfg.levelHelperUploads || {})) {
+                    cfg = config.save({ ...config.load(), levelHelperUploads: result.known });
+                }
+                Object.assign(lh, {
+                    runs: result.summary.runs,
+                    golds: result.summary.golds,
+                    characters: result.summary.characters,
+                    guilds: result.summary.guilds,
+                    pending: result.summary.pending,
+                    lastUpload: levelhelper.lastUploadAt(result.known),
+                });
+                if (result.error) {
+                    if (result.notFound) {
+                        lhUnsupported = true;
+                        lh.unsupported = true;
+                        lh.lastError = null;
+                        log("warn", "Server kennt LevelHelper-Upload noch nicht (HTTP 404) — LevelHelper-Bestzeiten werden bis zum nächsten Start des Tools nicht mehr versucht.");
+                        return false;
+                    }
+                    if (result.error instanceof UploadError) noteConnection(result.error);
+                    lhRetryAt = Date.now() + LEVELHELPER_RETRY_MS;
+                    lhFailedSignature = stamp;
+                    lh.lastError = { at: Date.now(), message: result.error.message };
+                    log("error", `LevelHelper-Bestzeiten: Upload fehlgeschlagen — ${result.error.message}. `
+                        + "Neuer Versuch in 5 min oder bei der nächsten Änderung.");
+                    return false;
+                }
+                lhSignature = stamp;
+                lhFailedSignature = null;
+                lhRetryAt = 0;
+                lh.lastError = null;
+                if (result.sent.requests) {
+                    noteConnection(null);
+                    lh.lastResult = { at: Date.now(), ...result.sent };
+                    log("ok", `LevelHelper-Bestzeiten: hochgeladen — ${levelHelperSummary(result.sent)}.`);
+                    return true;
+                }
+                return false;
+            } catch (e) {
+                lh.lastError = { at: Date.now(), message: e.message };
+                return false;
+            } finally {
+                lh.uploading = false;
+            }
+        })();
+        lhRun = run;
+        run.then(() => {
+            if (lhRun === run) lhRun = null;
+        });
+        return run;
+    }
+
     /** Einmal hochladen, egal ob sich etwas geändert hat. */
     async function uploadNow() {
         if (!state.file) {
@@ -656,6 +798,8 @@ function createRunner(options = {}) {
         } catch {
             // Bereits protokolliert; der nächste Durchlauf versucht es erneut.
         } finally {
+            // Independent of the loot file: LevelHelper may exist without it.
+            await syncLevelHelper();
             busy = false;
         }
     }
@@ -761,7 +905,13 @@ function createRunner(options = {}) {
         stop();
         firstRun = true;
         tick.lastSeenMtime = -1;
+        // Module switch, target or path may have changed: look again.
+        lhInstalls = null;
+        lhSignature = null;
+        lhFailedSignature = null;
+        lhRetryAt = 0;
         readState();
+        syncLevelHelper();
         timer = setInterval(tick, Math.max(5, Number(cfg.pollSeconds) || 15) * 1000);
         councilTimer = setInterval(() => refreshCouncil(), COUNCIL_INTERVAL_MS);
         handoutsTimer = setInterval(() => refreshHandouts(), HANDOUTS_INTERVAL_MS);
@@ -787,6 +937,7 @@ function createRunner(options = {}) {
         uploadNow,
         uploadOne,
         syncGuildBank,
+        syncLevelHelper,
         testConnection,
         noteConnection,
         readState,
@@ -849,5 +1000,5 @@ function describe(r) {
 
 module.exports = {
     createRunner, describe, whyNothing, LOG_LIMIT, COUNCIL_INTERVAL_MS, COUNCIL_MIN_GAP_MS, GUILD_BANK_RETRY_MS,
-    HANDOUTS_INTERVAL_MS, HANDOUTS_MIN_GAP_MS, HANDOUTS_REPORT_RETRY_MS, councilCategoriesLabel,
+    HANDOUTS_INTERVAL_MS, HANDOUTS_MIN_GAP_MS, HANDOUTS_REPORT_RETRY_MS, councilCategoriesLabel, LEVELHELPER_RETRY_MS,
 };

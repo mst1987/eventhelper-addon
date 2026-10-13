@@ -232,6 +232,15 @@ Ohne Oberfläche (z.B. als Dienst): `EventHelperSync.exe watch --no-ui` — läu
 
 Selbst bauen: `cd sync && npm install && npm run build:exe` (braucht Node 20+), Ergebnis liegt in `sync/dist/`.
 
+#### LevelHelper-Bestzeiten
+
+Wer das Addon **LevelHelper** spielt (WoW Forever, Ordner `_classic_beta_`), lädt mit dem Sync-Tool seine Dungeon-Läufe und Erfolgs-Zusammenfassungen zum EventHelper hoch (`POST /api/ingest/levelhelper`, Format `levelhelper-runs` v1). Das Tool liest dafür `LevelHelper.lua` aus dem Account-Ordner (Gildenbretter `guildBoards`, ggf. `guildRoster`) und aus den Ordnern der eigenen Charaktere (Erfolge); Läufe, die auf mehreren Brettern oder in mehreren Accounts stehen, gehen nur einmal hoch.
+
+- **Modul:** „LevelHelper-Bestzeiten" – automatisch an, sobald eine `LevelHelper.lua` existiert; ⚙ → Module schaltet es fest ein oder aus.
+- **Kachel** LEVELHELPER in der Übersicht: „12 Runs · 4 Gold", „Zuletzt hochgeladen …" und ein Statuspunkt (grün hochgeladen, blau lädt hoch, rot Fehler, gelb Server zu alt).
+- **Nur Änderungen:** je Lauf und Charakter wird ein Hash in der Konfiguration (`levelHelperUploads`) gemerkt; hochgeladen wird, wenn eine LevelHelper-Datei geschrieben wurde (Ausloggen, `/reload`). Eine Anfrage je Installation, Account und Gilde, höchstens 500 Läufe und 200 Charaktere.
+- **Fehler:** wie beim Loot-Upload – Meldung im Verlauf, neuer Versuch nach 5 Minuten oder bei der nächsten Dateiänderung. Antwortet der Server mit 404 (älterer EventHelper), steht einmal „Server kennt LevelHelper-Upload noch nicht" im Verlauf, und es wird bis zum nächsten Start des Tools nicht mehr versucht.
+
 #### Updates
 
 Ab 1.14.0 muss niemand mehr neu herunterladen. Das Sync-Tool fragt beim Start und dann alle 6 Stunden das neueste [Release](https://github.com/mst1987/eventhelper-addon/releases) ab (ohne Anmeldung, weit unter GitHubs Grenze von 60 Abrufen pro Stunde). Gibt es eine neuere Version des Tools **oder** ist in einem der gefundenen Addon-Ordner ein älteres Addon installiert, erscheint oben in der Übersicht ein grüner Hinweis:

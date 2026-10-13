@@ -300,6 +300,54 @@ describe("buildRequests", () => {
     });
 });
 
+describe("Server-Grenzen (ein ungültiger Eintrag würde den ganzen Upload ablehnen)", () => {
+    it("lässt einen gültigen Lauf unverändert", () => {
+        expect(lh.sanitizeRun(run(1))).toEqual(run(1));
+    });
+
+    it("sortiert Läufe aus, die der Server nie nimmt", () => {
+        expect(lh.sanitizeRun(run(1, { seconds: 30 }))).toBeNull();
+        expect(lh.sanitizeRun(run(1, { seconds: 20000 }))).toBeNull();
+        expect(lh.sanitizeRun(run(1, { start: 12345 }))).toBeNull();
+        expect(lh.sanitizeRun(run(1, { dungeon: "  " }))).toBeNull();
+        expect(lh.sanitizeRun(run(1, { members: [{ guid: "1-1", name: null, class: "MAGE" }] }))).toBeNull();
+    });
+
+    it("kürzt, was zu lang ist, und hält höchstens 5 Mitglieder", () => {
+        const members = Array.from({ length: 7 }, (_, i) => ({ guid: `g${i}`, name: `N${i}`, class: "WARRIOR" }));
+        members.splice(1, 0, { guid: "nameless", name: "", class: "MAGE" });
+        const out = lh.sanitizeRun(run(1, { id: "x".repeat(120), members, medal: "platinum", instance: -1, at: 5 }));
+        expect(out.id.length).toBeLessThanOrEqual(64);
+        expect(out.id).toBe(lh.sanitizeRun(run(1, { id: "x".repeat(120) })).id); // stabil: dieselbe id gibt denselben Hash
+        expect(out.members.map((m) => m.name)).toEqual(["N0", "N1", "N2", "N3", "N4"]);
+        expect(out.medal).toBeNull();
+        expect(out.instance).toBeNull();
+        expect(out.at).toBe(out.start + out.seconds);
+    });
+
+    it("macht Klassen zu Tokens oder null", () => {
+        const out = lh.sanitizeRun(run(1, { members: [{ guid: "1", name: "A", class: "Paladin" }, { guid: "2", name: "B", class: "Krieger!" }] }));
+        expect(out.members.map((m) => m.class)).toEqual(["PALADIN", null]);
+    });
+
+    it("hält Charaktere in den Grenzen und lässt namenlose weg", () => {
+        expect(lh.toUploadCharacter(character(1, { name: "" }))).toBeNull();
+        const c = lh.toUploadCharacter(character(1, { name: "N".repeat(80), level: 250, points: -3, count: 2.6, golds: undefined, at: 7, class: "mage" }));
+        expect(c.name.length).toBe(48);
+        expect(c.level).toBe(100);
+        expect(c.points).toBe(0);
+        expect(c.count).toBe(3);
+        expect(c.golds).toBeNull();
+        expect(c.class).toBe("MAGE");
+        expect(c.at).toBeGreaterThan(1000000000);
+    });
+
+    it("kürzt den Gildennamen auf 60 Zeichen", () => {
+        const [payload] = lh.buildRequests({ versionId: "forever", account: "a", guild: "G".repeat(90), runs: [run(1)], characters: [] });
+        expect(payload.guild).toHaveLength(60);
+    });
+});
+
 describe("dedupeRuns", () => {
     it("führt denselben Lauf (gleiche id oder gleiche Gruppe zur gleichen Zeit) zusammen", () => {
         const a = run(1, { members: [{ guid: "1-A", name: "A", class: "MAGE" }] });

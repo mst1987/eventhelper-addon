@@ -353,6 +353,63 @@ function dedupeRuns(runs) {
     return out;
 }
 
+// What the server takes (EventHelper utils/dungeons/levelHelperUpload.js). One
+// field it refuses fails the whole upload, so runs and characters are trimmed
+// or left out here first.
+const LIMITS = {
+    minSeconds: 60, maxSeconds: 14400, maxMembers: 5,
+    id: 64, dungeon: 80, name: 48, realm: 60, guild: 60, guid: 64, classLen: 20,
+    level: 100, points: 1000000, count: 100000, timeMin: 1000000000, timeMax: 4000000000, instanceMax: 2147483647,
+};
+const clip = (value, max) => {
+    const s = (value === null || value === undefined ? "" : String(value)).replace(/\s+/g, " ").trim();
+    return s.length > max ? s.slice(0, max) : s;
+};
+const classToken = (value) => {
+    const s = clip(value, LIMITS.classLen).toUpperCase();
+    return /^[A-Z_]+$/.test(s) ? s : null;
+};
+const inTime = (t) => Number.isInteger(t) && t >= LIMITS.timeMin && t <= LIMITS.timeMax;
+const wholeIn = (v, max) => (Number.isFinite(v) ? Math.min(max, Math.max(0, Math.round(v))) : null);
+
+/** An id the server takes (at most 64 characters); longer ones become a stable hash. */
+function uploadId(id) {
+    const s = String(id);
+    return s.length <= LIMITS.id ? s : `h:${crypto.createHash("sha1").update(s).digest("hex")}`;
+}
+
+/**
+ * A run in the server's limits, or null when it cannot be (time out of range,
+ * no member with a name): members without a name are dropped, at most 5 kept.
+ */
+function sanitizeRun(run) {
+    if (!run) return null;
+    const seconds = Math.round(run.seconds);
+    if (!(seconds >= LIMITS.minSeconds && seconds <= LIMITS.maxSeconds)) return null;
+    if (!inTime(run.start)) return null;
+    const dungeon = clip(run.dungeon, LIMITS.dungeon);
+    if (!dungeon) return null;
+    const members = [];
+    for (const m of run.members || []) {
+        const name = clip(m && m.name, LIMITS.name);
+        if (!name) continue;
+        members.push({ guid: m.guid ? clip(m.guid, LIMITS.guid) : null, name, class: m.class ? classToken(m.class) : null });
+        if (members.length === LIMITS.maxMembers) break;
+    }
+    if (!members.length) return null;
+    const instance = Number.isInteger(run.instance) && run.instance >= 0 && run.instance <= LIMITS.instanceMax ? run.instance : null;
+    return {
+        ...run,
+        id: uploadId(run.id),
+        dungeon,
+        seconds,
+        instance,
+        medal: MEDALS.has(run.medal) ? run.medal : null,
+        members,
+        at: inTime(run.at) ? run.at : run.start + seconds,
+    };
+}
+
 /** All runs of a LevelHelperDB, per guild. */
 function collectRuns(db) {
     const guilds = {};
@@ -363,7 +420,7 @@ function collectRuns(db) {
             for (const entry of asList(board.top)) raw.push(normalizeRun(entry, dungeon));
             if (isTable(board.mine)) raw.push(normalizeRun(board.mine, dungeon));
         }
-        const runs = dedupeRuns(raw.filter(Boolean));
+        const runs = dedupeRuns(raw.filter(Boolean)).map(sanitizeRun).filter(Boolean);
         if (runs.length) guilds[guild] = runs;
     }
     return guilds;
@@ -513,17 +570,21 @@ function characterKey(c) {
     return c.guid || `${String(c.name).toLowerCase()}|${String(c.realm || "").toLowerCase()}`;
 }
 
+/** A character in the server's limits (see LIMITS), or null without a name. */
 function toUploadCharacter(c) {
+    const name = clip(c.name, LIMITS.name);
+    if (!name) return null;
+    const at = Math.round(c.at);
     return {
-        guid: c.guid || null,
-        name: c.name,
-        realm: c.realm || null,
-        class: c.class || null,
-        level: c.level === undefined ? null : c.level,
-        points: c.points === undefined ? null : c.points,
-        count: c.count === undefined ? null : c.count,
-        golds: c.golds === undefined ? null : c.golds,
-        at: c.at || Math.floor(Date.now() / 1000),
+        guid: c.guid ? clip(c.guid, LIMITS.guid) : null,
+        name,
+        realm: c.realm ? clip(c.realm, LIMITS.realm) || null : null,
+        class: c.class ? classToken(c.class) : null,
+        level: wholeIn(c.level, LIMITS.level),
+        points: wholeIn(c.points, LIMITS.points),
+        count: wholeIn(c.count, LIMITS.count),
+        golds: wholeIn(c.golds, LIMITS.count),
+        at: inTime(at) ? at : Math.floor(Date.now() / 1000),
     };
 }
 
@@ -550,7 +611,8 @@ function buildRequests({ versionId, account, guild, runs, characters }, limits =
     const maxRuns = limits.maxRuns || MAX_RUNS;
     const maxChars = limits.maxCharacters || MAX_CHARACTERS;
     const sortedRuns = runs.slice().sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1));
-    const chars = characters.map(toUploadCharacter);
+    const chars = characters.map(toUploadCharacter).filter(Boolean);
+    const guildName = clip(guild, LIMITS.guild);
     const count = Math.max(Math.ceil(sortedRuns.length / maxRuns), Math.ceil(chars.length / maxChars));
     const requests = [];
     for (let i = 0; i < count; i += 1) {
@@ -558,7 +620,7 @@ function buildRequests({ versionId, account, guild, runs, characters }, limits =
             format: FORMAT,
             v: 1,
             versionId,
-            guild,
+            guild: guildName,
             uploader: { account },
             runs: sortedRuns.slice(i * maxRuns, (i + 1) * maxRuns),
             characters: chars.slice(i * maxChars, (i + 1) * maxChars),
@@ -696,7 +758,8 @@ function lastUploadAt(known) {
 
 module.exports = {
     findInstalls, signature, readAccountDB, readCharDB, collectAccount, collectRuns, collectRoster, collectOwn,
-    normalizeRun, normalizeClass, dedupeRuns, pendingChanges, buildRequests, syncInstalls, postLevelHelper,
+    normalizeRun, normalizeClass, dedupeRuns, sanitizeRun, toUploadCharacter, LIMITS,
+    pendingChanges, buildRequests, syncInstalls, postLevelHelper,
     lastUploadAt, characterKey,
     FORMAT, ENDPOINT, MAX_RUNS, MAX_CHARACTERS, FLAVOR_VERSIONS, SAVED_VARIABLES_FILE, CLASS_LIST,
 };

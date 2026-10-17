@@ -17,10 +17,23 @@ gleich aussieht und sich gleich bedient (Entwurf "A Seitenleiste", Okt 2026):
   * Thumb       Bildlaufanzeige mit Spur
   * Card        ein Block mit Kopfzeile (Einstellungen)
 
-Nur Texturen, Schriften und schlichte Frames: WoW Forever ist ein Retail-
-Client, TBC Anniversary ein Classic-Client, und beide sollen gleich aussehen.
-Kein Gradient (die API unterscheidet sich), keine Vorlagen ausser denen, die
-beide Clients kennen.
+  * Inset       vertiefte Flaeche (Seitenleiste, Karten)
+  * InfoButton  ein goldenes "?" mit Erklaerung im Tooltip
+
+Ab 1.17 sehen die Bausteine aus wie das Spiel selbst: Fenster, Knoepfe, X,
+Haekchen, Auswahl und vertiefte Flaechen kommen aus den Vorlagen des Clients
+(ButtonFrameTemplate, UIPanelButtonTemplate, UIPanelCloseButton,
+UICheckButtonTemplate, WowStyle1DropdownTemplate, InsetFrameTemplate). Beide
+Clients (TBC Anniversary 20506, WoW Forever 16001) kennen sie - belegt an
+Fremd-Addons im Spielordner (Baganator, Auctionator). Trotzdem wird jede
+Vorlage erst geprueft (fromTemplate: C_XMLUtil.GetTemplateInfo, pcall um
+CreateFrame, Pruefung der erwarteten Teile); fehlt sie, baut der Baukasten den
+alten flachen Baustein mit derselben Schnittstelle. `x.native` sagt, welcher
+es geworden ist.
+
+Schalter, Chips, Zahl, Etikett, Spaltenkopf und Bildlaufanzeige bleiben
+selbst gezeichnet: dafuer gibt es keine Vorlage, die beide Clients gleich
+haben.
 ]]
 
 local EHS = EventHelperSync
@@ -129,20 +142,104 @@ function Kit.Divider(parent, y, color, inset)
     return line
 end
 
-local function tooltipFor(button, tooltip)
-    if not tooltip then return end
-    button:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        if type(tooltip) == "function" then
-            tooltip(self)
-        else
-            GameTooltip:AddLine(tooltip, 1, 1, 1, true)
+--- Einen Frame aus einer Vorlage des Clients bauen - oder nil, wenn der
+-- Client sie nicht kennt oder ihr ein erwartetes Teil fehlt (`check(frame)`
+-- sagt es). Der Aufrufer baut dann den eigenen Baustein. Eine unbekannte
+-- Vorlage wirft in CreateFrame; C_XMLUtil.GetTemplateInfo fragt vorher (gibt
+-- es auf beiden Clients), pcall faengt den Rest.
+local function fromTemplate(kind, name, parent, template, check)
+    if C_XMLUtil and C_XMLUtil.GetTemplateInfo then
+        local ok, info = pcall(C_XMLUtil.GetTemplateInfo, template)
+        if ok and not info then return nil end
+    end
+    local ok, frame = pcall(CreateFrame, kind, name, parent, template)
+    if not ok or not frame then return nil end
+    if check then
+        local fine, result = pcall(check, frame)
+        if not fine or not result then
+            pcall(frame.Hide, frame)
+            return nil
         end
-        GameTooltip:Show()
+    end
+    frame.fromTemplate = template
+    return frame
+end
+Kit.FromTemplate = fromTemplate
+
+--- Tooltip beim Darueberfahren: `tooltip` ist ein Text (weiss, umbrechend)
+-- oder function(frame), die selbst Zeilen anfuegt; `title` (optional) steht
+-- in Gold darueber. Ein eigenes OnEnter des Frames bleibt (eingehakt statt
+-- ersetzt); ein zweiter Aufruf aendert nur den Text.
+local function tooltipFor(frame, tooltip, title)
+    if not tooltip and not title then return end
+    frame.ehsTooltip, frame.ehsTooltipTitle = tooltip, title
+    if frame.ehsTooltipHooked then return end
+    frame.ehsTooltipHooked = true
+    local function install(script, fn)
+        if frame.GetScript and frame:GetScript(script) and frame.HookScript then
+            frame:HookScript(script, fn)
+        else
+            frame:SetScript(script, fn)
+        end
+    end
+    install("OnEnter", function(self)
+        if not GameTooltip then return end
+        local text, head = self.ehsTooltip, self.ehsTooltipTitle
+        pcall(function()
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            if head and head ~= "" then
+                GameTooltip:AddLine(head, Kit.C.gold[1], Kit.C.gold[2], Kit.C.gold[3])
+            end
+            if type(text) == "function" then
+                text(self)
+            elseif text then
+                GameTooltip:AddLine(text, 1, 1, 1, true)
+            end
+            GameTooltip:Show()
+        end)
     end)
-    button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    install("OnLeave", function()
+        if GameTooltip then pcall(GameTooltip.Hide, GameTooltip) end
+    end)
 end
 Kit.Tooltip = tooltipFor
+
+--- Ein kleines goldenes "?", das im Tooltip erklaert (Titel in Gold, Text weiss).
+function Kit.InfoButton(parent, title, text)
+    local button = CreateFrame("Button", nil, parent)
+    button:SetSize(16, 16)
+    button.label = Kit.Text(button, "label", "CENTER")
+    button.label:SetPoint("CENTER", 0, 0)
+    button.label:SetText("?")
+    local hl = Kit.Solid(button, "HIGHLIGHT", { 1, 1, 1 }, 0.12)
+    hl:SetAllPoints()
+    tooltipFor(button, text, title)
+    return button
+end
+
+--- Eine vertiefte Flaeche (InsetFrameTemplate wie in den Fenstern des Spiels),
+-- sonst dunkel mit Rahmen.
+function Kit.Inset(parent)
+    local inset = fromTemplate("Frame", nil, parent, "InsetFrameTemplate", function(f) return f.SetWidth end)
+    if inset then
+        inset.native = true
+        return inset
+    end
+    inset = CreateFrame("Frame", nil, parent)
+    inset.native = false
+    inset.bg = Kit.Solid(inset, "BACKGROUND", { 0.06, 0.055, 0.047 })
+    inset.bg:SetAllPoints()
+    inset.edges = Kit.Border(inset, Kit.C.line)
+    return inset
+end
+
+-- Schriftobjekt eines Zustands setzen, wenn der Knopf es kann.
+local function setFontObjects(button, normal, highlight, disabled)
+    for method, font in pairs({ SetNormalFontObject = normal, SetHighlightFontObject = highlight,
+        SetDisabledFontObject = disabled }) do
+        if button[method] and font and _G[font] then pcall(button[method], button, font) end
+    end
+end
 
 -- ---------------------------------------------------------------------------
 -- Knoepfe
@@ -152,10 +249,50 @@ local BUTTON_HEIGHT = { primary = 28, secondary = 24, link = 18 }
 
 --- Ein Knopf. kind: "primary" | "secondary" | "link".
 -- Gesperrt (button:SetActive(false)) wird er blass und nimmt keine Klicks an;
--- `button.active` sagt es (auch fuer die Specs).
+-- `button.active` sagt es (auch fuer die Specs). "primary" und "secondary"
+-- sind der rote Knopf des Spiels (UIPanelButtonTemplate, "secondary" mit
+-- kleinerer Schrift); "link" bleibt ein unterstrichener Text.
+local function nativeButton(parent, label, kind, width)
+    local button = fromTemplate("Button", nil, parent, "UIPanelButtonTemplate", function(b)
+        return b.SetText and b.GetFontString
+    end)
+    if not button then return nil end
+    button:SetSize(width or 120, BUTTON_HEIGHT[kind] or 24)
+    if kind == "secondary" then
+        setFontObjects(button, "GameFontNormalSmall", "GameFontHighlightSmall", "GameFontDisableSmall")
+    end
+    button:SetText(label or "")
+    button.label = button:GetFontString() or button.Text
+    if not button.label then
+        pcall(button.Hide, button)
+        return nil
+    end
+    button.native = true
+    return button
+end
+
 function Kit.Button(parent, label, kind, width, onClick, tooltip)
     kind = kind or "secondary"
-    local button = CreateFrame("Button", nil, parent)
+    local button = kind ~= "link" and nativeButton(parent, label, kind, width)
+    if button then
+        button.kind = kind
+        button.active = true
+        function button:SetLabel(text) self:SetText(text or "") end
+        function button:SetActive(on)
+            self.active = on and true or false
+            self:SetEnabled(self.active)
+        end
+        if onClick then
+            button:SetScript("OnClick", function(self, mouse)
+                if self.active then onClick(self, mouse) end
+            end)
+        end
+        tooltipFor(button, tooltip)
+        return button
+    end
+
+    button = CreateFrame("Button", nil, parent)
+    button.native = false
     button.kind = kind
     button:SetSize(width or 120, BUTTON_HEIGHT[kind] or 24)
 
@@ -204,9 +341,18 @@ function Kit.Button(parent, label, kind, width, onClick, tooltip)
     return button
 end
 
---- Das X oben rechts in jeder Titelleiste.
+--- Das X oben rechts in jeder Titelleiste: das X des Spiels (UIPanelCloseButton); sonst ein flaches "x". OnClick wird
+-- immer gesetzt (die Vorlage schliesst sonst nur den Elternrahmen).
 function Kit.CloseButton(parent, onClick)
+    local native = fromTemplate("Button", nil, parent, "UIPanelCloseButton")
+    if native then
+        native.native = true
+        native:SetSize(24, 24)
+        native:SetScript("OnClick", onClick)
+        return native
+    end
     local button = CreateFrame("Button", nil, parent)
+    button.native = false
     button:SetSize(22, 22)
     button.bg = Kit.Solid(button, "BACKGROUND", Kit.C.field)
     button.bg:SetAllPoints()
@@ -360,8 +506,48 @@ end
 --- Eine aus vielen. items() -> { { value, text } }, selected() -> value, onPick(value).
 -- Klick: Kontextmenue (MenuUtil); ohne MenuUtil schaltet Links-/Rechtsklick
 -- weiter. dropdown:Refresh() setzt die Beschriftung.
+--
+-- Wo es geht, ist es die Auswahl des Spiels (DropdownButton mit
+-- WowStyle1DropdownTemplate, Menue ueber SetupMenu); sonst ein flacher Knopf.
+
+-- Die Beschriftung zum gewaehlten Wert.
+local function selectedText(items, selected)
+    local current = selected()
+    for _, item in ipairs(items()) do
+        if item.value == current then return item.text end
+    end
+    return ""
+end
+
+local function nativeDropdown(parent, width, title, items, selected, onPick, tooltip)
+    if not (MenuUtil and MenuUtil.CreateContextMenu) then return nil end
+    local drop = fromTemplate("DropdownButton", nil, parent, "WowStyle1DropdownTemplate", function(d)
+        return d.SetupMenu and d.Text
+    end)
+    if not drop then return nil end
+    drop.native = true
+    drop:SetSize(width or 180, 24)
+    drop.label = drop.Text
+    drop:SetupMenu(function(_, root)
+        if title then root:CreateTitle(title) end
+        for _, item in ipairs(items()) do
+            root:CreateRadio(item.text, function() return selected() == item.value end,
+                function() onPick(item.value) end)
+        end
+    end)
+    function drop:Refresh()
+        if self.GenerateMenu then pcall(self.GenerateMenu, self) end
+        self.label:SetText(selectedText(items, selected))
+    end
+    tooltipFor(drop, tooltip)
+    return drop
+end
+
 function Kit.Dropdown(parent, width, title, items, selected, onPick, tooltip)
+    local native = nativeDropdown(parent, width, title, items, selected, onPick, tooltip)
+    if native then return native end
     local drop = CreateFrame("Button", nil, parent)
+    drop.native = false
     drop:SetSize(width or 180, 24)
     drop:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     drop.bg = Kit.Solid(drop, "BACKGROUND", Kit.C.field)
@@ -377,12 +563,7 @@ function Kit.Dropdown(parent, width, title, items, selected, onPick, tooltip)
     hl:SetAllPoints()
 
     function drop:Refresh()
-        local current = selected()
-        local text = ""
-        for _, item in ipairs(items()) do
-            if item.value == current then text = item.text end
-        end
-        self.label:SetText(text)
+        self.label:SetText(selectedText(items, selected))
     end
     drop:SetScript("OnClick", function(self, mouse)
         local list = items()
@@ -534,8 +715,34 @@ function Kit.RowBackground(row, index)
 end
 
 --- Ein Haekchen fuer Tabellenzeilen (mitnehmen / abgehakt): check:SetChecked(on).
+-- Das Haekchen des Spiels (UICheckButtonTemplate) schaltet sich beim Klick
+-- selbst um; hier entscheidet aber der Aufrufer (OnClick -> Daten -> neu
+-- zeichnen -> SetChecked). Darum merkt sich check.checked den Stand, und
+-- nach dem Klick (PostClick) gilt wieder er.
+local function nativeCheck(parent, size)
+    local check = fromTemplate("CheckButton", nil, parent, "UICheckButtonTemplate", function(c)
+        return c.SetChecked and c.GetChecked
+    end)
+    if not check then return nil end
+    check.native = true
+    check:SetSize(size or 22, size or 22)
+    local setNative = check.SetChecked
+    check.checked = false
+    function check:SetChecked(on)
+        self.checked = on and true or false
+        setNative(self, self.checked)
+    end
+    function check:GetChecked() return self.checked end
+    check:HookScript("PostClick", function(self) setNative(self, self.checked) end)
+    setNative(check, false)
+    return check
+end
+
 function Kit.Check(parent, size)
+    local native = nativeCheck(parent, size)
+    if native then return native end
     local check = CreateFrame("Button", nil, parent)
+    check.native = false
     check:SetSize(size or 22, size or 22)
     check.box = Kit.Solid(check, "ARTWORK", { 0.12, 0.12, 0.12 })
     check.box:SetPoint("CENTER", 0, 0)
@@ -558,16 +765,23 @@ function Kit.Check(parent, size)
 end
 
 --- Ein Block mit Kopfzeile (Titel, rechts ein Etikett). card.body ist der Inhalt.
+-- Im Spiel-Look ist die Karte eine vertiefte Flaeche (Kit.Inset) mit einer
+-- Trennlinie unter dem goldenen Titel.
 function Kit.Card(parent, title, width, height)
-    local card = CreateFrame("Frame", nil, parent)
+    local card = Kit.Inset(parent)
     card:SetSize(width, height)
-    card.bg = Kit.Solid(card, "BACKGROUND", Kit.C.panel2)
-    card.bg:SetAllPoints()
-    Kit.Border(card, Kit.C.line)
-    card.head = Kit.Solid(card, "BACKGROUND", Kit.C.bar)
-    card.head:SetPoint("TOPLEFT", 1, -1)
-    card.head:SetPoint("TOPRIGHT", -1, -1)
-    card.head:SetHeight(26)
+    if card.native then
+        card.head = Kit.Solid(card, "ARTWORK", Kit.C.border, 0.5)
+        card.head:SetPoint("TOPLEFT", 6, -26)
+        card.head:SetPoint("TOPRIGHT", -6, -26)
+        card.head:SetHeight(1)
+    else
+        card.bg:SetColorTexture(Kit.C.panel2[1], Kit.C.panel2[2], Kit.C.panel2[3], 1)
+        card.head = Kit.Solid(card, "BACKGROUND", Kit.C.bar)
+        card.head:SetPoint("TOPLEFT", 1, -1)
+        card.head:SetPoint("TOPRIGHT", -1, -1)
+        card.head:SetHeight(26)
+    end
     card.title = Kit.Text(card, "label")
     card.title:SetPoint("TOPLEFT", 10, -7)
     card.title:SetText(title)
@@ -618,27 +832,74 @@ local function savePosition(frame)
     if point then EHS.db[frame.posKey] = { point = point, relativePoint = relativePoint, x = x, y = y } end
 end
 
---- Ein Fenster: Rahmen, Titelleiste (Wappen, Titel, X), Esc schliesst,
--- die Position wird unter EHS.db[posKey] gemerkt (ohne posKey: immer mittig).
--- opts { name, title, width, height, posKey, strata, point, noEscape, noClose }.
--- frame.body ist die Flaeche unter der Titelleiste.
-function Kit.Window(opts)
-    local frame = CreateFrame("Frame", opts.name, UIParent)
-    frame:SetSize(opts.width, opts.height)
-    frame.posKey = opts.posKey
-    local pos = opts.posKey and EHS.db and EHS.db[opts.posKey]
-    if pos and pos.point then
-        frame:SetPoint(pos.point, UIParent, pos.relativePoint or pos.point, pos.x or 0, pos.y or 0)
-    else
-        local p = opts.point or { "CENTER", 0, 40 }
-        frame:SetPoint(p[1], p[2], p[3])
-    end
-    frame:SetFrameStrata(opts.strata or "HIGH")
-    if frame.SetToplevel then frame:SetToplevel(true) end
-    frame:SetClampedToScreen(true)
-    frame:SetMovable(true)
-    frame:EnableMouse(true)
+-- Wo der Inhalt im Fenster des Spiels sitzt (ButtonFrameTemplate ohne Bild
+-- und ohne Knopfleiste: wie die Inset-Abstaende des Spiels).
+local NATIVE_BODY = { left = 4, top = 24, right = 6, bottom = 4 }
+Kit.NATIVE_BODY = NATIVE_BODY
 
+-- Die Titelschrift der Vorlage (Retail: TitleContainer.TitleText, sonst TitleText).
+local function templateTitle(frame)
+    return (frame.TitleContainer and frame.TitleContainer.TitleText) or frame.TitleText
+end
+
+--- Das Fenster des Spiels (ButtonFrameTemplate) oder nil. Der Inhalt
+-- (frame.body) ist so gross wie im flachen Fenster; der Rahmen waechst darum.
+local function nativeWindow(opts)
+    local frame = fromTemplate("Frame", opts.name, UIParent, "ButtonFrameTemplate", function(f)
+        return f.CloseButton and templateTitle(f)
+    end)
+    if not frame then return nil end
+    frame.native = true
+    if ButtonFrameTemplate_HidePortrait then pcall(ButtonFrameTemplate_HidePortrait, frame) end
+    if ButtonFrameTemplate_HideButtonBar then pcall(ButtonFrameTemplate_HideButtonBar, frame) end
+    if frame.Inset then frame.Inset:Hide() end
+    frame:SetSize(opts.width - 2 + NATIVE_BODY.left + NATIVE_BODY.right,
+        opts.height - TITLE_HEIGHT - 1 + NATIVE_BODY.top + NATIVE_BODY.bottom)
+
+    frame.title = templateTitle(frame)
+    if frame.SetTitle then
+        pcall(frame.SetTitle, frame, opts.title or "")
+    end
+    frame.title:SetText(opts.title or "")
+
+    -- Die Titelzeile der Vorlage zum Verschieben anfassen (ein unsichtbarer
+    -- Streifen darueber, links das Wappen, rechts die Versionszeile).
+    local bar = CreateFrame("Frame", nil, frame)
+    bar:SetPoint("TOPLEFT", 0, 0)
+    bar:SetPoint("TOPRIGHT", -28, 0)
+    bar:SetHeight(NATIVE_BODY.top - 2)
+    frame.titleBar = bar
+
+    bar.crest = CreateFrame("Frame", nil, bar)
+    bar.crest:SetSize(16, 16)
+    bar.crest:SetPoint("LEFT", 6, -1)
+    bar.crest.icon = bar.crest:CreateTexture(nil, "ARTWORK")
+    bar.crest.icon:SetTexture(opts.icon or Kit.LOGO)
+    bar.crest.icon:SetAllPoints()
+    if opts.icon then bar.crest.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93) end
+
+    frame.subtitle = Kit.Text(bar, "hint", "RIGHT")
+    frame.subtitle:SetPoint("RIGHT", bar, "RIGHT", -4, -1)
+
+    if opts.noClose then
+        frame.CloseButton:Hide()
+    else
+        frame.close = frame.CloseButton
+        frame.close.native = true
+        frame.close:SetScript("OnClick", function() frame:Hide() end)
+    end
+
+    frame.body = CreateFrame("Frame", nil, frame)
+    frame.body:SetPoint("TOPLEFT", NATIVE_BODY.left, -NATIVE_BODY.top)
+    frame.body:SetPoint("BOTTOMRIGHT", -NATIVE_BODY.right, NATIVE_BODY.bottom)
+    return frame
+end
+
+--- Das flache Fenster (ohne Vorlage), bis 1.16 das einzige.
+local function flatWindow(opts)
+    local frame = CreateFrame("Frame", opts.name, UIParent)
+    frame.native = false
+    frame:SetSize(opts.width, opts.height)
     frame.bg = Kit.Solid(frame, "BACKGROUND", Kit.C.panel, 0.96)
     frame.bg:SetAllPoints()
     Kit.Border(frame, Kit.C.border)
@@ -654,10 +915,6 @@ function Kit.Window(opts)
     barLine:SetPoint("BOTTOMLEFT", 0, -1)
     barLine:SetPoint("BOTTOMRIGHT", 0, -1)
     barLine:SetHeight(1)
-    bar:EnableMouse(true)
-    bar:RegisterForDrag("LeftButton")
-    bar:SetScript("OnDragStart", function() frame:StartMoving() end)
-    bar:SetScript("OnDragStop", function() savePosition(frame) end)
     frame.titleBar = bar
 
     -- Das Wappen: ohne opts.icon die EventHelper-Marke, sonst ein Spiel-Icon
@@ -693,6 +950,36 @@ function Kit.Window(opts)
     frame.body = CreateFrame("Frame", nil, frame)
     frame.body:SetPoint("TOPLEFT", 1, -TITLE_HEIGHT)
     frame.body:SetPoint("BOTTOMRIGHT", -1, 1)
+    return frame
+end
+
+--- Ein Fenster: Rahmen, Titelleiste (Wappen, Titel, X), Esc schliesst,
+-- die Position wird unter EHS.db[posKey] gemerkt (ohne posKey: immer mittig).
+-- opts { name, title, width, height, posKey, strata, point, noEscape, noClose, icon }.
+-- frame.body ist die Flaeche unter der Titelleiste, immer (width-2) x
+-- (height-TITLE_HEIGHT-1) gross - im Fenster des Spiels wie im flachen.
+function Kit.Window(opts)
+    local frame = nativeWindow(opts) or flatWindow(opts)
+    frame.posKey = opts.posKey
+    local pos = opts.posKey and EHS.db and EHS.db[opts.posKey]
+    frame:ClearAllPoints()
+    if pos and pos.point then
+        frame:SetPoint(pos.point, UIParent, pos.relativePoint or pos.point, pos.x or 0, pos.y or 0)
+    else
+        local p = opts.point or { "CENTER", 0, 40 }
+        frame:SetPoint(p[1], p[2], p[3])
+    end
+    frame:SetFrameStrata(opts.strata or "HIGH")
+    if frame.SetToplevel then frame:SetToplevel(true) end
+    frame:SetClampedToScreen(true)
+    frame:SetMovable(true)
+    frame:EnableMouse(true)
+
+    local bar = frame.titleBar
+    bar:EnableMouse(true)
+    bar:RegisterForDrag("LeftButton")
+    bar:SetScript("OnDragStart", function() frame:StartMoving() end)
+    bar:SetScript("OnDragStop", function() savePosition(frame) end)
 
     if opts.name and not opts.noEscape then tinsert(UISpecialFrames, opts.name) end
     frame:Hide()

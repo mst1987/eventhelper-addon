@@ -42,14 +42,68 @@ local KNOWN_EVENTS = {
     GUILDBANKBAGSLOTS_CHANGED = true,
 }
 
+-- The client templates the addon may inherit. `true` = the template only has
+-- to exist; a function builds the parts the real template brings (the
+-- children and methods UIKit.lua checks for), called after CreateFrame.
+local function stubText(frame, key, font)
+    frame[key] = frame:CreateFontString(nil, "OVERLAY", font)
+    return frame[key]
+end
+local function stubButton(frame)
+    frame:SetFontString(stubText(frame, "Text", "GameFontNormal"))
+    -- Button:SetText writes into its font string, as in the game.
+    function frame:SetText(text) self.Text:SetText(text) end
+    function frame:GetText() return self.Text:GetText() end
+end
+local function stubCloseButton(frame)
+    frame:SetScript("OnClick", function(self) self:GetParent():Hide() end)
+end
+
 local TEMPLATES = {
-    BasicFrameTemplateWithInset = true, UIPanelButtonTemplate = true, UICheckButtonTemplate = true,
-    InputBoxTemplate = true, UIPanelScrollFrameTemplate = true, BackdropTemplate = true,
+    BasicFrameTemplateWithInset = true, InputBoxTemplate = true, UIPanelScrollFrameTemplate = true,
+    BackdropTemplate = true,
+    UIPanelButtonTemplate = stubButton,
+    UICheckButtonTemplate = function(frame) stubText(frame, "Text", "GameFontNormalSmall") end,
+    UIPanelCloseButton = stubCloseButton,
+    InsetFrameTemplate = function(frame)
+        frame.Bg = frame:CreateTexture(nil, "BACKGROUND")
+    end,
+    ButtonFrameTemplate = function(frame)
+        frame.Bg = frame:CreateTexture(nil, "BACKGROUND")
+        frame.TitleContainer = WoWMock.newWidget("Frame", nil, frame)
+        stubText(frame.TitleContainer, "TitleText", "GameFontNormal")
+        function frame:SetTitle(text) self.TitleContainer.TitleText:SetText(text) end
+        frame.CloseButton = WoWMock.newWidget("Button", nil, frame)
+        stubCloseButton(frame.CloseButton)
+        frame.Inset = WoWMock.newWidget("Frame", nil, frame)
+        frame.portrait = frame:CreateTexture(nil, "OVERLAY")
+    end,
 }
-if not FOREVER then
+if FOREVER then
+    -- The new dropdown (Blizzard_Menu). The real Anniversary client has it too
+    -- (Baganator, Auctionator use it there), but this mock's Anniversary has
+    -- no MenuUtil, so the flat fallback is what the Anniversary specs see.
+    TEMPLATES.WowStyle1DropdownTemplate = function(frame)
+        stubText(frame, "Text", "GameFontHighlightSmall")
+        frame.generateCount = 0
+        function frame:SetupMenu(generator) self.menuGenerator = generator end
+        function frame:GenerateMenu() self.generateCount = self.generateCount + 1 end
+        frame:SetScript("OnClick", function(self) MenuUtil.CreateContextMenu(self, self.menuGenerator) end)
+    end
+else
     TEMPLATES.UIDropDownMenuTemplate = true
     TEMPLATES.FauxScrollFrameTemplate = true
 end
+WoWMock.templates = TEMPLATES
+
+-- Template lookup as the client answers it (both clients have C_XMLUtil).
+C_XMLUtil = {}
+function C_XMLUtil.GetTemplateInfo(name)
+    if TEMPLATES[name] then return { type = "Frame", width = 0, height = 0 } end
+    return nil
+end
+function ButtonFrameTemplate_HidePortrait(frame) if frame.portrait then frame.portrait:Hide() end end
+function ButtonFrameTemplate_HideButtonBar() end
 
 -- Widget methods that only have to exist.
 local NOOP = {}
@@ -59,7 +113,8 @@ for _, name in ipairs({
     "SetTexCoord", "SetVertexColor", "SetColorTexture", "SetJustifyH", "SetJustifyV",
     "SetWordWrap", "SetFontObject", "SetMultiLine", "SetAutoFocus", "SetNumeric", "SetMaxLetters",
     "ClearFocus", "SetFocus", "HighlightText", "SetScrollChild", "SetHighlightTexture", "SetEnabled",
-    "Enable", "Disable", "SetScale", "UnregisterEvent",
+    "Enable", "Disable", "SetScale", "UnregisterEvent", "SetToplevel", "LockHighlight", "UnlockHighlight",
+    "SetNormalFontObject", "SetHighlightFontObject", "SetDisabledFontObject",
 }) do
     NOOP[name] = function() end
 end
@@ -91,6 +146,8 @@ end
 WoWMock.newWidget = newWidget
 
 function Widget:GetName() return self.__name end
+function Widget:SetFontString(fs) self.__fontString = fs end
+function Widget:GetFontString() return self.__fontString end
 function Widget:GetParent() return self.__parent end
 function Widget:SetScript(script, fn) self.__scripts[script] = fn end
 function Widget:GetScript(script) return self.__scripts[script] end
@@ -157,7 +214,8 @@ function Widget:CreateFontString(name, layer, font) local t = newWidget("FontStr
 
 -- Tooltips ---------------------------------------------------------------------------------
 
-function Widget:SetOwner(owner) self.__owner = owner end
+-- like the client: a new owner starts an empty tooltip
+function Widget:SetOwner(owner) self.__owner = owner; self.__lines = {} end
 function Widget:ClearLines()
     self.__lines = {}
 end
@@ -209,6 +267,7 @@ function CreateFrame(kind, name, parent, template)
     end
     local w = newWidget(kind, name, parent)
     w.__template = template
+    if template and type(TEMPLATES[template]) == "function" then TEMPLATES[template](w) end
     return w
 end
 

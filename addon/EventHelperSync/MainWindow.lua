@@ -146,15 +146,11 @@ local function build()
     })
     frame.subtitle:SetText("v" .. tostring(EHS.version))
 
-    frame.rail = CreateFrame("Frame", nil, frame.body)
+    -- Die Leiste ist eine vertiefte Flaeche wie im Spiel (Kit.Inset).
+    frame.rail = Kit.Inset(frame.body)
     frame.rail:SetPoint("TOPLEFT", 0, 0)
     frame.rail:SetPoint("BOTTOMLEFT", 0, 0)
     frame.rail:SetWidth(RAIL_WIDTH)
-    Kit.Solid(frame.rail, "BACKGROUND", { 0.06, 0.055, 0.047 }):SetAllPoints()
-    local railLine = Kit.Solid(frame.rail, "BORDER", Kit.C.line)
-    railLine:SetPoint("TOPRIGHT")
-    railLine:SetPoint("BOTTOMRIGHT")
-    railLine:SetWidth(1)
     frame.railSep = Kit.Solid(frame.rail, "ARTWORK", Kit.C.line)
     frame.railSep:SetHeight(1)
 

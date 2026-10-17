@@ -17,7 +17,7 @@ if EventHelperSyncModulesFrame then EventHelperSyncModulesFrame:Hide() end
 EHS:ShowMain()
 local main = EventHelperSyncMainFrame
 expect(main:IsShown(), "opens")
-expectEqual(main:GetWidth(), 880, "width")
+expectEqual(main:GetWidth(), main.native and 888 or 880, "width (game frame: body stays 878 wide)")
 expectEqual(main.title:GetText(), "EventHelper Sync", "title in the title bar")
 expectEqual(main.subtitle:GetText(), "v" .. __TOC_VERSION, "version next to it")
 expect(main.close and main.titleBar, "close button and title bar")

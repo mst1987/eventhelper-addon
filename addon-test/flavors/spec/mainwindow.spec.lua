@@ -21,8 +21,19 @@ expectEqual(main:GetWidth(), main.native and 888 or 880, "width (game frame: bod
 expectEqual(main.title:GetText(), "EventHelper Sync", "title in the title bar")
 expectEqual(main.subtitle:GetText(), "v" .. __TOC_VERSION, "version next to it")
 expect(main.close and main.titleBar, "close button and title bar")
-expectEqual(main.titleBar.crest.icon.__texture, "Interface\\AddOns\\EventHelperSync\\media\\logo",
-    "the EventHelper mark as crest")
+if main.native then
+    -- the game's window: no crest, rail and content each an inset of their own
+    expect(not main.titleBar.crest, "no crest in the game's window")
+    expect(main.inset == nil, "no window inset behind rail and content")
+    expect(main.rail.native and main.content.native, "rail and content are insets")
+    local nav = main.navs.loot
+    expect(nav.native and nav.bg.__texture == "Interface\\QuestFrame\\UI-QuestTitleHighlight",
+        "rail entry: the quest log glow")
+    expectEqual(#nav.edges, 0, "no box around the entry")
+else
+    expectEqual(main.titleBar.crest.icon.__texture, "Interface\\AddOns\\EventHelperSync\\media\\logo",
+        "the EventHelper mark as crest (flat window)")
+end
 expectEqual(EventHelperSyncMinimapButton.icon.__texture, "Interface\\AddOns\\EventHelperSync\\media\\logo-round",
     "and its round version on the minimap button")
 expectEqual(EHS:MainPage(), "loot", "first page: the first module")
@@ -58,9 +69,12 @@ expect(settings:IsShown(), "/ehs einstellungen")
 
 local days = settings.loot.rows[1].control
 expectEqual(days.value:GetText(), "21 Tage", "stepper shows the value with unit")
+expect(days.native and days.slider, "stepper is the game's slider")
+expectEqual(days.slider:GetValue(), 21, "slider stands on the value")
 WoWMock.Click(days.plus)
 expectEqual(EHS.db.settings.lookbackDays, 28, "+ adds a week")
 expectEqual(days.value:GetText(), "28 Tage", "and shows it")
+expectEqual(days.slider:GetValue(), 28, "and the slider follows")
 WoWMock.Click(days.minus)
 WoWMock.Click(days.minus)
 expectEqual(EHS.db.settings.lookbackDays, 14, "- takes a week")

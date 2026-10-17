@@ -432,7 +432,10 @@ local function setMailButton(button, state)
     local prepared = state ~= "bags"
     local C = EHS.Kit.C
     button.label:SetText(prepared and "Vorbereitet" or "Post")
-    if prepared then
+    if button.native then
+        -- der Knopf des Spiels: "vorbereitet" bleibt hervorgehoben
+        if prepared then button:LockHighlight() else button:UnlockHighlight() end
+    elseif prepared then
         button.bg:SetColorTexture(0.165, 0.137, 0.078, 1)
         button.label:SetTextColor(C.gold[1], C.gold[2], C.gold[3])
     else

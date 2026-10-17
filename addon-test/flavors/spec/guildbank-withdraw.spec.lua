@@ -34,7 +34,7 @@ SlashCmdList.EVENTHELPERBANK("")
 local win = EventHelperSyncGuildBankFrame
 expect(win:IsShown(), "window open")
 expectEqual(L.width, EHS.MainLayout.pageWidth, "a page of the main window, as wide as its content area")
-expectEqual(EventHelperSyncMainFrame:GetWidth(), 880, "main window width")
+expectEqual(EventHelperSyncMainFrame:GetWidth(), EventHelperSyncMainFrame.native and 888 or 880, "main window width (game frame: body stays 878 wide)")
 local rows = {}
 for _, child in ipairs(WoWMock.frames) do
     if child.__parent == win.list and child.__kind == "Button" then rows[#rows + 1] = child end
@@ -45,7 +45,7 @@ local rowWidth = L.width - 2 * 16 - 6
 expectEqual(rows[1]:GetWidth(), rowWidth, "row width")
 expectEqual(rows[1].icon:GetWidth(), 24, "icon 24")
 expectEqual(rows[1].check:GetWidth(), 22, "checkbox 22")
-expectEqual(rows[1].check.box:GetWidth(), 14, "check box 14")
+expect(rows[1].check.native or rows[1].check.box:GetWidth() == 14, "check box 14 (flat check)")
 for _, cell in ipairs({ "name", "item", "tab", "count" }) do
     expectEqual(rows[1][cell].__font, "GameFontHighlight", cell .. " in the normal font")
 end

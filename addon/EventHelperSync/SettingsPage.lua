@@ -62,8 +62,14 @@ end
 local function setCardState(card)
     local on = not card.module or EHS:ModuleOn(card.module)
     if card.module then
-        card.pill:SetState(on and "an" or "aus", on and "on" or "off")
-        card.pill:Show()
+        -- Wie im Spiel steht nur da, was auffaellt: "aus". Ein laufendes Modul
+        -- braucht kein Etikett.
+        if on then
+            card.pill:Hide()
+        else
+            card.pill:SetState("aus", "off")
+            card.pill:Show()
+        end
     end
     for _, row in ipairs(card.rows) do
         row.control:SetShown(on)
@@ -114,11 +120,11 @@ local function build(holder)
         switch:SetPoint("TOPLEFT", 10 + (i - 1) * third, -38)
         switch.module = def.id
         local name = Kit.Text(page.modules, "body")
-        name:SetPoint("TOPLEFT", switch, "TOPRIGHT", 10, 1)
+        name:SetPoint("TOPLEFT", switch, "TOPRIGHT", 4, -5)
         name:SetText(def.name)
         local hint = Kit.Text(page.modules, "hint")
         hint:SetPoint("TOPLEFT", name, "BOTTOMLEFT", 0, -3)
-        hint:SetWidth(third - 70)
+        hint:SetWidth(third - 50)
         hint:SetText(def.short or "")
         switch.name = name
         page.moduleSwitches[#page.moduleSwitches + 1] = switch

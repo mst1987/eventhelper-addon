@@ -25,10 +25,11 @@ local WIDTH, HEIGHT = 880, 572
 local RAIL_WIDTH = 178
 local NAV_HEIGHT = 46
 
--- Inhaltsfeld eines Bereichs, fuer die Bereiche selbst.
+-- Inhaltsfeld eines Bereichs, fuer die Bereiche selbst: Fenster minus Leiste
+-- und Spalt (das Fenster der Vorlage waechst um seinen Rand, Kit.Window).
 EHS.MainLayout = {
     width = WIDTH, height = HEIGHT, railWidth = RAIL_WIDTH,
-    pageWidth = WIDTH - RAIL_WIDTH - 2, pageHeight = HEIGHT - Kit.TITLE_HEIGHT - 1,
+    pageWidth = WIDTH - RAIL_WIDTH - 5, pageHeight = HEIGHT - Kit.TITLE_HEIGHT - 1,
 }
 
 local pages = {}
@@ -56,22 +57,45 @@ end
 -- Leiste
 -- ---------------------------------------------------------------------------
 
+-- Der Leuchtbalken der Questliste: gewaehlt fest, beim Ueberfahren schwach.
+local NAV_GLOW = "Interface\\QuestFrame\\UI-QuestTitleHighlight"
+
+local function glow(nav, layer, alpha)
+    local tex = nav:CreateTexture(nil, layer)
+    tex:SetTexture(NAV_GLOW)
+    if tex.SetBlendMode then tex:SetBlendMode("ADD") end
+    tex:SetAlpha(alpha)
+    tex:SetAllPoints()
+    return tex
+end
+
 local function buildNav(parent, page)
     local nav = CreateFrame("Button", nil, parent)
     nav:SetSize(RAIL_WIDTH - 16, NAV_HEIGHT - 4)
     nav.page = page
 
-    nav.bg = Kit.Solid(nav, "BACKGROUND", { 0.17, 0.14, 0.09 })
-    nav.bg:SetAllPoints()
-    nav.edges = Kit.Border(nav, Kit.C.border)
-    local hl = Kit.Solid(nav, "HIGHLIGHT", { 1, 1, 1 }, 0.05)
-    hl:SetAllPoints()
+    if parent.native then
+        -- Im Spiel-Look wie ein Eintrag der Questliste: kein Kasten, nur das
+        -- Leuchten des Spiels.
+        nav.native = true
+        nav.bg = glow(nav, "BACKGROUND", 0.9)
+        nav.edges = {}
+        glow(nav, "HIGHLIGHT", 0.45)
+    else
+        nav.bg = Kit.Solid(nav, "BACKGROUND", { 0.17, 0.14, 0.09 })
+        nav.bg:SetAllPoints()
+        nav.edges = Kit.Border(nav, Kit.C.border)
+        local hl = Kit.Solid(nav, "HIGHLIGHT", { 1, 1, 1 }, 0.05)
+        hl:SetAllPoints()
+    end
 
     nav.iconFrame = CreateFrame("Frame", nil, nav)
     nav.iconFrame:SetSize(30, 30)
     nav.iconFrame:SetPoint("LEFT", 6, 0)
-    Kit.Solid(nav.iconFrame, "BACKGROUND", Kit.C.field):SetAllPoints()
-    Kit.Border(nav.iconFrame, Kit.C.borderDim)
+    if not nav.native then
+        Kit.Solid(nav.iconFrame, "BACKGROUND", Kit.C.field):SetAllPoints()
+        Kit.Border(nav.iconFrame, Kit.C.borderDim)
+    end
     nav.icon = nav.iconFrame:CreateTexture(nil, "ARTWORK")
     nav.icon:SetPoint("TOPLEFT", 2, -2)
     nav.icon:SetPoint("BOTTOMRIGHT", -2, 2)
@@ -142,11 +166,12 @@ end
 local function build()
     frame = Kit.Window({
         name = "EventHelperSyncMainFrame", title = "EventHelper Sync", width = WIDTH, height = HEIGHT,
-        posKey = "mainPos", strata = "HIGH",
+        posKey = "mainPos", strata = "HIGH", inset = false,
     })
     frame.subtitle:SetText("v" .. tostring(EHS.version))
 
-    -- Die Leiste ist eine vertiefte Flaeche wie im Spiel (Kit.Inset).
+    -- Leiste und Inhalt sind je eine vertiefte Flaeche wie im Spiel (Kit.Inset),
+    -- mit einem schmalen Spalt dazwischen.
     frame.rail = Kit.Inset(frame.body)
     frame.rail:SetPoint("TOPLEFT", 0, 0)
     frame.rail:SetPoint("BOTTOMLEFT", 0, 0)
@@ -154,8 +179,8 @@ local function build()
     frame.railSep = Kit.Solid(frame.rail, "ARTWORK", Kit.C.line)
     frame.railSep:SetHeight(1)
 
-    frame.content = CreateFrame("Frame", nil, frame.body)
-    frame.content:SetPoint("TOPLEFT", RAIL_WIDTH + 1, 0)
+    frame.content = Kit.Inset(frame.body)
+    frame.content:SetPoint("TOPLEFT", RAIL_WIDTH + 4, 0)
     frame.content:SetPoint("BOTTOMRIGHT", 0, 0)
 
     frame.navs = {}

@@ -31,9 +31,13 @@ CreateFrame, Pruefung der erwarteten Teile); fehlt sie, baut der Baukasten den
 alten flachen Baustein mit derselben Schnittstelle. `x.native` sagt, welcher
 es geworden ist.
 
-Schalter, Chips, Zahl, Etikett, Spaltenkopf und Bildlaufanzeige bleiben
-selbst gezeichnet: dafuer gibt es keine Vorlage, die beide Clients gleich
-haben.
+Auch Schalter (Haekchen links, Text rechts, wie in den Optionen), Chips (der
+kleine rote Knopf, gewaehlt = festes Leuchten) und Zahlen (der Regler mit
+Pfeilen, MinimalSliderWithSteppersTemplate, sonst OptionsSliderTemplate) sind
+die des Spiels; Etiketten und Zaehler sind schlichter Text in den Farben des
+Spiels. Selbst gezeichnet bleiben nur Spaltenkopf, Bildlaufanzeige,
+Zeilenstreifen und der "link"-Knopf: dafuer hat das Spiel keine Vorlage, die
+beide Clients gleich haben.
 ]]
 
 local EHS = EventHelperSync
@@ -372,8 +376,37 @@ end
 -- ---------------------------------------------------------------------------
 
 --- An/aus. onToggle(switch, on) nach jedem Klick; switch:SetOn(on) ohne Rueckruf.
-function Kit.Switch(parent, onToggle, tooltip)
+-- Wo es geht, ist es das Haekchen des Spiels (UICheckButtonTemplate) wie in
+-- den Optionen des Spiels: Haekchen links, der Text steht daneben (Kit.SettingRow).
+-- Die Vorlage schaltet sich beim Klick selbst um; hier gilt aber switch.on,
+-- darum setzt PostClick das Haekchen wieder auf ihn. Ohne Vorlage ein flacher
+-- Schieber. switch.kind == "switch" sagt Kit.SettingRow, wohin er gehoert.
+local function nativeSwitch(parent)
+    local switch = fromTemplate("CheckButton", nil, parent, "UICheckButtonTemplate", function(c)
+        return c.SetChecked and c.GetChecked
+    end)
+    if not switch then return nil end
+    switch.native = true
+    switch:SetSize(26, 26)
+    -- Die Vorlage bringt eine eigene Beschriftung mit; der Text steht bei uns daneben.
+    local own = switch.Text or switch.text
+    if own and own.SetText then own:SetText("") end
+    local setNative = switch.SetChecked
+    function switch:SetOn(on)
+        self.on = on and true or false
+        setNative(self, self.on)
+    end
+    function switch:SetActive(on)
+        self.active = on and true or false
+        self:SetEnabled(self.active)
+    end
+    switch:HookScript("PostClick", function(self) setNative(self, self.on) end)
+    return switch
+end
+
+local function flatSwitch(parent)
     local switch = CreateFrame("Button", nil, parent)
+    switch.native = false
     switch:SetSize(40, 20)
     switch.track = Kit.Solid(switch, "BACKGROUND", Kit.C.switchOff)
     switch.track:SetAllPoints()
@@ -400,6 +433,12 @@ function Kit.Switch(parent, onToggle, tooltip)
         self:SetEnabled(self.active)
         self:SetAlpha(self.active and 1 or 0.4)
     end
+    return switch
+end
+
+function Kit.Switch(parent, onToggle, tooltip)
+    local switch = nativeSwitch(parent) or flatSwitch(parent)
+    switch.kind = "switch"
     switch.active = true
     switch:SetScript("OnClick", function(self)
         if not self.active then return end
@@ -412,8 +451,34 @@ function Kit.Switch(parent, onToggle, tooltip)
 end
 
 --- Eine Auswahl in einem Filter. chip:SetSelected(on).
-function Kit.Chip(parent, label, onClick, tooltip)
+-- Wo es geht, der kleine rote Knopf des Spiels (UIPanelButtonTemplate); die
+-- Auswahl haelt sein Leuchten fest (LockHighlight), wie bei den Filtern des
+-- Spiels. Sonst ein flacher Knopf mit Goldrand.
+local function nativeChip(parent, label)
+    local chip = fromTemplate("Button", nil, parent, "UIPanelButtonTemplate", function(b)
+        return b.SetText and b.GetFontString and b.LockHighlight and b.UnlockHighlight
+    end)
+    if not chip then return nil end
+    setFontObjects(chip, "GameFontNormalSmall", "GameFontHighlightSmall", "GameFontDisableSmall")
+    chip:SetText(label or "")
+    chip.label = chip:GetFontString() or chip.Text
+    if not chip.label then
+        pcall(chip.Hide, chip)
+        return nil
+    end
+    local ok, width = pcall(chip.label.GetStringWidth, chip.label)
+    chip:SetSize(math.max(40, (ok and tonumber(width) or #(label or "") * 6) + 24), 22)
+    chip.native = true
+    function chip:SetSelected(on)
+        self.selected = on and true or false
+        if self.selected then self:LockHighlight() else self:UnlockHighlight() end
+    end
+    return chip
+end
+
+local function flatChip(parent, label)
     local chip = CreateFrame("Button", nil, parent)
+    chip.native = false
     chip.label = Kit.Text(chip, "small", "CENTER")
     chip.label:SetPoint("CENTER", 0, 0)
     chip.label:SetText(label)
@@ -436,6 +501,11 @@ function Kit.Chip(parent, label, onClick, tooltip)
             self.label:SetTextColor(0.72, 0.69, 0.63)
         end
     end
+    return chip
+end
+
+function Kit.Chip(parent, label, onClick, tooltip)
+    local chip = nativeChip(parent, label) or flatChip(parent, label)
     chip:SetScript("OnClick", function(self, mouse) if onClick then onClick(self, mouse) end end)
     tooltipFor(chip, tooltip)
     chip:SetSelected(false)
@@ -460,10 +530,135 @@ function Kit.ChipRow(parent, defs, x, y, gap)
     return chips
 end
 
---- Eine Zahl mit - und +. get() -> Zahl, set(n); opts { min, max, step, unit }.
-function Kit.Stepper(parent, get, set, opts)
-    opts = opts or {}
+--- Eine Zahl mit - und +. get() -> Zahl, set(n); opts { min, max, step, unit, onChange }.
+-- holder.refresh() zeichnet neu, holder.value ist die Zahl mit Einheit,
+-- holder.minus / holder.plus die Knoepfe (ein Klick = opts.step).
+--
+-- Mit min und max ist es der Regler des Spiels: erst der aus den neuen Optionen
+-- (MinimalSliderWithSteppersTemplate, Pfeile links und rechts), sonst der
+-- alte (OptionsSliderTemplate) mit - und + daneben, sonst das flache - Zahl +.
+-- Der Regler rastet auf ganze Zahlen; die Pfeile springen um opts.step.
+
+-- Die Zahl, die get() liefert, und die Logik, die alle drei Formen teilen.
+-- paint(v) stellt den Regler, ohne dass dessen Rueckruf etwas speichert.
+local function stepperLogic(holder, get, set, opts, paint)
+    local painting = false
+    local function current() return tonumber(get()) or 0 end
+    local function clamp(v)
+        if opts.min then v = math.max(opts.min, v) end
+        if opts.max then v = math.min(opts.max, v) end
+        return v
+    end
+    function holder.refresh()
+        local v = current()
+        holder.value:SetText(opts.unit and (v .. " " .. opts.unit) or tostring(v))
+        if paint then
+            painting = true
+            pcall(paint, clamp(v))
+            painting = false
+        end
+    end
+    -- Ein neuer Wert: begrenzen, speichern, neu zeichnen, melden.
+    function holder.commit(v)
+        if painting then return end
+        v = clamp(tonumber(v) or current())
+        if v == current() then
+            holder.refresh()
+            return
+        end
+        set(v)
+        holder.refresh()
+        if opts.onChange then opts.onChange(v) end
+    end
+    function holder.change(delta)
+        holder.commit(current() + delta * (opts.step or 1))
+    end
+    -- Was der Regler meldet, auf eine ganze Zahl.
+    function holder.fromSlider(value)
+        value = tonumber(value)
+        if not value then return end
+        holder.commit(math.floor(value + 0.5))
+    end
+end
+
+local function valueText(holder)
+    holder.value = Kit.Text(holder, "body", "LEFT")
+    holder.value:SetWidth(56)
+end
+
+local function minimalStepper(parent, get, set, opts)
+    local mixin = MinimalSliderWithSteppersMixin
+    if not (mixin and mixin.Event and mixin.Event.OnValueChanged) then return nil end
     local holder = CreateFrame("Frame", nil, parent)
+    holder:SetSize(176, 24)
+    -- So legen es auch Fremd-Addons an (Baganator): ein Slider mit der Vorlage.
+    local bar = fromTemplate("Slider", nil, holder, "MinimalSliderWithSteppersTemplate", function(s)
+        return s.Init and s.RegisterCallback and s.SetValue and s.Back and s.Forward
+    end)
+    if not bar then
+        holder:Hide()
+        return nil
+    end
+    bar:SetSize(116, 20)
+    bar:SetPoint("LEFT", 0, 0)
+    -- ganze Zahlen von min bis max; formatters {}: die Zahl steht in holder.value
+    local start = math.max(opts.min, math.min(opts.max, tonumber(get()) or opts.min))
+    if not pcall(bar.Init, bar, start, opts.min, opts.max, opts.max - opts.min, {}) then
+        holder:Hide()
+        return nil
+    end
+    holder.native = true
+    holder.slider = bar
+    valueText(holder)
+    holder.value:SetPoint("LEFT", bar, "RIGHT", 6, 0)
+    stepperLogic(holder, get, set, opts, function(v) bar:SetValue(v) end)
+    bar:RegisterCallback(mixin.Event.OnValueChanged, function(_, value) holder.fromSlider(value) end, holder)
+    -- Die Pfeile springen um opts.step statt um eine Rasterstufe.
+    holder.minus, holder.plus = bar.Back, bar.Forward
+    holder.minus:SetScript("OnClick", function() holder.change(-1) end)
+    holder.plus:SetScript("OnClick", function() holder.change(1) end)
+    return holder
+end
+
+local sliderCount = 0
+local function optionsStepper(parent, get, set, opts)
+    local holder = CreateFrame("Frame", nil, parent)
+    holder:SetSize(176, 24)
+    -- Die alte Vorlage findet ihre Texte ueber den Namen.
+    sliderCount = sliderCount + 1
+    local name = "EventHelperSyncSlider" .. sliderCount
+    local slider = fromTemplate("Slider", name, holder, "OptionsSliderTemplate", function(s)
+        return s.SetMinMaxValues and s.SetValue and s.GetValue
+    end)
+    if not slider then
+        holder:Hide()
+        return nil
+    end
+    for _, key in ipairs({ "Low", "High", "Text" }) do
+        local fs = slider[key] or _G[name .. key]
+        if fs and fs.Hide then fs:Hide() end
+    end
+    slider:SetMinMaxValues(opts.min, opts.max)
+    if slider.SetValueStep then slider:SetValueStep(1) end
+    if slider.SetObeyStepOnDrag then slider:SetObeyStepOnDrag(true) end
+    holder.native = true
+    holder.slider = slider
+    holder.minus = Kit.Button(holder, "-", "secondary", 20, function() holder.change(-1) end)
+    holder.minus:SetPoint("LEFT", 0, 0)
+    slider:SetSize(72, 16)
+    slider:SetPoint("LEFT", holder.minus, "RIGHT", 4, 0)
+    holder.plus = Kit.Button(holder, "+", "secondary", 20, function() holder.change(1) end)
+    holder.plus:SetPoint("LEFT", slider, "RIGHT", 4, 0)
+    valueText(holder)
+    holder.value:SetPoint("LEFT", holder.plus, "RIGHT", 6, 0)
+    stepperLogic(holder, get, set, opts, function(v) slider:SetValue(v) end)
+    slider:HookScript("OnValueChanged", function(_, value) holder.fromSlider(value) end)
+    return holder
+end
+
+local function flatStepper(parent, get, set, opts)
+    local holder = CreateFrame("Frame", nil, parent)
+    holder.native = false
     holder:SetSize(112, 24)
     holder.bg = Kit.Solid(holder, "BACKGROUND", Kit.C.field)
     holder.bg:SetAllPoints()
@@ -471,16 +666,7 @@ function Kit.Stepper(parent, get, set, opts)
     holder.value = Kit.Text(holder, "small", "CENTER")
     holder.value:SetPoint("CENTER", 0, 0)
     holder.value:SetWidth(60)
-
-    local function change(delta)
-        local current = tonumber(get()) or 0
-        local nextValue = current + delta * (opts.step or 1)
-        if opts.min then nextValue = math.max(opts.min, nextValue) end
-        if opts.max then nextValue = math.min(opts.max, nextValue) end
-        set(nextValue)
-        holder.refresh()
-        if opts.onChange then opts.onChange(nextValue) end
-    end
+    stepperLogic(holder, get, set, opts)
     local function stepButton(text, point, delta)
         local button = CreateFrame("Button", nil, holder)
         button:SetSize(24, 24)
@@ -490,15 +676,22 @@ function Kit.Stepper(parent, get, set, opts)
         button.label:SetText(text)
         local hl = Kit.Solid(button, "HIGHLIGHT", { 1, 1, 1 }, 0.1)
         hl:SetAllPoints()
-        button:SetScript("OnClick", function() change(delta) end)
+        button:SetScript("OnClick", function() holder.change(delta) end)
         return button
     end
     holder.minus = stepButton("-", "LEFT", -1)
     holder.plus = stepButton("+", "RIGHT", 1)
-    function holder.refresh()
-        local v = tonumber(get()) or 0
-        holder.value:SetText(opts.unit and (v .. " " .. opts.unit) or tostring(v))
+    return holder
+end
+
+function Kit.Stepper(parent, get, set, opts)
+    opts = opts or {}
+    local holder
+    if opts.min and opts.max and opts.max > opts.min then
+        holder = minimalStepper(parent, get, set, opts) or optionsStepper(parent, get, set, opts)
     end
+    holder = holder or flatStepper(parent, get, set, opts)
+    holder.kind = "stepper"
     holder.refresh()
     return holder
 end
@@ -593,44 +786,46 @@ end
 -- Zustand
 -- ---------------------------------------------------------------------------
 
+-- Die Farben der Etiketten: die Schriftfarben des Spiels (gruen, grau, gold,
+-- rot), sonst ihre Werte.
+local function gameColor(global, fallback)
+    local c = _G[global]
+    if type(c) == "table" and tonumber(c.r) then return { c.r, c.g, c.b } end
+    return fallback
+end
 local PILL = {
-    on = { text = { 0.5, 0.88, 0.48 }, edge = { 0.24, 0.48, 0.22 }, bg = { 0.08, 0.14, 0.06 } },
-    off = { text = { 0.6, 0.58, 0.52 }, edge = { 0.29, 0.27, 0.22 }, bg = { 0.1, 0.09, 0.08 } },
-    warn = { text = Kit.C.gold, edge = Kit.C.border, bg = { 0.165, 0.137, 0.078 } },
-    bad = { text = { 1, 0.54, 0.48 }, edge = { 0.54, 0.23, 0.19 }, bg = { 0.165, 0.07, 0.06 } },
+    on = function() return gameColor("GREEN_FONT_COLOR", { 0.1, 1, 0.1 }) end,
+    off = function() return gameColor("GRAY_FONT_COLOR", { 0.5, 0.5, 0.5 }) end,
+    warn = function() return gameColor("NORMAL_FONT_COLOR", { 1, 0.82, 0 }) end,
+    bad = function() return gameColor("RED_FONT_COLOR", { 1, 0.1, 0.1 }) end,
 }
 
---- Ein kleines Etikett: pill:SetState("an", "on" | "off" | "warn" | "bad").
+--- Ein kleines Etikett: pill:SetState("aus", "on" | "off" | "warn" | "bad").
+-- Schlichter Text in der Farbe des Zustands, wie das Spiel Zustaende schreibt
+-- (kein Kasten). pill.label ist der Text, pill.kind der Zustand.
 function Kit.Pill(parent)
     local pill = CreateFrame("Frame", nil, parent)
     pill:SetSize(40, 16)
-    pill.bg = Kit.Solid(pill, "BACKGROUND", PILL.off.bg)
-    pill.bg:SetAllPoints()
-    pill.edges = Kit.Border(pill, PILL.off.edge)
-    pill.label = Kit.Text(pill, "small", "CENTER")
-    pill.label:SetPoint("CENTER", 0, 0)
+    pill.label = Kit.Text(pill, "small", "LEFT")
+    pill.label:SetPoint("LEFT", 0, 0)
     function pill:SetState(text, kind)
-        local style = PILL[kind] or PILL.off
+        local color = (PILL[kind] or PILL.off)()
         self.kind = kind
         self.label:SetText(text or "")
-        self.label:SetTextColor(style.text[1], style.text[2], style.text[3])
-        self.bg:SetColorTexture(style.bg[1], style.bg[2], style.bg[3], 1)
-        for _, line in ipairs(self.edges) do line:SetColorTexture(style.edge[1], style.edge[2], style.edge[3], 1) end
+        self.label:SetTextColor(color[1], color[2], color[3])
         local ok, width = pcall(self.label.GetStringWidth, self.label)
-        self:SetWidth(math.max(28, (ok and tonumber(width) or #(text or "") * 6) + 12))
+        self:SetWidth(math.max(8, (ok and tonumber(width) or #(text or "") * 6) + 2))
     end
     return pill
 end
 
 --- Eine Zahl in Gold (Seitenleiste, Minimap): badge:SetCount(n), 0 versteckt sie.
+-- Nur die goldene Zahl, wie das Spiel Zaehler neben Eintraege schreibt.
 function Kit.Badge(parent)
     local badge = CreateFrame("Frame", nil, parent)
     badge:SetSize(22, 16)
-    badge.bg = Kit.Solid(badge, "BACKGROUND", { 0.23, 0.17, 0.05 })
-    badge.bg:SetAllPoints()
-    Kit.Border(badge, Kit.C.border)
-    badge.label = Kit.Text(badge, "labelSmall", "CENTER")
-    badge.label:SetPoint("CENTER", 0, 0)
+    badge.label = Kit.Text(badge, "label", "RIGHT")
+    badge.label:SetPoint("RIGHT", 0, 0)
     function badge:SetCount(n)
         n = tonumber(n) or 0
         self.count = n
@@ -765,17 +960,12 @@ function Kit.Check(parent, size)
 end
 
 --- Ein Block mit Kopfzeile (Titel, rechts ein Etikett). card.body ist der Inhalt.
--- Im Spiel-Look ist die Karte eine vertiefte Flaeche (Kit.Inset) mit einer
--- Trennlinie unter dem goldenen Titel.
+-- Im Spiel-Look ist die Karte eine vertiefte Flaeche (Kit.Inset) mit dem
+-- goldenen Titel oben, ohne eigene Kopfleiste - wie die Abschnitte im Spiel.
 function Kit.Card(parent, title, width, height)
     local card = Kit.Inset(parent)
     card:SetSize(width, height)
-    if card.native then
-        card.head = Kit.Solid(card, "ARTWORK", Kit.C.border, 0.5)
-        card.head:SetPoint("TOPLEFT", 6, -26)
-        card.head:SetPoint("TOPRIGHT", -6, -26)
-        card.head:SetHeight(1)
-    else
+    if not card.native then
         card.bg:SetColorTexture(Kit.C.panel2[1], Kit.C.panel2[2], Kit.C.panel2[3], 1)
         card.head = Kit.Solid(card, "BACKGROUND", Kit.C.bar)
         card.head:SetPoint("TOPLEFT", 1, -1)
@@ -783,7 +973,7 @@ function Kit.Card(parent, title, width, height)
         card.head:SetHeight(26)
     end
     card.title = Kit.Text(card, "label")
-    card.title:SetPoint("TOPLEFT", 10, -7)
+    card.title:SetPoint("TOPLEFT", 10, -8)
     card.title:SetText(title)
     card.pill = Kit.Pill(card)
     card.pill:SetPoint("LEFT", card.title, "RIGHT", 8, 0)
@@ -791,13 +981,24 @@ function Kit.Card(parent, title, width, height)
     return card
 end
 
---- Eine Einstellungszeile in einer Karte: Name, Hinweis, rechts das Bedienelement.
+--- Eine Einstellungszeile in einer Karte: Name, Hinweis und das Bedienelement.
+-- Ein Schalter (Kit.Switch) steht wie in den Optionen des Spiels links, der
+-- Name rechts daneben; jedes andere Bedienelement rechts in der Zeile.
 function Kit.SettingRow(card, y, name, hint, control, width)
-    -- Der Text bekommt die ganze Breite links vom Bedienelement.
-    local controlWidth = tonumber(control:GetWidth()) or 0
-    local textWidth = (width or 300) - 30 - math.max(40, controlWidth)
     local label = Kit.Text(card, "body")
-    label:SetPoint("TOPLEFT", 10, y)
+    local textWidth
+    if control.kind == "switch" then
+        local controlWidth = tonumber(control:GetWidth()) or 26
+        control:SetPoint("TOPLEFT", card, "TOPLEFT", 8, y + 5)
+        label:SetPoint("TOPLEFT", card, "TOPLEFT", 8 + controlWidth + 4, y)
+        textWidth = (width or 300) - 24 - controlWidth
+    else
+        -- Der Text bekommt die ganze Breite links vom Bedienelement.
+        local controlWidth = tonumber(control:GetWidth()) or 0
+        textWidth = (width or 300) - 30 - math.max(40, controlWidth)
+        label:SetPoint("TOPLEFT", 10, y)
+        control:SetPoint("TOPRIGHT", card, "TOPRIGHT", -10, y + 2)
+    end
     label:SetWidth(textWidth)
     label:SetText(name)
     local note
@@ -807,7 +1008,6 @@ function Kit.SettingRow(card, y, name, hint, control, width)
         note:SetWidth(textWidth)
         note:SetText(hint)
     end
-    control:SetPoint("TOPRIGHT", card, "TOPRIGHT", -10, y + 2)
     return label, note
 end
 
@@ -842,6 +1042,50 @@ local function templateTitle(frame)
     return (frame.TitleContainer and frame.TitleContainer.TitleText) or frame.TitleText
 end
 
+-- Den Titel einmal setzen. Je nach Client schreibt SetTitle in
+-- TitleContainer.TitleText oder in TitleText (oder <Name>TitleText); gibt es
+-- mehrere, stuenden sonst zwei Titel uebereinander. Darum: SetTitle, dann die
+-- Schrift nehmen, die Text traegt, die anderen leeren und verstecken. Traegt
+-- keine Text, schreibt der Baukasten selbst in die erste.
+local function hasText(fs)
+    if not (fs and fs.GetText) then return false end
+    local ok, text = pcall(fs.GetText, fs)
+    return ok and type(text) == "string" and text ~= ""
+end
+
+local function nativeTitle(frame, text)
+    if frame.SetTitle then pcall(frame.SetTitle, frame, text) end
+    local candidates = {}
+    local function add(fs)
+        if not (fs and fs.SetText) then return end
+        for _, known in ipairs(candidates) do
+            if known == fs then return end
+        end
+        candidates[#candidates + 1] = fs
+    end
+    add(frame.TitleContainer and frame.TitleContainer.TitleText)
+    add(frame.TitleText)
+    local name = frame.GetName and frame:GetName()
+    if name then add(_G[name .. "TitleText"]) end
+
+    local shown
+    for _, fs in ipairs(candidates) do
+        if not shown and hasText(fs) then shown = fs end
+    end
+    if not shown then
+        shown = candidates[1]
+        if shown then shown:SetText(text) end
+    end
+    for _, fs in ipairs(candidates) do
+        if fs ~= shown then
+            fs:SetText("")
+            if fs.Hide then fs:Hide() end
+        end
+    end
+    return shown
+end
+Kit.NativeTitle = nativeTitle
+
 --- Das Fenster des Spiels (ButtonFrameTemplate) oder nil. Der Inhalt
 -- (frame.body) ist so gross wie im flachen Fenster; der Rahmen waechst darum.
 local function nativeWindow(opts)
@@ -852,31 +1096,19 @@ local function nativeWindow(opts)
     frame.native = true
     if ButtonFrameTemplate_HidePortrait then pcall(ButtonFrameTemplate_HidePortrait, frame) end
     if ButtonFrameTemplate_HideButtonBar then pcall(ButtonFrameTemplate_HideButtonBar, frame) end
-    if frame.Inset then frame.Inset:Hide() end
     frame:SetSize(opts.width - 2 + NATIVE_BODY.left + NATIVE_BODY.right,
         opts.height - TITLE_HEIGHT - 1 + NATIVE_BODY.top + NATIVE_BODY.bottom)
 
-    frame.title = templateTitle(frame)
-    if frame.SetTitle then
-        pcall(frame.SetTitle, frame, opts.title or "")
-    end
-    frame.title:SetText(opts.title or "")
+    frame.title = nativeTitle(frame, opts.title or "")
 
     -- Die Titelzeile der Vorlage zum Verschieben anfassen (ein unsichtbarer
-    -- Streifen darueber, links das Wappen, rechts die Versionszeile).
+    -- Streifen darueber, rechts die Versionszeile). Ein Wappen hat das
+    -- Fenster des Spiels nicht - der Titel steht allein.
     local bar = CreateFrame("Frame", nil, frame)
     bar:SetPoint("TOPLEFT", 0, 0)
     bar:SetPoint("TOPRIGHT", -28, 0)
     bar:SetHeight(NATIVE_BODY.top - 2)
     frame.titleBar = bar
-
-    bar.crest = CreateFrame("Frame", nil, bar)
-    bar.crest:SetSize(16, 16)
-    bar.crest:SetPoint("LEFT", 6, -1)
-    bar.crest.icon = bar.crest:CreateTexture(nil, "ARTWORK")
-    bar.crest.icon:SetTexture(opts.icon or Kit.LOGO)
-    bar.crest.icon:SetAllPoints()
-    if opts.icon then bar.crest.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93) end
 
     frame.subtitle = Kit.Text(bar, "hint", "RIGHT")
     frame.subtitle:SetPoint("RIGHT", bar, "RIGHT", -4, -1)
@@ -892,6 +1124,26 @@ local function nativeWindow(opts)
     frame.body = CreateFrame("Frame", nil, frame)
     frame.body:SetPoint("TOPLEFT", NATIVE_BODY.left, -NATIVE_BODY.top)
     frame.body:SetPoint("BOTTOMRIGHT", -NATIVE_BODY.right, NATIVE_BODY.bottom)
+
+    -- Hinter dem Inhalt die vertiefte Flaeche der Vorlage, wie in jedem
+    -- Fenster des Spiels. Fenster mit eigenen Flaechen (Seitenleiste +
+    -- Inhalt) sagen opts.inset = false.
+    if opts.inset == false then
+        if frame.Inset then frame.Inset:Hide() end
+    else
+        local inset = frame.Inset
+        if not inset then
+            inset = Kit.Inset(frame)
+            inset.own = true
+        end
+        inset:ClearAllPoints()
+        inset:SetPoint("TOPLEFT", frame.body, "TOPLEFT", 0, 0)
+        inset:SetPoint("BOTTOMRIGHT", frame.body, "BOTTOMRIGHT", 0, 0)
+        inset:Show()
+        frame.inset = inset
+        local level = inset.GetFrameLevel and tonumber(inset:GetFrameLevel()) or 0
+        frame.body:SetFrameLevel(level + 1)
+    end
     return frame
 end
 
@@ -955,9 +1207,12 @@ end
 
 --- Ein Fenster: Rahmen, Titelleiste (Wappen, Titel, X), Esc schliesst,
 -- die Position wird unter EHS.db[posKey] gemerkt (ohne posKey: immer mittig).
--- opts { name, title, width, height, posKey, strata, point, noEscape, noClose, icon }.
+-- opts { name, title, width, height, posKey, strata, point, noEscape, noClose, icon, inset }.
 -- frame.body ist die Flaeche unter der Titelleiste, immer (width-2) x
 -- (height-TITLE_HEIGHT-1) gross - im Fenster des Spiels wie im flachen.
+-- Im Fenster des Spiels liegt hinter frame.body die vertiefte Flaeche
+-- (frame.inset); opts.inset = false laesst sie weg (eigene Flaechen).
+-- Das Wappen (opts.icon) zeigt nur das flache Fenster.
 function Kit.Window(opts)
     local frame = nativeWindow(opts) or flatWindow(opts)
     frame.posKey = opts.posKey

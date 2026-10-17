@@ -65,6 +65,47 @@ local TEMPLATES = {
     UIPanelButtonTemplate = stubButton,
     UICheckButtonTemplate = function(frame) stubText(frame, "Text", "GameFontNormalSmall") end,
     UIPanelCloseButton = stubCloseButton,
+    -- the old options slider: its texts are named after the slider
+    OptionsSliderTemplate = function(frame)
+        local name = frame:GetName() or ""
+        for _, key in ipairs({ "Low", "High", "Text" }) do
+            frame[key] = WoWMock.newWidget("FontString", name ~= "" and (name .. key) or nil, frame)
+        end
+    end,
+    -- the slider of the new options (Baganator builds it this way on both
+    -- clients): Back / Forward arrows, a Slider, callbacks through
+    -- RegisterCallback(MinimalSliderWithSteppersMixin.Event.OnValueChanged)
+    MinimalSliderWithSteppersTemplate = function(frame)
+        frame.Slider = WoWMock.newWidget("Slider", nil, frame)
+        frame.Back = WoWMock.newWidget("Button", nil, frame)
+        frame.Forward = WoWMock.newWidget("Button", nil, frame)
+        frame.RightText = WoWMock.newWidget("FontString", nil, frame)
+        frame.__callbacks = {}
+        function frame:RegisterCallback(event, fn, owner)
+            self.__callbacks[#self.__callbacks + 1] = { event = event, fn = fn, owner = owner }
+        end
+        function frame:TriggerEvent(event, ...)
+            for _, cb in ipairs(self.__callbacks) do
+                if cb.event == event then cb.fn(cb.owner, ...) end
+            end
+        end
+        function frame:Init(value, min, max, steps, formatters)
+            self.__min, self.__max, self.__steps, self.__formatters = min, max, steps, formatters
+            self.Slider:SetMinMaxValues(min, max)
+            self.Slider:SetValue(value)
+            self.__inited = true
+        end
+        function frame:SetValue(value)
+            local before = self.Slider:GetValue()
+            self.Slider:SetValue(value)
+            local now = self.Slider:GetValue()
+            if now ~= before then self:TriggerEvent(MinimalSliderWithSteppersMixin.Event.OnValueChanged, now) end
+        end
+        function frame:GetValue() return self.Slider:GetValue() end
+        -- the arrows step one notch (the addon replaces this with its own step)
+        frame.Back:SetScript("OnClick", function() frame:SetValue(frame:GetValue() - 1) end)
+        frame.Forward:SetScript("OnClick", function() frame:SetValue(frame:GetValue() + 1) end)
+    end,
     InsetFrameTemplate = function(frame)
         frame.Bg = frame:CreateTexture(nil, "BACKGROUND")
     end,
@@ -95,6 +136,11 @@ else
     TEMPLATES.FauxScrollFrameTemplate = true
 end
 WoWMock.templates = TEMPLATES
+MinimalSliderWithSteppersMixin = { Event = { OnValueChanged = "OnValueChanged" } }
+GREEN_FONT_COLOR = { r = 0.1, g = 1, b = 0.1 }
+GRAY_FONT_COLOR = { r = 0.5, g = 0.5, b = 0.5 }
+NORMAL_FONT_COLOR = { r = 1, g = 0.82, b = 0 }
+RED_FONT_COLOR = { r = 1, g = 0.1, b = 0.1 }
 
 -- Template lookup as the client answers it (both clients have C_XMLUtil).
 C_XMLUtil = {}
@@ -108,12 +154,12 @@ function ButtonFrameTemplate_HideButtonBar() end
 -- Widget methods that only have to exist.
 local NOOP = {}
 for _, name in ipairs({
-    "SetAllPoints", "SetFrameStrata", "SetFrameLevel", "RegisterForClicks", "RegisterForDrag",
+    "SetAllPoints", "SetFrameStrata", "RegisterForClicks", "RegisterForDrag",
     "SetMovable", "EnableMouse", "EnableMouseWheel", "SetClampedToScreen", "StartMoving", "StopMovingOrSizing",
     "SetTexCoord", "SetVertexColor", "SetColorTexture", "SetJustifyH", "SetJustifyV",
     "SetWordWrap", "SetFontObject", "SetMultiLine", "SetAutoFocus", "SetNumeric", "SetMaxLetters",
     "ClearFocus", "SetFocus", "HighlightText", "SetScrollChild", "SetHighlightTexture", "SetEnabled",
-    "Enable", "Disable", "SetScale", "UnregisterEvent", "SetToplevel", "LockHighlight", "UnlockHighlight",
+    "Enable", "Disable", "SetScale", "UnregisterEvent", "SetToplevel", "SetBlendMode",
     "SetNormalFontObject", "SetHighlightFontObject", "SetDisabledFontObject",
 }) do
     NOOP[name] = function() end
@@ -207,6 +253,28 @@ function Widget:GetPoint()
     if type(p[2]) == "number" then return p[1], nil, p[1], p[2], p[3] end
     return p[1], p[2], p[3], p[4], p[5]
 end
+function Widget:SetFrameLevel(level) self.__level = level end
+function Widget:GetFrameLevel()
+    if self.__level then return self.__level end
+    local p = self.__parent
+    return p and (p:GetFrameLevel() + 1) or 0
+end
+function Widget:LockHighlight() self.__locked = true end
+function Widget:UnlockHighlight() self.__locked = false end
+-- Slider: clamped value, OnValueChanged (script + hooks) only on a change
+function Widget:SetMinMaxValues(min, max) self.__min, self.__max = min, max end
+function Widget:GetMinMaxValues() return self.__min, self.__max end
+function Widget:SetValueStep(step) self.__step = step end
+function Widget:SetObeyStepOnDrag(on) self.__obey = on end
+function Widget:GetValue() return self.__value or self.__min or 0 end
+function Widget:SetValue(value)
+    if self.__min then value = math.max(self.__min, value) end
+    if self.__max then value = math.min(self.__max, value) end
+    if value == self.__value then return end
+    self.__value = value
+    if self.__scripts.OnValueChanged then self.__scripts.OnValueChanged(self, value, false) end
+    for _, fn in ipairs(self.__hooks.OnValueChanged or {}) do fn(self, value, false) end
+end
 function Widget:SetChecked(checked) self.__checked = checked and true or false end
 function Widget:GetChecked() return self.__checked end
 function Widget:CreateTexture(name, layer) local t = newWidget("Texture", name, self) t.__layer = layer return t end
@@ -292,6 +360,7 @@ end
 -- then what HookScript added to it.
 function WoWMock.Click(widget, button)
     assert(widget.__scripts.OnClick, "widget has no OnClick")
+    if widget.__kind == "CheckButton" then widget.__checked = not widget.__checked end
     for _, script in ipairs({ "PreClick", "OnClick", "PostClick" }) do
         if widget.__scripts[script] then widget.__scripts[script](widget, button or "LeftButton") end
         for _, fn in ipairs(widget.__hooks[script] or {}) do fn(widget, button or "LeftButton") end

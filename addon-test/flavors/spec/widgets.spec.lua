@@ -102,6 +102,183 @@ else
     expectEqual(value, "b", "flat dropdown steps on")
 end
 
+-- Switch: the game's check box, our state ----------------------------------------------------
+
+local toggles = {}
+local switch = Kit.Switch(parent, function(_, on) toggles[#toggles + 1] = on end, "Erklaerung")
+expect(switch.native, "switch from UICheckButtonTemplate")
+expectEqual(switch.__template, "UICheckButtonTemplate", "a check button of the game")
+expectEqual(switch.kind, "switch", "switch.kind")
+expectEqual(switch.on, false, "starts off")
+expectEqual(switch.Text:GetText(), "", "the template's own label stays empty")
+WoWMock.Click(switch)
+expectEqual(switch.on, true, "a click switches on")
+expectEqual(switch.__checked, true, "and the box is ticked")
+expectEqual(toggles[1], true, "onToggle(true)")
+WoWMock.Click(switch)
+expectEqual(switch.on, false, "a second click switches off")
+expectEqual(switch.__checked, false, "box empty")
+switch:SetOn(true)
+expectEqual(switch.__checked, true, "SetOn ticks the box")
+expectEqual(#toggles, 2, "SetOn does not call back")
+switch:SetActive(false)
+WoWMock.Click(switch)
+expectEqual(switch.on, true, "inactive: the click changes nothing")
+expectEqual(switch.__checked, true, "the box keeps showing the state (PostClick)")
+expectEqual(#toggles, 2, "and no call back")
+switch:SetActive(true)
+
+-- SettingRow: a switch stands left, its name right of it, as in the game's options
+local rowCard = Kit.Card(parent, "Zeilen", 300, 120)
+local rowSwitch = Kit.Switch(rowCard, function() end)
+local rowLabel = Kit.SettingRow(rowCard, -36, "Knopf zeigen", "Ein Hinweis", rowSwitch, 300)
+expectEqual(rowSwitch.__points[1][1], "TOPLEFT", "switch on the left")
+expectEqual(rowLabel.__points[1][4], 8 + 26 + 4, "name right of the box")
+local rowStepper = Kit.Stepper(rowCard, function() return 3 end, function() end, { min = 1, max = 9 })
+Kit.SettingRow(rowCard, -70, "Zahl", nil, rowStepper, 300)
+expectEqual(rowStepper.__points[1][1], "TOPRIGHT", "other controls stay on the right")
+
+-- Chip: the small red button, held lit when selected -----------------------------------------
+
+local picked = 0
+local chip = Kit.Chip(parent, "Heiler", function() picked = picked + 1 end)
+expect(chip.native, "chip from UIPanelButtonTemplate")
+expectEqual(chip.label:GetText(), "Heiler", "chip label")
+expectEqual(chip.__locked, false, "not selected: no held light")
+chip:SetSelected(true)
+expect(chip.selected and chip.__locked, "selected: LockHighlight")
+chip:SetSelected(false)
+expect(not chip.selected and not chip.__locked, "UnlockHighlight")
+WoWMock.Click(chip)
+expectEqual(picked, 1, "chip click")
+
+-- Pill and Badge: text in the game's colours, no box -----------------------------------------
+
+local pill = Kit.Pill(parent)
+pill:SetState("aus", "off")
+expectEqual(pill.label:GetText(), "aus", "pill text")
+expectEqual(pill.label.__color[1], GRAY_FONT_COLOR.r, "off: the game's grey")
+pill:SetState("bereit", "on")
+expectEqual(pill.label.__color[2], GREEN_FONT_COLOR.g, "on: the game's green")
+pill:SetState("fehlt", "bad")
+expectEqual(pill.label.__color[1], RED_FONT_COLOR.r, "bad: the game's red")
+expect(not pill.bg and not pill.edges, "no box around it")
+local badge = Kit.Badge(parent)
+expect(not badge:IsShown(), "badge 0: hidden")
+badge:SetCount(16)
+expect(badge:IsShown() and badge.label:GetText() == "16", "badge shows the number")
+badge:SetCount(120)
+expectEqual(badge.label:GetText(), "99+", "badge caps at 99+")
+expect(not badge.bg, "badge: only the number")
+
+-- Stepper: the slider of the game's options ---------------------------------------------------
+
+local function stepperProbe(start)
+    local probe = { value = start, changes = {}, sets = 0 }
+    probe.get = function() return probe.value end
+    probe.set = function(v) probe.value = v; probe.sets = probe.sets + 1 end
+    probe.opts = { min = 1, max = 60, step = 7, unit = "Tage", onChange = function(v) probe.changes[#probe.changes + 1] = v end }
+    return probe
+end
+
+local p = stepperProbe(21)
+local stepper = Kit.Stepper(parent, p.get, p.set, p.opts)
+expect(stepper.native and stepper.slider, "stepper from MinimalSliderWithSteppersTemplate")
+expectEqual(stepper.slider.__template, "MinimalSliderWithSteppersTemplate", "the new options slider")
+expect(stepper.slider.__inited, "Init ran")
+expectEqual(stepper.slider.__min, 1, "Init min")
+expectEqual(stepper.slider.__max, 60, "Init max")
+expectEqual(stepper.slider.__steps, 59, "one notch per whole number")
+expectEqual(stepper.slider:GetValue(), 21, "slider on the value")
+expectEqual(stepper.value:GetText(), "21 Tage", "the number with its unit next to it")
+expectEqual(p.sets, 0, "building stores nothing (no echo)")
+expectEqual(stepper.minus, stepper.slider.Back, "minus is the template's left arrow")
+expectEqual(stepper.plus, stepper.slider.Forward, "plus is the right arrow")
+WoWMock.Click(stepper.plus)
+expectEqual(p.value, 28, "an arrow steps by opts.step")
+expectEqual(stepper.slider:GetValue(), 28, "the slider follows")
+expectEqual(stepper.value:GetText(), "28 Tage", "and the number")
+expectEqual(p.sets, 1, "stored once (the slider's echo is ignored)")
+expectEqual(p.changes[1], 28, "onChange")
+for _ = 1, 6 do WoWMock.Click(stepper.minus) end
+expectEqual(p.value, 1, "not below min")
+for _ = 1, 12 do WoWMock.Click(stepper.plus) end
+expectEqual(p.value, 60, "not above max")
+-- dragging: the slider reports a fraction, the stepper rounds
+stepper.slider:TriggerEvent(MinimalSliderWithSteppersMixin.Event.OnValueChanged, 13.6)
+expectEqual(p.value, 14, "dragging rounds to a whole number")
+expectEqual(stepper.value:GetText(), "14 Tage", "and shows it")
+local setsBefore = p.sets
+stepper.slider:TriggerEvent(MinimalSliderWithSteppersMixin.Event.OnValueChanged, 14.2)
+expectEqual(p.sets, setsBefore, "same whole number: nothing stored")
+p.value = 35
+stepper.refresh()
+expectEqual(stepper.slider:GetValue(), 35, "refresh moves the slider")
+expectEqual(p.sets, setsBefore, "refresh stores nothing")
+
+-- no range: the flat - number +
+local open = stepperProbe(5)
+open.opts = { step = 1 }
+local free = Kit.Stepper(parent, open.get, open.set, open.opts)
+expect(not free.native and free.minus and free.plus, "without min/max the flat stepper")
+WoWMock.Click(free.plus)
+expectEqual(open.value, 6, "flat + still works")
+
+-- the old options slider when the new one is missing
+local minimal = WoWMock.templates.MinimalSliderWithSteppersTemplate
+WoWMock.templates.MinimalSliderWithSteppersTemplate = nil
+local p2 = stepperProbe(21)
+local old = Kit.Stepper(parent, p2.get, p2.set, p2.opts)
+expect(old.native and old.slider, "fallback: OptionsSliderTemplate")
+expectEqual(old.slider.__template, "OptionsSliderTemplate", "the old options slider")
+expect(not old.slider.Low.__shown and not old.slider.High.__shown and not old.slider.Text.__shown,
+    "its min/max/title texts hidden")
+expectEqual(old.slider:GetValue(), 21, "on the value")
+expectEqual(p2.sets, 0, "no echo while building")
+WoWMock.Click(old.plus)
+expectEqual(p2.value, 28, "+ steps by opts.step")
+expectEqual(old.slider:GetValue(), 28, "slider follows")
+WoWMock.Click(old.minus)
+expectEqual(p2.value, 21, "- back")
+old.slider:SetValue(40.4)
+expectEqual(p2.value, 40, "dragging rounds")
+expectEqual(p2.sets, 3, "one store per change")
+WoWMock.templates.MinimalSliderWithSteppersTemplate = minimal
+
+-- a template that is there but without the mixin: the old slider, never an error
+local mixin = MinimalSliderWithSteppersMixin
+MinimalSliderWithSteppersMixin = nil
+local noMixin = Kit.Stepper(parent, p2.get, p2.set, p2.opts)
+expectEqual(noMixin.slider and noMixin.slider.__template, "OptionsSliderTemplate", "no mixin: old slider")
+MinimalSliderWithSteppersMixin = mixin
+
+-- Window: one title, the template's inset behind the body -------------------------------------
+
+local insetWindow = Kit.Window({ name = "EHSWidgetsSpecInset", title = "Mit Flaeche", width = 300, height = 200 })
+expect(insetWindow.inset and insetWindow.inset == insetWindow.Inset, "the template's inset behind the body")
+expect(insetWindow.inset:IsShown(), "and shown")
+expect(insetWindow.body:GetFrameLevel() > insetWindow.inset:GetFrameLevel(), "body above the inset")
+local bareWindow = Kit.Window({ name = "EHSWidgetsSpecBare", title = "Ohne", width = 300, height = 200, inset = false })
+expect(bareWindow.inset == nil and not bareWindow.Inset:IsShown(), "inset = false: no inset")
+
+-- a client whose template has both title fonts: the title shows once
+local buttonFrame = WoWMock.templates.ButtonFrameTemplate
+WoWMock.templates.ButtonFrameTemplate = function(frame)
+    buttonFrame(frame)
+    frame.TitleText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    function frame:SetTitle(text) self.TitleText:SetText(text) end
+end
+local twoTitles = Kit.Window({ name = "EHSWidgetsSpecTwoTitles", title = "Einmal", width = 300, height = 200 })
+local withText = 0
+for _, fs in ipairs({ twoTitles.TitleText, twoTitles.TitleContainer.TitleText }) do
+    if fs:GetText() and fs:GetText() ~= "" then withText = withText + 1 end
+end
+expectEqual(withText, 1, "only one title font has text")
+expectEqual(twoTitles.title, twoTitles.TitleText, "the one SetTitle wrote")
+expect(not twoTitles.TitleContainer.TitleText:IsShown(), "the other is hidden")
+WoWMock.templates.ButtonFrameTemplate = buttonFrame
+expect(not twoTitles.titleBar.crest, "no crest in the game's window")
+
 -- Tooltip and InfoButton ---------------------------------------------------------------------
 
 local info = Kit.InfoButton(parent, "Was ist das?", "Eine Erklaerung.")
@@ -125,7 +302,8 @@ expectEqual(GameTooltip.__lines[1].left, "Neuer Text", "the second call changed 
 -- Fallbacks: without the templates the flat blocks, same interface --------------------------
 
 for _, name in ipairs({ "UIPanelButtonTemplate", "UIPanelCloseButton", "UICheckButtonTemplate",
-    "InsetFrameTemplate", "ButtonFrameTemplate", "WowStyle1DropdownTemplate" }) do
+    "InsetFrameTemplate", "ButtonFrameTemplate", "WowStyle1DropdownTemplate",
+    "MinimalSliderWithSteppersTemplate", "OptionsSliderTemplate" }) do
     WoWMock.templates[name] = nil
 end
 
@@ -146,3 +324,21 @@ expect(not flatWindow.native, "flat window")
 expectEqual(flatWindow:GetWidth(), 400, "flat window as wide as asked")
 expectEqual(flatWindow.title:GetText(), "Flach", "flat title")
 expect(flatWindow.body and flatWindow.titleBar.crest and flatWindow.close, "flat parts")
+
+local flatSwitch = Kit.Switch(parent, function() end)
+expect(not flatSwitch.native and flatSwitch.knob, "flat switch")
+WoWMock.Click(flatSwitch)
+expectEqual(flatSwitch.on, true, "flat switch toggles")
+local flatChip = Kit.Chip(parent, "Tank")
+expect(not flatChip.native and flatChip.bg, "flat chip")
+flatChip:SetSelected(true)
+expect(flatChip.selected, "flat chip selects")
+local flatValue = 21
+local flatStepper = Kit.Stepper(parent, function() return flatValue end, function(v) flatValue = v end,
+    { min = 1, max = 60, step = 7, unit = "Tage" })
+expect(not flatStepper.native and not flatStepper.slider, "flat stepper")
+WoWMock.Click(flatStepper.plus)
+expectEqual(flatValue, 28, "flat stepper steps")
+expectEqual(flatStepper.value:GetText(), "28 Tage", "flat stepper shows it")
+for _ = 1, 10 do WoWMock.Click(flatStepper.plus) end
+expectEqual(flatValue, 60, "flat stepper stops at max")

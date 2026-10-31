@@ -156,6 +156,8 @@ function createRunner(options = {}) {
     let councilTimer = null;
     let councilRun = null;
     let meRun = null;
+    // Counts key changes: an answer for an older key must not land in state.me.
+    let meGeneration = 0;
     // The full scan behind state.guildBank, as it is uploaded.
     let guildBankScan = null;
     let guildBankRetryAt = 0;
@@ -515,9 +517,11 @@ function createRunner(options = {}) {
         const m = state.me;
         if ((config.missing(cfg) || []).length) return Promise.resolve(null);
         m.fetching = true;
+        const generation = meGeneration;
         const run = (async () => {
             try {
                 const me = (await fetchMe(cfg)) || {};
+                if (generation !== meGeneration) return null;
                 noteConnection(null);
                 Object.assign(m, {
                     lastFetch: Date.now(),
@@ -529,6 +533,7 @@ function createRunner(options = {}) {
                 });
                 return me;
             } catch (e) {
+                if (generation !== meGeneration) return null;
                 const unsupported = e instanceof UploadError && e.status === 404;
                 if (!unsupported) noteConnection(e);
                 Object.assign(m, {
@@ -539,7 +544,7 @@ function createRunner(options = {}) {
                 if (!unsupported) log("warn", `Server-Liste nicht geholt: ${e.message}`);
                 return null;
             } finally {
-                m.fetching = false;
+                if (generation === meGeneration) m.fetching = false;
             }
         })();
         meRun = run;
@@ -921,7 +926,8 @@ function createRunner(options = {}) {
         timer = setInterval(tick, Math.max(5, Number(cfg.pollSeconds) || 15) * 1000);
         refreshMe();
         refreshCouncil();
-        councilTimer = setInterval(() => refreshCouncil(), COUNCIL_INTERVAL_MS);
+        // The servers follow role changes on Discord at the council's pace.
+        councilTimer = setInterval(() => { refreshCouncil(); refreshMe(); }, COUNCIL_INTERVAL_MS);
         refreshHandouts();
         handoutsTimer = setInterval(() => refreshHandouts(), HANDOUTS_INTERVAL_MS);
     }
@@ -984,7 +990,8 @@ function createRunner(options = {}) {
         readState();
         syncLevelHelper();
         timer = setInterval(tick, Math.max(5, Number(cfg.pollSeconds) || 15) * 1000);
-        councilTimer = setInterval(() => refreshCouncil(), COUNCIL_INTERVAL_MS);
+        // The servers follow role changes on Discord at the council's pace.
+        councilTimer = setInterval(() => { refreshCouncil(); refreshMe(); }, COUNCIL_INTERVAL_MS);
         handoutsTimer = setInterval(() => refreshHandouts(), HANDOUTS_INTERVAL_MS);
         log("info", "Einstellungen neu geladen.");
         // Ein neues Ziel (oder, nur für ältere Server, eine andere
@@ -998,6 +1005,9 @@ function createRunner(options = {}) {
         refreshHandouts({ force: targetChanged });
         // Another key may be valid for other servers.
         if (targetChanged) {
+            // A fetch still running for the old key is dropped, not joined.
+            meGeneration++;
+            meRun = null;
             state.me.owner = null;
             state.me.servers = [];
             state.me.legacy = null;

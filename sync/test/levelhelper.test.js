@@ -113,6 +113,12 @@ describe("findInstalls", () => {
         expect(installsOf(root).installs).toEqual([]);
     });
 
+    it("lädt aus Classic Era nicht hoch (dort laufen auch SoD und Hardcore)", () => {
+        const { installs, skipped } = installsOf(makeWow({ flavor: "_classic_era_" }));
+        expect(installs).toEqual([]);
+        expect(skipped).toEqual(["_classic_era_"]);
+    });
+
     it("meldet Varianten mit unbekannter Spielversion, statt sie unter einer geratenen Version hochzuladen", () => {
         const { installs, skipped } = installsOf(makeWow({ flavor: "_ptr_" }));
         expect(installs).toEqual([]);

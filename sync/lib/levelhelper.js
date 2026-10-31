@@ -43,8 +43,11 @@ const SAME_RUN_START = 120;
 
 // Welche Variante-Ordner zu welcher Spielversion gehören, steht an einer Stelle
 // in wowPaths (gemeinsam mit dem Loot-Upload); was dort fehlt, wird nicht
-// hochgeladen (eine falsche versionId wäre schlimmer als keine).
-const { FLAVOR_VERSIONS } = wowPaths;
+// hochgeladen (eine falsche versionId wäre schlimmer als keine). _classic_era_
+// bleibt draußen: dort laufen auch Season of Discovery und Hardcore, deren
+// Läufe nicht als "classic" in die Bestzeiten gehören.
+const FLAVOR_VERSIONS = Object.fromEntries(
+    Object.entries(wowPaths.FLAVOR_VERSIONS).filter(([flavor]) => flavor !== "_classic_era_"));
 
 // CLASS_LIST aus DungeonTimer.lua: der Klassen-Index im Addon.
 const CLASS_LIST = ["WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK",

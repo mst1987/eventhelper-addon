@@ -257,7 +257,9 @@ describe("versionOfFlavor", () => {
         for (const x of ["_retail_", "_classic_", "C:/WoW/_ptr_/x.lua", "", null, undefined]) expect(wowPaths.versionOfFlavor(x)).toBe("");
     });
 
-    it("ist die eine Stelle, die auch der LevelHelper nutzt", () => {
-        expect(require("../lib/levelhelper").FLAVOR_VERSIONS).toBe(wowPaths.FLAVOR_VERSIONS);
+    it("ist die eine Stelle, die auch der LevelHelper nutzt (ohne Classic Era)", () => {
+        const { _classic_era_, ...rest } = wowPaths.FLAVOR_VERSIONS;
+        expect(_classic_era_).toBe("classic");
+        expect(require("../lib/levelhelper").FLAVOR_VERSIONS).toEqual(rest);
     });
 });

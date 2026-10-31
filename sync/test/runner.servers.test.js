@@ -119,6 +119,25 @@ describe("refreshMe", () => {
         expect(runner.state.me.owner).toBeNull();
         runner.stop();
     });
+
+    it("an answer for the old key arriving after the change is dropped", async () => {
+        let answerOld;
+        uploader.fetchMe.mockReturnValueOnce(new Promise((resolve) => { answerOld = resolve; }));
+        const runner = createRunner();
+        const oldRun = runner.refreshMe();
+        const NEW = { owner: { name: "Marc" }, servers: [ME.servers[1]], legacy: null };
+        config.load.mockReturnValue({ ...CFG, token: "ehl_other" });
+        uploader.fetchMe.mockResolvedValue(NEW);
+        runner.reload();
+        await runner.refreshMe();
+        expect(uploader.fetchMe).toHaveBeenLastCalledWith(expect.objectContaining({ token: "ehl_other" }));
+        answerOld({ owner: null, servers: ME.servers, legacy: { guildId: "g1" } });
+        await expect(oldRun).resolves.toBeNull();
+        expect(runner.state.me.servers).toEqual(NEW.servers);
+        expect(runner.state.me.legacy).toBeNull();
+        expect(runner.state.me.fetching).toBe(false);
+        runner.stop();
+    });
 });
 
 describe("fileVersion", () => {

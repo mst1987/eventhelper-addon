@@ -1373,9 +1373,10 @@ function councilTileBase(c) {
     return { ...t, value: c.lastFetch ? councilSummary(c) : "Nicht geholt", sub: c.lastError.message, subErr: true, dot: "high", dotTitle: "Fehler" };
   }
   if (!c.lastFetch) return { ...t, value: "Wird geholt …", sub: "", dot: "", dotTitle: "" };
+  // No council here is a normal state (a version without loot council), not an error: grey.
   if (!cats.length) {
     return {
-      ...t, value: "Keine Kategorie", dot: "high", dotTitle: "Keine Kategorie mit Loot-Council", subErr: true,
+      ...t, value: "Keine Kategorie", dot: "", dotTitle: "Keine Kategorie mit Loot-Council",
       sub: "Auf der Webseite unter Einstellungen › Kategorien das Lootsystem auf Loot-Council stellen.",
     };
   }

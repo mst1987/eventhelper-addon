@@ -616,7 +616,7 @@ function createRunner(options = {}) {
                         + "geschrieben — im Spiel nach /reload sichtbar.");
                 }
                 if (!categories.length) {
-                    log("warn", "Keine Kategorie mit Loot-Council: auf der Webseite unter Einstellungen > "
+                    log("info", "Keine Kategorie mit Loot-Council: auf der Webseite unter Einstellungen > "
                         + "Kategorien das Lootsystem auf Loot-Council stellen.");
                 }
                 for (const err of result.errors) log("error", `Council-Daten nicht geschrieben: ${err}`);

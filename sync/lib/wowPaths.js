@@ -31,7 +31,7 @@ const SAVED_VARIABLES_FILE = "EventHelperSync.lua";
 // Werkzeug jedes Mal stumm scheitern. Erkannt wird stattdessen jeder Unterordner,
 // der ein WTF/Account enthält — das ist die Eigenschaft, auf die es ankommt.
 const FLAVORS = [
-    "_anniversary_", "_classic_era_", "_classic_", "_retail_",
+    "_anniversary_", "_forever_", "_classic_era_", "_classic_", "_retail_",
     "_classic_era_ptr_", "_classic_ptr_", "_classic_beta_", "_ptr_", "_beta_", "_xptr_",
 ];
 
@@ -309,10 +309,12 @@ function findAddonDirs(extraRoots = [], { savedVariablesPath = "", roots } = {})
 }
 
 // Readable names for the flavor folders, for the UI. WoW Forever runs in the
-// _classic_beta_ folder. Unknown folders keep their own name.
+// _forever_ folder (product "wowf") since its launch in October 2026; before
+// that it ran in _classic_beta_. Unknown folders keep their own name.
 const FLAVOR_LABELS = {
     _anniversary_: "TBC Anniversary",
-    _classic_beta_: "Forever",
+    _forever_: "Forever",
+    _classic_beta_: "Forever (Beta)",
     _classic_era_: "Classic Era",
     _classic_: "Classic",
     _retail_: "Retail",
@@ -331,10 +333,12 @@ function flavorLabel(flavor) {
 
 // Welcher Varianten-Ordner zu welcher Spielversion des Servers gehört (die IDs
 // aus pulsebot src/config/gameVersions). Die eine Stelle für Loot-Upload und
-// LevelHelper: WoW Forever läuft im Ordner `_classic_beta_`. Was hier fehlt,
-// bekommt keine Version — eine falsche wäre schlimmer als keine.
+// LevelHelper: WoW Forever läuft im Ordner `_forever_`, vor dem Start im
+// Oktober 2026 in `_classic_beta_` (dessen Daten sind ebenfalls Forever). Was
+// hier fehlt, bekommt keine Version — eine falsche wäre schlimmer als keine.
 const FLAVOR_VERSIONS = {
     _anniversary_: "tbc",
+    _forever_: "forever",
     _classic_beta_: "forever",
     _classic_era_: "classic",
 };

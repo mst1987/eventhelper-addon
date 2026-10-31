@@ -121,7 +121,7 @@ jobs:
 
             **Addon** — `EventHelperSync-${{ steps.version.outputs.version }}.zip` herunterladen und
             den enthaltenen Ordner `EventHelperSync` nach `<WoW>/_anniversary_/Interface/AddOns/`
-            (TBC Anniversary) bzw. `<WoW>/_classic_beta_/Interface/AddOns/` (WoW Forever)
+            (TBC Anniversary) bzw. `<WoW>/_forever_/Interface/AddOns/` (WoW Forever)
             entpacken. Danach im Spiel einmal `/reload`, prüfen mit `/ehs`; Loot-Council mit `/ehc`.
 
             **Sync-Tool** — `EventHelperSync.exe` herunterladen und doppelklicken. Es öffnet sich

@@ -51,7 +51,7 @@ Den Ordner `addon/EventHelperSync` nach
 <WoW>/<Variante>/Interface/AddOns/EventHelperSync
 ```
 
-kopieren. `<Variante>` ist der Ordner deines Clients — bei den **TBC-Anniversary-Realms `_anniversary_`**, bei **WoW Forever `_classic_beta_`**, sonst `_classic_era_`, `_classic_` oder `_retail_`. Danach im Spiel einloggen und einmal `/reload` ausführen. Wer auf mehreren Clients spielt, kopiert den Ordner in jeden davon.
+kopieren. `<Variante>` ist der Ordner deines Clients — bei den **TBC-Anniversary-Realms `_anniversary_`**, bei **WoW Forever `_forever_`** (vor dem Start `_classic_beta_`), sonst `_classic_era_`, `_classic_` oder `_retail_`. Danach im Spiel einloggen und einmal `/reload` ausführen. Wer auf mehreren Clients spielt, kopiert den Ordner in jeden davon.
 
 > Das Sync-Tool sucht die Varianten selbst und erkennt auch künftige Ordner, die Blizzard anlegt — es muss also nicht wissen, welcher es bei dir ist.
 
@@ -234,7 +234,7 @@ Selbst bauen: `cd sync && npm install && npm run build:exe` (braucht Node 20+), 
 
 #### LevelHelper-Bestzeiten
 
-Wer das Addon **LevelHelper** spielt (WoW Forever, Ordner `_classic_beta_`), lädt mit dem Sync-Tool seine Dungeon-Läufe und Erfolgs-Zusammenfassungen zum EventHelper hoch (`POST /api/ingest/levelhelper`, Format `levelhelper-runs` v1). Das Tool liest dafür `LevelHelper.lua` aus dem Account-Ordner (Gildenbretter `guildBoards`, ggf. `guildRoster`) und aus den Ordnern der eigenen Charaktere (Erfolge); Läufe, die auf mehreren Brettern oder in mehreren Accounts stehen, gehen nur einmal hoch.
+Wer das Addon **LevelHelper** spielt (WoW Forever, Ordner `_forever_`), lädt mit dem Sync-Tool seine Dungeon-Läufe und Erfolgs-Zusammenfassungen zum EventHelper hoch (`POST /api/ingest/levelhelper`, Format `levelhelper-runs` v1). Das Tool liest dafür `LevelHelper.lua` aus dem Account-Ordner (Gildenbretter `guildBoards`, ggf. `guildRoster`) und aus den Ordnern der eigenen Charaktere (Erfolge); Läufe, die auf mehreren Brettern oder in mehreren Accounts stehen, gehen nur einmal hoch.
 
 - **Modul:** „LevelHelper-Bestzeiten" – automatisch an, sobald eine `LevelHelper.lua` existiert; ⚙ → Module schaltet es fest ein oder aus.
 - **Kachel** LEVELHELPER in der Übersicht: „12 Runs · 4 Gold", „Zuletzt hochgeladen …" und ein Statuspunkt (grün hochgeladen, blau lädt hoch, rot Fehler, gelb Server zu alt).
@@ -323,7 +323,7 @@ Die Council-Seite des EventHelper rechnet aus der Loot-Historie für jeden Raide
    ──────                              ──────────                                   ────────
 GET /api/ingest/council ─► Sync-Tool ─► CouncilData.lua in jedem installierten ─► /reload ─► Fenster (/ehc)
  (Bedarf, erhaltener Loot,  (Node)      Interface/AddOns/EventHelperSync                    + Item-Tooltip
-  fehlende BiS-Teile)                   (_anniversary_, _classic_beta_, …)
+  fehlende BiS-Teile)                   (_anniversary_, _forever_, …)
 ```
 
 **Warum eine Lua-Datei?** Ein Addon kann nichts aus dem Netz holen und keine fremden Dateien lesen. Was es aber tut: beim Laden jede `.lua`-Datei ausführen, die in seiner `.toc` steht. Das Sync-Tool schreibt die Daten deshalb als `CouncilData.lua` direkt in den Addon-Ordner (im Repo liegt dort ein leerer Platzhalter). WoW liest Addon-Dateien nur beim Einloggen und bei `/reload` — neue Daten sind also **nach dem nächsten `/reload`** im Spiel.
@@ -897,7 +897,7 @@ Das Icon ist die EventHelper-Marke (Kalender mit Haken, dieselbe wie das Favicon
 | Zahl | Client | Ordner |
 |---|---|---|
 | `20506` | TBC Anniversary (2.5.6, Classic-API) | `_anniversary_` |
-| `16001` | WoW Forever (Retail/Midnight-Client, `WOW_PROJECT_MAINLINE`) | `_classic_beta_` |
+| `16001` | WoW Forever (Retail/Midnight-Client, `WOW_PROJECT_MAINLINE`) | `_forever_` (vorher `_classic_beta_`) |
 
 Die TBC-Zahl stammt aus den `_TBC.toc` der aktuell installierten Addons (Gargul, WeakAuras, Details, Questie u.a. stehen dort alle auf `20506`, passend zum Client 2.5.6). Bei einem Client-Update reicht es, die Zahl anzupassen.
 

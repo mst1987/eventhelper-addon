@@ -200,7 +200,8 @@ describe("searchedRoots", () => {
 describe("flavorLabel", () => {
     it("names the known flavor folders and keeps unknown ones", () => {
         expect(wowPaths.flavorLabel("_anniversary_")).toBe("TBC Anniversary");
-        expect(wowPaths.flavorLabel("_classic_beta_")).toBe("Forever");
+        expect(wowPaths.flavorLabel("_forever_")).toBe("Forever");
+        expect(wowPaths.flavorLabel("_classic_beta_")).toBe("Forever (Beta)");
         expect(wowPaths.flavorLabel("_classic_era_")).toBe("Classic Era");
         expect(wowPaths.flavorLabel("_mein_ordner_")).toBe("_mein_ordner_");
         expect(wowPaths.flavorLabel("")).toBe("");
@@ -234,7 +235,7 @@ describe("describeAddonDirs", () => {
         const dirs = wowPaths.describeAddonDirs([], { roots: [wow], toolVersion: "1.11.0" });
         const by = Object.fromEntries(dirs.map((d) => [d.flavor, d]));
         expect(by._anniversary_).toMatchObject({ label: "TBC Anniversary", version: "1.11.0", outdated: false });
-        expect(by._classic_beta_).toMatchObject({ label: "Forever", version: "1.10.0", outdated: true });
+        expect(by._classic_beta_).toMatchObject({ label: "Forever (Beta)", version: "1.10.0", outdated: true });
         // No .toc: no version, and nothing to call outdated.
         expect(by._classic_era_).toMatchObject({ label: "Classic Era", version: "", outdated: false });
     });
@@ -243,6 +244,7 @@ describe("describeAddonDirs", () => {
 describe("versionOfFlavor", () => {
     it("ordnet die Varianten-Ordner den Spielversionen des Servers zu", () => {
         expect(wowPaths.versionOfFlavor("_anniversary_")).toBe("tbc");
+        expect(wowPaths.versionOfFlavor("_forever_")).toBe("forever");
         expect(wowPaths.versionOfFlavor("_classic_beta_")).toBe("forever");
         expect(wowPaths.versionOfFlavor("_classic_era_")).toBe("classic");
         expect(wowPaths.versionOfFlavor("_ANNIVERSARY_")).toBe("tbc");
@@ -251,6 +253,7 @@ describe("versionOfFlavor", () => {
     it("findet den Ordner in einem Pfad, mit beiden Trennzeichen", () => {
         expect(wowPaths.versionOfFlavor("D:\\Games\\World of Warcraft\\_classic_beta_\\WTF\\Account\\A\\SavedVariables\\EventHelperSync.lua")).toBe("forever");
         expect(wowPaths.versionOfFlavor("/mnt/wow/_anniversary_/Interface/AddOns/EventHelperSync")).toBe("tbc");
+        expect(wowPaths.versionOfFlavor("D:\\Spiele\\World of Warcraft\\_forever_\\WTF\\Account\\A\\SavedVariables\\EventHelperSync.lua")).toBe("forever");
     });
 
     it("rät nie: unbekannte Ordner und leere Werte geben \"\"", () => {

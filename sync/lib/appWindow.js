@@ -47,7 +47,7 @@ function findBrowser() {
  */
 // Nur der Startwert: die Seite passt das Fenster danach selbst an ihren
 // Inhalt an (fitWindow() in webui-page.js).
-function openAppWindow(url, { width = 576, height = 680 } = {}) {
+function openAppWindow(url, { width = 776, height = 680 } = {}) {
     // Der Sync-Tool wird praktisch nur für Windows gebaut (siehe
     // scripts/build-exe.js) — auf anderen Plattformen bleibt es beim Tab.
     if (process.platform !== "win32") return false;

@@ -239,3 +239,25 @@ describe("describeAddonDirs", () => {
         expect(by._classic_era_).toMatchObject({ label: "Classic Era", version: "", outdated: false });
     });
 });
+
+describe("versionOfFlavor", () => {
+    it("ordnet die Varianten-Ordner den Spielversionen des Servers zu", () => {
+        expect(wowPaths.versionOfFlavor("_anniversary_")).toBe("tbc");
+        expect(wowPaths.versionOfFlavor("_classic_beta_")).toBe("forever");
+        expect(wowPaths.versionOfFlavor("_classic_era_")).toBe("classic");
+        expect(wowPaths.versionOfFlavor("_ANNIVERSARY_")).toBe("tbc");
+    });
+
+    it("findet den Ordner in einem Pfad, mit beiden Trennzeichen", () => {
+        expect(wowPaths.versionOfFlavor("D:\\Games\\World of Warcraft\\_classic_beta_\\WTF\\Account\\A\\SavedVariables\\EventHelperSync.lua")).toBe("forever");
+        expect(wowPaths.versionOfFlavor("/mnt/wow/_anniversary_/Interface/AddOns/EventHelperSync")).toBe("tbc");
+    });
+
+    it("rät nie: unbekannte Ordner und leere Werte geben \"\"", () => {
+        for (const x of ["_retail_", "_classic_", "C:/WoW/_ptr_/x.lua", "", null, undefined]) expect(wowPaths.versionOfFlavor(x)).toBe("");
+    });
+
+    it("ist die eine Stelle, die auch der LevelHelper nutzt", () => {
+        expect(require("../lib/levelhelper").FLAVOR_VERSIONS).toBe(wowPaths.FLAVOR_VERSIONS);
+    });
+});

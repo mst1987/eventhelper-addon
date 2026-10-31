@@ -177,7 +177,7 @@ describe("spawnHost", () => {
         expect(host.spawnHost(exe, "http://127.0.0.1:8730/?key=abc", { parentPid: 4711, spawnImpl })).toBe(child);
         const [cmd, args, opts] = spawnImpl.mock.calls[0];
         expect(cmd).toBe(exe);
-        expect(args).toEqual(["--url", "http://127.0.0.1:8730/?key=abc", "--parent-pid", "4711", "--width", "560", "--height", "680"]);
+        expect(args).toEqual(["--url", "http://127.0.0.1:8730/?key=abc", "--parent-pid", "4711", "--width", "760", "--height", "680"]);
         // detached: sonst nähme libuvs Job-Objekt das Fenster beim Ende des
         // (zweiten) Prozesses mit. windowsHide würde das Fenster verstecken.
         expect(opts).toEqual(expect.objectContaining({ detached: true, windowsHide: false, stdio: "ignore", cwd: tmp }));

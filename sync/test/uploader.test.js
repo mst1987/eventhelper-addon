@@ -4,7 +4,7 @@ jest.mock("fs");
 
 const fs = require("fs");
 const {
-    readEnvelope, uploadFile, uploadOneSession, fetchRaidStatus, envelopeForSession,
+    readEnvelope, uploadFile, uploadOneSession, fetchRaidStatus, fetchMe, envelopeForSession,
     describeResult, UploadError, SYNC_VERSION,
 } = require("../lib/uploader");
 
@@ -81,6 +81,12 @@ describe("envelopeForSession", () => {
         // Der Rest des Envelopes bleibt unangetastet.
         expect(payload.reporter).toBe("Gemli-Thunderstrike");
         expect(payload.format).toBe("eventhelper-loot");
+        expect(payload.gameVersion).toBe("");
+    });
+
+    it("trägt die Spielversion auf oberster Ebene ein", () => {
+        expect(envelopeForSession(ENVELOPE, session(), "forever").gameVersion).toBe("forever");
+        expect(envelopeForSession(ENVELOPE, session(), null).gameVersion).toBe("");
     });
 });
 
@@ -314,5 +320,47 @@ describe("describeResult", () => {
             .toBe('1 Item(s) direkt zu „SSC" ergänzt (4 bereits vorhanden)');
         expect(describeResult({ status: "dismissed" })).toBe("übersprungen (im Menü verworfen)");
         expect(describeResult({ status: "empty" })).toBe("keine Items");
+    });
+});
+
+describe("gameVersion je Varianten-Ordner", () => {
+    const body = () => JSON.parse(global.fetch.mock.calls[0][1].body);
+
+    it.each([
+        ["C:/WoW/_anniversary_/WTF/Account/A/SavedVariables/EventHelperSync.lua", "tbc"],
+        ["C:\\WoW\\_classic_beta_\\WTF\\Account\\A\\SavedVariables\\EventHelperSync.lua", "forever"],
+        ["C:/WoW/_classic_era_/WTF/Account/A/SavedVariables/EventHelperSync.lua", "classic"],
+        ["C:/WoW/_retail_/WTF/Account/A/SavedVariables/EventHelperSync.lua", ""],
+    ])("uploadFile: %s -> %j", async (file, version) => {
+        fs.readFileSync.mockReturnValue(savedVariables(ENVELOPE));
+        mockFetchOk({ results: [] });
+        await uploadFile(CONFIG, file);
+        expect(body().gameVersion).toBe(version);
+        expect(body().realm).toBe("Thunderstrike");
+    });
+
+    it("uploadOneSession schickt sie ebenso mit", async () => {
+        fs.readFileSync.mockReturnValue(savedVariables(ENVELOPE));
+        mockFetchOk({ results: [] });
+        await uploadOneSession(CONFIG, "C:/WoW/_classic_beta_/WTF/x.lua", "eh-1-ssc");
+        expect(body().gameVersion).toBe("forever");
+    });
+});
+
+describe("fetchMe", () => {
+    it("fragt GET /api/ingest/me mit dem Token und liefert die Antwort", async () => {
+        const me = { owner: { name: "Marc" }, servers: [{ guildId: "1", versions: [{ id: "tbc" }] }], legacy: null };
+        mockFetchOk(me);
+        const r = await fetchMe(CONFIG);
+        const [url, init] = global.fetch.mock.calls[0];
+        expect(url).toBe("https://example.test:3005/api/ingest/me");
+        expect(init.method || "GET").toBe("GET");
+        expect(init.headers.Authorization).toBe("Bearer ehl_secret");
+        expect(r).toEqual(me);
+    });
+
+    it("wirft bei 404 (älterer Server) einen UploadError mit Status", async () => {
+        global.fetch = jest.fn(async () => ({ ok: false, status: 404, text: async () => JSON.stringify({ error: { message: "Nicht gefunden" } }) }));
+        await expect(fetchMe(CONFIG)).rejects.toMatchObject({ name: "UploadError", status: 404 });
     });
 });

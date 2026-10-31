@@ -329,6 +329,27 @@ function flavorLabel(flavor) {
     return FLAVOR_LABELS[name.toLowerCase()] || name;
 }
 
+// Welcher Varianten-Ordner zu welcher Spielversion des Servers gehört (die IDs
+// aus pulsebot src/config/gameVersions). Die eine Stelle für Loot-Upload und
+// LevelHelper: WoW Forever läuft im Ordner `_classic_beta_`. Was hier fehlt,
+// bekommt keine Version — eine falsche wäre schlimmer als keine.
+const FLAVOR_VERSIONS = {
+    _anniversary_: "tbc",
+    _classic_beta_: "forever",
+    _classic_era_: "classic",
+};
+
+/** Spielversion eines Varianten-Ordners oder eines Pfads darin; "" wenn unbekannt. */
+function versionOfFlavor(flavorOrPath) {
+    const text = String(flavorOrPath || "").toLowerCase();
+    if (FLAVOR_VERSIONS[text]) return FLAVOR_VERSIONS[text];
+    const parts = text.split(/[\\/]+/);
+    for (let i = parts.length - 1; i >= 0; i--) {
+        if (FLAVOR_VERSIONS[parts[i]]) return FLAVOR_VERSIONS[parts[i]];
+    }
+    return "";
+}
+
 /**
  * The addon version from `<dir>/EventHelperSync.toc` (`## Version: 1.2.3`),
  * or "" if the file or the line is missing.
@@ -380,6 +401,6 @@ function describeAddonDirs(extraRoots = [], { savedVariablesPath = "", roots, to
 
 module.exports = {
     discover, findInRoot, searchedRoots, candidateRoots, resolveUserPath, findBelow, findAddonDirs,
-    flavorLabel, readAddonVersion, compareVersions, describeAddonDirs,
-    SAVED_VARIABLES_FILE, FLAVORS, GAME_FOLDERS, ADDON_FOLDER,
+    flavorLabel, versionOfFlavor, readAddonVersion, compareVersions, describeAddonDirs,
+    SAVED_VARIABLES_FILE, FLAVORS, FLAVOR_VERSIONS, GAME_FOLDERS, ADDON_FOLDER,
 };

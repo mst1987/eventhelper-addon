@@ -14,7 +14,7 @@ const fs = require("fs");
 const config = require("./config");
 const wowPaths = require("./wowPaths");
 const {
-    readEnvelope, uploadFile, uploadOneSession, postSession, UploadError, SYNC_VERSION,
+    readEnvelope, uploadFile, uploadOneSession, postSession, fetchMe, UploadError, SYNC_VERSION,
     readGuildBank, guildBankKey, postGuildBank,
 } = require("./uploader");
 const council = require("./council");
@@ -63,6 +63,15 @@ function createRunner(options = {}) {
         /** Pfad zur SavedVariables-Datei, oder null wenn (noch) nicht gefunden. */
         file: null,
         fileMtime: 0,
+        /** The game version of that file from its flavor folder (tbc/classic/forever), "" if unknown. */
+        fileVersion: "",
+        /**
+         * Who the key is and what it is valid for (GET /api/ingest/me), for the
+         * sidebar: owner { name } | null, servers [{ guildId, name, label,
+         * role, versions: [{ id, short, realm }] }], legacy { guildId } | null
+         * (an old server key), unsupported (the server answered 404).
+         */
+        me: { fetching: false, lastFetch: 0, owner: null, servers: [], legacy: null, unsupported: false, lastError: null },
         /** Was in der Datei steht: Sessions mit Instanz, Zeit und Item-Zahl. */
         sessions: [],
         readError: null,
@@ -105,7 +114,7 @@ function createRunner(options = {}) {
             generatedAt: 0,
             /** Verschiedene Raider über alle Kategorien. */
             raiders: 0,
-            /** [{ id, name, raiders }] — die Loot-Council-Kategorien der Webseite. */
+            /** [{ id, name, raiders, guildId, gameVersion }] — die Loot-Council-Kategorien der Webseite. */
             categories: [],
             /** true: ein älterer Server hat nur Version 1 (eine Kategorie) geliefert. */
             fallback: false,
@@ -124,6 +133,8 @@ function createRunner(options = {}) {
             generatedAt: 0,
             banks: 0,
             handouts: 0,
+            /** Per bank: [{ guildId, gameVersion, guild, handouts }] — for the server view. */
+            perBank: [],
             files: [],
             lastError: null,
             /** When GuildBankData.lua was last written with changed content (ms), 0 = never. */
@@ -144,6 +155,7 @@ function createRunner(options = {}) {
     let firstRun = true;
     let councilTimer = null;
     let councilRun = null;
+    let meRun = null;
     // The full scan behind state.guildBank, as it is uploaded.
     let guildBankScan = null;
     let guildBankRetryAt = 0;
@@ -204,6 +216,7 @@ function createRunner(options = {}) {
     /** Den Inhalt der Datei in den Zustand übernehmen (ohne hochzuladen). */
     function readState() {
         state.file = resolveFile();
+        state.fileVersion = state.file ? wowPaths.versionOfFlavor(state.file) : "";
         if (!state.file) {
             state.sessions = [];
             state.readError = null;
@@ -378,6 +391,12 @@ function createRunner(options = {}) {
                     generatedAt: Number(result.payload.generatedAt) || 0,
                     banks: result.banks,
                     handouts: result.handouts,
+                    perBank: result.payload.banks.map((bank) => ({
+                        guildId: String((bank && bank.guildId) || ""),
+                        gameVersion: String((bank && bank.gameVersion) || ""),
+                        guild: String((bank && (bank.guild || bank.name)) || ""),
+                        handouts: bank && Array.isArray(bank.handouts) ? bank.handouts.length : 0,
+                    })),
                     files: result.files,
                     lastError: result.errors.length ? { at: Date.now(), message: result.errors.join("; ") } : null,
                 });
@@ -485,6 +504,52 @@ function createRunner(options = {}) {
     }
 
     /**
+     * Ask the server who the key is and for which servers it is valid
+     * (GET /api/ingest/me) - the sidebar of the window. Never throws: an older
+     * server without the route answers 404 (unsupported, the window shows no
+     * servers), any other error lands in state.me.lastError.
+     * @returns {Promise<object|null>} the answer, else null
+     */
+    function refreshMe() {
+        if (meRun) return meRun;
+        const m = state.me;
+        if ((config.missing(cfg) || []).length) return Promise.resolve(null);
+        m.fetching = true;
+        const run = (async () => {
+            try {
+                const me = (await fetchMe(cfg)) || {};
+                noteConnection(null);
+                Object.assign(m, {
+                    lastFetch: Date.now(),
+                    owner: me.owner && typeof me.owner === "object" ? { name: String(me.owner.name || "") } : null,
+                    servers: Array.isArray(me.servers) ? me.servers : [],
+                    legacy: me.legacy && typeof me.legacy === "object" ? { guildId: String(me.legacy.guildId || "") } : null,
+                    unsupported: false,
+                    lastError: null,
+                });
+                return me;
+            } catch (e) {
+                const unsupported = e instanceof UploadError && e.status === 404;
+                if (!unsupported) noteConnection(e);
+                Object.assign(m, {
+                    lastFetch: Date.now(),
+                    unsupported,
+                    lastError: unsupported ? null : { at: Date.now(), message: e.message },
+                });
+                if (!unsupported) log("warn", `Server-Liste nicht geholt: ${e.message}`);
+                return null;
+            } finally {
+                m.fetching = false;
+            }
+        })();
+        meRun = run;
+        run.then(() => {
+            if (meRun === run) meRun = null;
+        });
+        return run;
+    }
+
+    /**
      * Council-Daten vom Server holen und als CouncilData.lua in jeden
      * installierten Addon-Ordner schreiben (lib/council.js).
      *
@@ -528,6 +593,8 @@ function createRunner(options = {}) {
                         id: String(k.id ?? ""),
                         name: String(k.name || k.id || ""),
                         raiders: Array.isArray(k.raiders) ? k.raiders.length : 0,
+                        guildId: String(k.guildId ?? ""),
+                        gameVersion: String(k.gameVersion || ""),
                     })),
                     // Ein älterer Server (Version 1): eine Kategorie aus der
                     // Konfiguration statt aller von der Webseite.
@@ -836,7 +903,10 @@ function createRunner(options = {}) {
             if (own) noteConnection(e instanceof UploadError ? e : { message: e.message });
             throw e;
         }
-        if (own) noteConnection(null);
+        if (own) {
+            noteConnection(null);
+            refreshMe();
+        }
         return true;
     }
 
@@ -849,6 +919,7 @@ function createRunner(options = {}) {
 
         tick();
         timer = setInterval(tick, Math.max(5, Number(cfg.pollSeconds) || 15) * 1000);
+        refreshMe();
         refreshCouncil();
         councilTimer = setInterval(() => refreshCouncil(), COUNCIL_INTERVAL_MS);
         refreshHandouts();
@@ -925,6 +996,13 @@ function createRunner(options = {}) {
         // A new target: fetch the handouts at once as well.
         const targetChanged = ["baseUrl", "token"].some((k) => (before[k] || "") !== (cfg[k] || ""));
         refreshHandouts({ force: targetChanged });
+        // Another key may be valid for other servers.
+        if (targetChanged) {
+            state.me.owner = null;
+            state.me.servers = [];
+            state.me.legacy = null;
+        }
+        refreshMe();
     }
 
     return {
@@ -944,6 +1022,7 @@ function createRunner(options = {}) {
         setExcluded,
         refreshCouncil,
         refreshHandouts,
+        refreshMe,
         reportHandoutsDone,
         get config() { return cfg; },
     };

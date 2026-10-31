@@ -159,8 +159,8 @@ describe("webui", () => {
             await startUI(fakeRunner());
             const html = await (await get("/")).text();
             expect(html).toContain('r.status === "pending"');
-            expect(html).toContain('label: "Wartet"');
-            expect(html).toContain('label: "Bestätigen"');
+            expect(html).toContain('wait: "Wartet in der Inbox"');
+            expect(html).toContain('label: "Im Web zuordnen"');
             expect(html).toContain('"/history/inbox"');
         });
 
@@ -611,7 +611,7 @@ describe("webui", () => {
             const html = await (await get("/")).text();
             for (const id of ["v-setup", "v-main", "v-settings", "v-log"]) expect(html).toContain(`id="${id}"`);
             expect(html).not.toMatch(/fonts\.googleapis|Cinzel|<script src=|<link rel="stylesheet"/);
-            expect(html).toContain("const APP_WIDTH = 560;");
+            expect(html).toContain("const APP_WIDTH = 760;");
         });
 
         it("bettet die WoW-Icons ein, statt sie zur Laufzeit zu laden", async () => {

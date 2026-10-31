@@ -102,6 +102,10 @@ describe("findInstalls", () => {
         expect(acct.characters).toEqual([expect.objectContaining({ realm: "Thunderstrike", name: "Devi" })]);
     });
 
+    it("kennt den Forever-Ordner seit dem Start (_forever_)", () => {
+        expect(installsOf(makeWow({ flavor: "_forever_" })).installs[0].versionId).toBe("forever");
+    });
+
     it("kennt auch TBC Anniversary", () => {
         expect(installsOf(makeWow({ flavor: "_anniversary_" })).installs[0].versionId).toBe("tbc");
     });

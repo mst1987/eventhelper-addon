@@ -90,7 +90,7 @@ describe("refreshCouncil", () => {
         council.syncCouncil.mockResolvedValue({ ...RESULT, categories: 0, raiders: 0, payload: { ...RESULT.payload, categories: [] } });
         await runner.refreshCouncil({ force: true });
         expect(runner.state.council.categories).toEqual([]);
-        expect(runner.state.log.some((e) => e.level === "warn" && /Keine Kategorie mit Loot-Council/.test(e.text))).toBe(true);
+        expect(runner.state.log.some((e) => e.level === "info" && /Keine Kategorie mit Loot-Council/.test(e.text))).toBe(true);
     });
 
     it("wirft nie, sondern merkt sich den Fehler", async () => {

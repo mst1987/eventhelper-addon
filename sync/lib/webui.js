@@ -163,6 +163,9 @@ function createWebUI(runner, { onQuit, updater } = {}) {
                     logLimit: s.logLimit || s.log.length,
                     intervals: s.intervals || null,
                     connection: s.connection || null,
+                    // Servers and game versions of the key (/api/ingest/me, #51).
+                    me: s.me || null,
+                    fileVersion: s.fileVersion || "",
                     // A newer release on GitHub for the tool and/or the addon (lib/updater.js).
                     update: updater ? updater.snapshot() : null,
                     config: safeConfig(runner.config),

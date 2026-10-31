@@ -11,6 +11,7 @@
  */
 const fs = require("fs");
 const { parseSavedVariables } = require("./luaParser");
+const { versionOfFlavor } = require("./wowPaths");
 
 const SYNC_VERSION = require("../package.json").version;
 
@@ -38,11 +39,14 @@ function readEnvelope(file) {
 
 /**
  * Ein Envelope, der genau eine Session enthält — die Form, in der wirklich
- * hochgeladen wird.
+ * hochgeladen wird. `gameVersion` (oberste Ebene, neben realm und client)
+ * kommt aus dem Varianten-Ordner der Datei (wowPaths.versionOfFlavor): eine
+ * bekannte ID (tbc/classic/forever) oder "", nie geraten.
  */
-function envelopeForSession(envelope, session) {
+function envelopeForSession(envelope, session, gameVersion = "") {
     return {
         ...envelope,
+        gameVersion: String(gameVersion || ""),
         client: { ...(envelope.client || {}), sync: SYNC_VERSION },
         sessions: [session],
     };
@@ -111,6 +115,17 @@ async function fetchRaidStatus(config, sessions) {
 }
 
 /**
+ * Wer der Schlüssel ist und wofür er gilt (GET /api/ingest/me): Besitzer,
+ * Server mit ihren Versionen und — beim alten Server-Schlüssel — `legacy`
+ * mit der einen guildId, für die er gilt. Ein älterer Server kennt die Route
+ * nicht (404); der Aufrufer zeigt dann die Leiste ohne Server.
+ * @returns {Promise<{ owner: object|null, servers: object[], legacy: object|null }>}
+ */
+async function fetchMe(config) {
+    return getJson(config, "/api/ingest/me");
+}
+
+/**
  * Eine SavedVariables-Datei hochladen — ohne die hier abgewählten Abende.
  *
  * Die Abwahl ist die letzte Instanz vor dem Absenden: was hier aussortiert
@@ -130,7 +145,7 @@ async function uploadFile(config, file) {
     for (const session of sessions) {
         if (!session || !Array.isArray(session.items) || !session.items.length) continue;
         if (excluded.has(session.sessionId)) { skipped += 1; continue; }
-        const answer = await postSession(config, envelopeForSession(envelope, session));
+        const answer = await postSession(config, envelopeForSession(envelope, session, versionOfFlavor(file)));
         results.push(...((answer && answer.results) || []));
     }
     return { sessions: sessions.length, skipped, results };
@@ -151,7 +166,7 @@ async function uploadOneSession(config, file, sessionId) {
     if (!session || excluded.has(session.sessionId) || !Array.isArray(session.items) || !session.items.length) {
         return { results: [] };
     }
-    const answer = await postSession(config, envelopeForSession(envelope, session));
+    const answer = await postSession(config, envelopeForSession(envelope, session, versionOfFlavor(file)));
     return { results: (answer && answer.results) || [] };
 }
 
@@ -222,7 +237,7 @@ function describeResult(r) {
 }
 
 module.exports = {
-    readEnvelope, uploadFile, uploadOneSession, postSession, fetchRaidStatus, envelopeForSession,
+    readEnvelope, uploadFile, uploadOneSession, postSession, fetchRaidStatus, fetchMe, envelopeForSession,
     describeResult, getJson, postJson, UploadError, SYNC_VERSION,
     readGuildBank, guildBankKey, postGuildBank, GUILD_BANK_FORMAT,
 };

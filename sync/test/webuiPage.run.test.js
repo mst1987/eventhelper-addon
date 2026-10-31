@@ -76,9 +76,13 @@ describe("Seiten-Skript im Sandkasten", () => {
         }
         const d = "lastState";
         const g = "buildGroups()";
+        const m = `groupServers(${d}.me, lastRaids || [], ${g}.unmatched, ${d}.fileVersion || "")`;
+        const v = `pickVersion(${m}, ${d}.fileVersion || "")`;
         for (const call of [
-            `renderProblems(${d})`, `renderDataStrip(${d})`, `renderTiles(${d}, ${g})`, `renderRaidNights(${d}, ${g})`,
-            `renderMainFooter(${d})`,
+            `renderProblems(${d})`, `renderDataStrip(${d})`, `renderLegacy(${d})`, `renderWho(${d})`,
+            `renderSide(${m}, ${v})`, `renderVersionTitle(${m}, ${v})`, `renderTiles(${d}, ${v})`,
+            `renderRaidNights(${d}, ${v})`, `renderRaidNights(${d}, null)`, `renderTiles(${d}, null)`,
+            `renderMainFooter(${d}, ${g})`, `renderMainFooter(${d}, null)`, "renderBanners()",
         ]) {
             expect(() => page.run(call)).not.toThrow();
         }
@@ -180,7 +184,7 @@ describe("Isolierte Abschnitte", () => {
         const page = await open();
         const rowsBefore = page.byId.rows.innerHTML;
         page.run("tileHtml = () => { throw new Error('boom'); };");
-        page.run("lastState = Object.assign({}, lastState, { fileMtime: lastState.fileMtime + 1 }); pickedTab = 'done'; render();");
+        page.run("lastState = Object.assign({}, lastState, { fileMtime: lastState.fileMtime + 1 }); lastRaids = lastRaids.concat([{ eventId: 'e9', title: 'Tempest Keep', startTime: lastRaids[1].startTime - 3600, status: 'done' }]); render();");
         // The tiles failed ...
         expect(page.consoleErrors.join("\n")).toMatch(/Kacheln.*boom|boom/);
         const notice = page.byId.tiles._err;
@@ -188,7 +192,7 @@ describe("Isolierte Abschnitte", () => {
         expect(notice.textContent).toContain("Kacheln");
         expect(notice.textContent).toContain("boom");
         // ... while the raid list, the footer and the update strip still updated.
-        expect(page.byId.rows.innerHTML).toContain("Gruul");
+        expect(page.byId.rows.innerHTML).toContain("Tempest Keep");
         expect(page.byId.rows.innerHTML).not.toBe(rowsBefore);
         expect(page.byId["f-status"].textContent).toMatch(/Addon-Datei geprüft/);
         expect(page.byId["upd-title"].textContent).toContain("1.16.6");
@@ -260,8 +264,9 @@ describe("LevelHelper-Kachel und Modulschalter", () => {
         expect(html).toMatch(/class="dot good"/);
         expect(html).toContain("data:image/svg+xml;base64,");
         expect(page.consoleErrors).toEqual([]);
-        // The other four tiles are still there.
-        for (const kicker of ["Loot-Upload", "Loot-Council", "Gildenbank", "Ausgabeliste"]) expect(html).toContain(kicker);
+        // The other three tiles are still there; the upload is the footer button now.
+        for (const kicker of ["Loot-Council", "Gildenbank", "Ausgabeliste"]) expect(html).toContain(kicker);
+        expect(html).not.toContain("Loot-Upload");
     });
 
     it("sagt Run im Singular", async () => {
@@ -337,5 +342,116 @@ describe("LevelHelper-Kachel und Modulschalter", () => {
             await save(page, false);
             expect(bodies[1].modules).toEqual({ levelhelper: false });
         });
+    });
+});
+
+describe("Server-Leiste und Versionen (Canvas A)", () => {
+    const T = Math.floor(NOW / 1000);
+    const ME = {
+        owner: { name: "Marc" },
+        servers: [
+            { guildId: "g1", label: "Nachtwache", versions: [{ id: "tbc", realm: "Thunderstrike" }, { id: "forever" }] },
+            { guildId: "g2", label: "PuGs", versions: [{ id: "forever" }] },
+        ],
+    };
+    const SRAIDS = [
+        { eventId: "e1", title: "Karazhan", startTime: T - 7200, status: "ready", matchedSessionId: "s1", gargul: 3, rclc: 0, guildId: "g1", gameVersion: "tbc" },
+        { eventId: "e2", title: "Gruul", startTime: T - 86400 * 3, status: "done", guildId: "g1", gameVersion: "tbc" },
+        { eventId: "e5", title: "Manaforge Omega", startTime: T - 86400, status: "pending", inboxItems: 2, guildId: "g1", gameVersion: "forever" },
+        { eventId: "e6", title: "Befreiung von Lorenhall", startTime: T - 86400 * 2, status: "done", guildId: "g2", gameVersion: "forever" },
+        { eventId: "e7", title: "Naxxramas", startTime: T - 86400 * 4, status: "done", guildId: "g9", gameVersion: "tbc" },
+    ];
+    const COUNCIL = {
+        lastFetch: NOW - 1000, files: ["C:/x"], generatedAt: T - 100, changedAt: NOW, raiders: 35,
+        categories: [{ name: "Main", raiders: 25, guildId: "g1", gameVersion: "tbc" }, { name: "PuG", raiders: 10, guildId: "g2", gameVersion: "forever" }],
+    };
+
+    async function servers(over = {}, raids = SRAIDS) {
+        const page = loadPage({ state: state({ me: ME, fileVersion: "tbc", council: COUNCIL, ...over }), raids });
+        await page.settle();
+        return page;
+    }
+    const side = (page) => page.byId.side.innerHTML;
+    const current = (page) => (side(page).match(/data-arg="([^"]+)"[^>]*aria-current="true"/) || [])[1];
+
+    it("hat 760 px Breite und das Gerüst aus Leiste, Detail und Fußzeile", async () => {
+        const page = await servers();
+        expect(page.run("APP_WIDTH")).toBe(760);
+        for (const id of ["side", "detail", "ver-title", "banners", "btn-upload", "who", "legacy"]) expect(page.byId[id]).toBeTruthy();
+        expect(page.consoleErrors).toEqual([]);
+    });
+
+    it("listet jeden Server mit seinen Versionen und wählt die Version mit bereiten Abenden", async () => {
+        const page = await servers();
+        const html = side(page);
+        expect(html).toContain("Nachtwache");
+        expect(html).toContain("PuGs");
+        expect((html.match(/data-act="pick"/g) || []).length).toBe(4); // 3 versions + "Ohne Server"
+        expect(html).toContain("Ohne Server");
+        expect(current(page)).toBe("g1:tbc");
+        expect(page.byId["ver-title"].innerHTML).toContain("TBC Anniversary");
+        expect(page.byId["ver-title"].innerHTML).toContain("Nachtwache · Thunderstrike");
+        expect(page.byId.rows.innerHTML).toContain("Karazhan");
+        expect(page.byId.rows.innerHTML).not.toContain("Manaforge Omega");
+    });
+
+    it("wechselt per Klick die Version und behält die Wahl über den Poll", async () => {
+        const page = await servers();
+        page.run("actions.pick('g2:forever')");
+        expect(current(page)).toBe("g2:forever");
+        expect(page.byId["ver-title"].innerHTML).toContain("WoW Forever");
+        expect(page.byId.rows.innerHTML).toContain("Befreiung von Lorenhall");
+        expect(page.byId.rows.innerHTML).not.toContain("Karazhan");
+        page.run("lastState = Object.assign({}, lastState, { lastCheck: Date.now() }); render();");
+        expect(current(page)).toBe("g2:forever");
+
+        page.run("actions.pick('none')");
+        expect(page.byId.rows.innerHTML).toContain("Naxxramas");
+        expect(page.consoleErrors).toEqual([]);
+    });
+
+    it("zeigt Council je Server und die Gildenbank nur bei der Version der Addon-Datei", async () => {
+        const page = await servers();
+        expect(page.byId.tiles.innerHTML).toContain("25 Raider");
+        expect(page.byId.tiles.innerHTML).toContain("Gildenbank");
+        page.run("actions.pick('g2:forever')");
+        expect(page.byId.tiles.innerHTML).toContain("10 Raider");
+        expect(page.byId.tiles.innerHTML).not.toContain("25 Raider");
+        expect(page.byId.tiles.innerHTML).not.toContain("Gildenbank");
+    });
+
+    it("sagt im Kopf, für wen und wie viele Server der Schlüssel gilt", async () => {
+        const page = await servers();
+        expect(page.byId.who.innerHTML).toBe("Verbunden als <b>Marc</b> · gilt für 2 Server");
+        expect(page.byId.legacy.hidden).toBe(true);
+    });
+
+    it("weist beim alten Server-Schlüssel nur darauf hin, ohne Zwang", async () => {
+        const page = await servers({ me: { ...ME, servers: [ME.servers[1]], legacy: { guildId: "g2" } } });
+        expect(page.byId.legacy.hidden).toBe(false);
+        expect(page.byId.legacy.innerHTML).toContain("gilt nur für <b>PuGs</b>");
+        expect(page.byId.who.innerHTML).toContain("gilt für 1 Server");
+        // Still works: the overview stays usable.
+        expect(page.byId["btn-upload"]).toBeTruthy();
+        expect(page.consoleErrors).toEqual([]);
+    });
+
+    it("ein Knopf lädt für alle Server hoch und ist ohne bereite Abende gesperrt", async () => {
+        let page = await servers();
+        expect(page.byId["btn-upload"].disabled).toBe(false);
+        expect(page.byId["btn-upload"].innerHTML).toContain("Hochladen");
+        expect(page.byId["f-ready-sub"].textContent).toContain("für alle Server");
+        page = await servers({ sessions: [] }, SRAIDS.filter((r) => r.status !== "ready"));
+        expect(page.byId["btn-upload"].disabled).toBe(true);
+        expect(page.byId["f-ready"].textContent).toBe("Nichts hochzuladen");
+    });
+
+    it("fällt ohne Server-Liste (älterer Server) auf eine Version der Addon-Datei zurück", async () => {
+        const page = await servers({ me: null });
+        expect(page.byId.side.innerHTML).toContain("TBC Anniversary");
+        expect(page.byId.side.innerHTML).not.toContain("Ohne Server");
+        expect(page.byId.rows.innerHTML).toContain("Naxxramas");
+        expect(page.byId.who.innerHTML).toBe("Verbunden");
+        expect(page.consoleErrors).toEqual([]);
     });
 });

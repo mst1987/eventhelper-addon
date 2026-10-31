@@ -9,6 +9,7 @@ const path = require("path");
 const {
     toLua, luaString, toLatin1, buildCouncilFile, validateCouncil, fetchCouncil, syncCouncil, writeAtomic,
     loadCouncil, wrapV1, cleanCategoryName, countRaiders, CouncilError, COUNCIL_FILE,
+    normalizeCouncilV4, councilForVersion,
 } = require("../lib/council");
 const { findAddonDirs } = require("../lib/wowPaths");
 const { parseSavedVariables } = require("../lib/luaParser");
@@ -120,6 +121,44 @@ function payloadV3(over = {}) {
                 },
             ],
         }],
+        ...over,
+    };
+}
+
+/** Version 4, wie sie der Server mit ?v=4 liefert (pulsebot#999): zwei
+ * Server, Pulse mit TBC und Forever, PuGs nur mit TBC — dieselbe
+ * Kategorie-ID "c1" auf beiden Servern. */
+function payloadV4(over = {}) {
+    const [category] = payloadV3().categories;
+    return {
+        format: "eventhelper-council",
+        version: 4,
+        generatedAt: 1791234567,
+        weights: payloadV3().weights,
+        servers: [
+            {
+                guildId: 111, name: "Pulse 🐉", label: "Pulse",
+                versions: [
+                    {
+                        id: "tbc", short: "TBC", realm: "Thunderstrike",
+                        guilds: [{ name: "Pulse", realm: "Thunderstrike", region: "eu" }, null],
+                        categories: [category],
+                    },
+                    {
+                        id: "forever", short: "Forever", realm: "Nethergarde",
+                        guilds: [{ name: "Pulse Forever", realm: "Nethergarde", region: "eu" }],
+                        categories: [{ ...category, id: "f1", name: "Forever Montag" }],
+                    },
+                ],
+            },
+            {
+                guildId: "222", name: "PuGs", label: "PuGs",
+                versions: [{
+                    id: "tbc", short: "TBC", realm: "Thunderstrike",
+                    categories: [{ ...category, name: "PuG Kara" }],
+                }],
+            },
+        ],
         ...over,
     };
 }
@@ -282,8 +321,18 @@ describe("validateCouncil", () => {
     });
 
     it("lehnt eine höhere Version mit klarer Meldung ab", () => {
-        expect(() => validateCouncil(payloadV2({ version: 4 })))
-            .toThrow(/Version 4, dieses Sync-Tool kennt nur Version 3.*aktualisieren/);
+        expect(() => validateCouncil(payloadV2({ version: 5 })))
+            .toThrow(/Version 5, dieses Sync-Tool kennt nur Version 4.*aktualisieren/);
+    });
+
+    it("nimmt Version 4 an und prüft Server, Versionen und Kategorien", () => {
+        const p4 = payloadV4();
+        expect(validateCouncil(p4)).toBe(p4);
+        expect(() => validateCouncil(payloadV4({ servers: null }))).toThrow(/Server-Liste/);
+        expect(() => validateCouncil(payloadV4({ servers: [{ guildId: "1" }] }))).toThrow(/Versionen-Liste/);
+        expect(() => validateCouncil(payloadV4({ servers: [{ versions: [{ id: "tbc" }] }] }))).toThrow(/Kategorien-Liste/);
+        expect(() => validateCouncil(payloadV4({ servers: [{ versions: [{ categories: [{ id: "x" }] }] }] })))
+            .toThrow(/Raider-Liste/);
     });
 
     it("lehnt Version 2 ohne Kategorien oder mit einer Kategorie ohne Raider ab", () => {
@@ -378,7 +427,7 @@ describe("loadCouncil", () => {
         mockFetch(200, { data: payloadV3() });
         const data = await loadCouncil({ ...CONFIG, councilCategory: "123", councilRole: "healer" });
         expect(global.fetch).toHaveBeenCalledTimes(1);
-        expect(global.fetch.mock.calls[0][0]).toMatch(/council\?v=3$/);
+        expect(global.fetch.mock.calls[0][0]).toMatch(/council\?v=4$/);
         expect(data.version).toBe(3);
         expect(data.fromVersion).toBeUndefined();
         const [c1] = data.categories;
@@ -408,12 +457,13 @@ describe("loadCouncil", () => {
         expect(c1.raiders[0]).toMatchObject({ status: "", bisWeapons: [30103] });
     });
 
-    it("Server mit Version 2: ?v=3 bekommt Version 1, dann ?v=2 - als Version 3 ohne Gewichtung", async () => {
-        mockFetchSeq([200, { data: payload() }], [200, { data: payloadV2() }]);
+    it("Server mit Version 2: ?v=4 und ?v=3 bekommen Version 1, dann ?v=2 - als Version 3 ohne Gewichtung", async () => {
+        mockFetchSeq([200, { data: payload() }], [200, { data: payload() }], [200, { data: payloadV2() }]);
         const data = await loadCouncil({ ...CONFIG, councilCategory: "123", councilRole: "healer" });
-        expect(global.fetch).toHaveBeenCalledTimes(2);
-        expect(global.fetch.mock.calls[0][0]).toMatch(/council\?v=3$/);
-        expect(global.fetch.mock.calls[1][0]).toMatch(/council\?v=2$/);
+        expect(global.fetch).toHaveBeenCalledTimes(3);
+        expect(global.fetch.mock.calls[0][0]).toMatch(/council\?v=4$/);
+        expect(global.fetch.mock.calls[1][0]).toMatch(/council\?v=3$/);
+        expect(global.fetch.mock.calls[2][0]).toMatch(/council\?v=2$/);
         expect(data).toMatchObject({ version: 3, fromVersion: 2, weights: { drought: 50, share: 40, need: 10 } });
         expect(data.categories.map((c) => [c.id, c.name])).toEqual([
             ["1234567890", "SSC/TK Mittwoch"], ["987", "Kara Sonntag"],
@@ -432,7 +482,7 @@ describe("loadCouncil", () => {
         expect(countRaiders(data)).toBe(2);
     });
 
-    it("Version 2 auf ?v=3 (ein Zwischenstand) wird genauso verpackt", async () => {
+    it("Version 2 auf ?v=4 (ein Zwischenstand) wird genauso verpackt", async () => {
         mockFetch(200, { data: payloadV2() });
         const data = await loadCouncil(CONFIG);
         expect(global.fetch).toHaveBeenCalledTimes(1);
@@ -446,15 +496,16 @@ describe("loadCouncil", () => {
         expect(countRaiders(data)).toBe(0);
     });
 
-    it("älterer Server (Version 1 auf ?v=3 und ?v=2): fragt mit Kategorie und Rolle nach und verpackt", async () => {
+    it("älterer Server (Version 1 auf ?v=4, ?v=3 und ?v=2): fragt mit Kategorie und Rolle nach und verpackt", async () => {
         mockFetchSeq(
+            [200, { data: payload({ filter: { category: "1" } }) }],
             [200, { data: payload({ filter: { category: "1" } }) }],
             [200, { data: payload({ filter: { category: "1" } }) }],
             [200, { data: payload() }],
         );
         const data = await loadCouncil({ ...CONFIG, councilCategory: "123", councilRole: "caster" });
-        expect(global.fetch).toHaveBeenCalledTimes(3);
-        expect(global.fetch.mock.calls[2][0]).toMatch(/council\?category=123&role=caster$/);
+        expect(global.fetch).toHaveBeenCalledTimes(4);
+        expect(global.fetch.mock.calls[3][0]).toMatch(/council\?category=123&role=caster$/);
         expect(data).toMatchObject({ format: "eventhelper-council", version: 3, fromVersion: 1, generatedAt: 1791234567 });
         expect(data.categories).toHaveLength(1);
         expect(data.categories[0]).toMatchObject({
@@ -467,15 +518,16 @@ describe("loadCouncil", () => {
     it("älterer Server ohne gespeicherte Kategorie: die erste Antwort reicht", async () => {
         mockFetch(200, { data: payload({ filter: {} }) });
         const data = await loadCouncil(CONFIG);
-        expect(global.fetch).toHaveBeenCalledTimes(2);
+        expect(global.fetch).toHaveBeenCalledTimes(3);
         expect(data.categories[0]).toMatchObject({ id: "", name: "Alle Raids" });
         expect(data.categories[0].raiders[0]).toMatchObject({ lootPoints: 2, status: "" });
     });
 
-    it("404 auf ?v=3 und ?v=2: die alte Anfrage", async () => {
-        mockFetchSeq([404, { error: { message: "Not found" } }], [404, { error: { message: "Not found" } }], [200, { data: payload() }]);
+    it("404 auf ?v=4, ?v=3 und ?v=2: die alte Anfrage", async () => {
+        const nf = [404, { error: { message: "Not found" } }];
+        mockFetchSeq(nf, nf, nf, [200, { data: payload() }]);
         const data = await loadCouncil({ ...CONFIG, councilCategory: "123" });
-        expect(global.fetch.mock.calls[2][0]).toMatch(/council\?category=123$/);
+        expect(global.fetch.mock.calls[3][0]).toMatch(/council\?category=123$/);
         expect(data.categories[0].id).toBe("123");
     });
 
@@ -484,9 +536,9 @@ describe("loadCouncil", () => {
         await expect(loadCouncil(CONFIG)).rejects.toThrow(/kennt noch keine Council-Daten/);
     });
 
-    it("lehnt Version 4 ab, ohne die alte Anfrage zu versuchen", async () => {
-        mockFetch(200, { data: payloadV2({ version: 4 }) });
-        await expect(loadCouncil(CONFIG)).rejects.toThrow(/Version 4/);
+    it("lehnt Version 5 ab, ohne die alte Anfrage zu versuchen", async () => {
+        mockFetch(200, { data: payloadV2({ version: 5 }) });
+        await expect(loadCouncil(CONFIG)).rejects.toThrow(/Version 5/);
         expect(global.fetch).toHaveBeenCalledTimes(1);
     });
 
@@ -496,9 +548,59 @@ describe("loadCouncil", () => {
         expect(global.fetch).toHaveBeenCalledTimes(1);
     });
 
+    it("Version 4: eine Anfrage, flache Kategorien mit Server und Version, Server-Köpfe daneben", async () => {
+        mockFetch(200, { data: payloadV4() });
+        const data = await loadCouncil(CONFIG);
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+        expect(global.fetch.mock.calls[0][0]).toMatch(/council\?v=4$/);
+        expect(data.version).toBe(3);
+        expect(data.fromVersion).toBeUndefined();
+        expect(data.categories.map((c) => [c.guildId, c.gameVersion, c.id, c.name])).toEqual([
+            ["111", "tbc", "c1", "SSC/TK - Mittwoch"],
+            ["111", "forever", "f1", "Forever Montag"],
+            ["222", "tbc", "c1", "PuG Kara"],
+        ]);
+        expect(data.categories[0].weights.tenure).toBe(20);
+        expect(data.servers).toEqual([
+            {
+                guildId: "111", name: "Pulse", label: "Pulse",
+                versions: [
+                    { id: "tbc", short: "TBC", realm: "Thunderstrike", guilds: [{ name: "Pulse", realm: "Thunderstrike", region: "eu" }] },
+                    { id: "forever", short: "Forever", realm: "Nethergarde", guilds: [{ name: "Pulse Forever", realm: "Nethergarde", region: "eu" }] },
+                ],
+            },
+            { guildId: "222", name: "PuGs", label: "PuGs", versions: [{ id: "tbc", short: "TBC", realm: "Thunderstrike", guilds: [] }] },
+        ]);
+    });
+
+    it("Version 3 auf ?v=4 (Server ohne Gliederung): unverändert ohne servers", async () => {
+        mockFetch(200, { data: payloadV3() });
+        const data = await loadCouncil(CONFIG);
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+        expect(data).not.toHaveProperty("servers");
+    });
+
     it("wrapV1 nimmt fehlende Felder hin", () => {
         const data = wrapV1({ format: "eventhelper-council", version: 1, raiders: [] });
         expect(data.categories[0]).toMatchObject({ id: "", name: "Alle Raids", raiders: [] });
+    });
+});
+
+describe("councilForVersion", () => {
+    it("filtert Kategorien und Server-Versionen nach der Spielversion", () => {
+        const data = normalizeCouncilV4(payloadV4());
+        const classic = councilForVersion(data, "classic");
+        expect(classic.categories).toEqual([]);
+        expect(classic.servers).toEqual([]);
+        expect(councilForVersion(data, "forever").categories.map((c) => c.id)).toEqual(["f1"]);
+    });
+
+    it("lässt alles drin ohne Spielversion oder ohne servers (älterer Server)", () => {
+        const data = normalizeCouncilV4(payloadV4());
+        expect(councilForVersion(data, "")).toBe(data);
+        const v3 = { version: 3, categories: [{ id: "x" }] };
+        expect(councilForVersion(v3, "tbc")).toBe(v3);
+        expect(councilForVersion(null, "tbc")).toBeNull();
     });
 });
 
@@ -587,8 +689,8 @@ describe("Addon-Ordner finden und beschreiben", () => {
     });
 
     it("schreibt nichts, wenn der Server eine neuere Version liefert", async () => {
-        mockFetch(200, { data: payloadV2({ version: 4 }) });
-        await expect(syncCouncil(CONFIG, { roots: [wow] })).rejects.toThrow(/Version 4/);
+        mockFetch(200, { data: payloadV2({ version: 5 }) });
+        await expect(syncCouncil(CONFIG, { roots: [wow] })).rejects.toThrow(/Version 5/);
         const dir = path.join(wow, "_anniversary_", "Interface", "AddOns", "EventHelperSync");
         expect(fs.readdirSync(dir)).toEqual([]);
     });
@@ -607,9 +709,10 @@ describe("Addon-Ordner finden und beschreiben", () => {
     it("älterer Server: Kategorie und Rolle aus der Konfiguration, geschrieben als Version 3", async () => {
         mockFetch(200, { data: payload() });
         const result = await syncCouncil({ ...CONFIG, councilCategory: "123", councilRole: "caster" }, { roots: [wow] });
-        expect(global.fetch.mock.calls[0][0]).toMatch(/council\?v=3$/);
-        expect(global.fetch.mock.calls[1][0]).toMatch(/council\?v=2$/);
-        expect(global.fetch.mock.calls[2][0]).toMatch(/council\?category=123&role=caster$/);
+        expect(global.fetch.mock.calls[0][0]).toMatch(/council\?v=4$/);
+        expect(global.fetch.mock.calls[1][0]).toMatch(/council\?v=3$/);
+        expect(global.fetch.mock.calls[2][0]).toMatch(/council\?v=2$/);
+        expect(global.fetch.mock.calls[3][0]).toMatch(/council\?category=123&role=caster$/);
         expect(result).toMatchObject({ categories: 1, raiders: 1 });
         const file = path.join(wow, "_anniversary_", "Interface", "AddOns", "EventHelperSync", COUNCIL_FILE);
         const back = readBack(fs.readFileSync(file, "utf8"));
@@ -633,6 +736,21 @@ describe("Addon-Ordner finden und beschreiben", () => {
         });
         expect(back.categories[0].raiders[1]).toMatchObject({ role: "tank", specLabel: "Schutz - Tank", status: "" });
         expect([...text].every((ch) => ch.codePointAt(0) <= 0xff)).toBe(true);
+    });
+
+    it("Version 4: jeder Ordner bekommt nur die Kategorien und Server seiner Spielversion", async () => {
+        mockFetch(200, { data: payloadV4() });
+        const result = await syncCouncil(CONFIG, { roots: [wow] });
+        expect(result.errors).toEqual([]);
+        const read = (flavor) => readBack(fs.readFileSync(
+            path.join(wow, flavor, "Interface", "AddOns", "EventHelperSync", COUNCIL_FILE), "utf8"));
+        const tbc = read("_anniversary_");
+        expect(tbc.categories.map((c) => [c.guildId, c.name])).toEqual([["111", "SSC/TK - Mittwoch"], ["222", "PuG Kara"]]);
+        expect(tbc.servers.map((s) => [s.guildId, s.versions.map((v) => v.id)])).toEqual([["111", ["tbc"]], ["222", ["tbc"]]]);
+        expect(tbc.servers[0].versions[0].guilds[0]).toEqual({ name: "Pulse", realm: "Thunderstrike", region: "eu" });
+        const forever = read("_classic_beta_");
+        expect(forever.categories.map((c) => [c.guildId, c.gameVersion, c.name])).toEqual([["111", "forever", "Forever Montag"]]);
+        expect(forever.servers.map((s) => s.guildId)).toEqual(["111"]);
     });
 
     it("writeAtomic räumt die Zwischendatei auf, wenn das Ziel nicht beschreibbar ist", () => {

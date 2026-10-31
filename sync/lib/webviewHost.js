@@ -200,7 +200,7 @@ function findHost(options = {}) {
  * @param {(err: Error) => void} [options.onError]  could not be started at all
  * @returns {object|null}  the child process, or null if spawn threw
  */
-function spawnHost(exe, url, { parentPid, width = 560, height = 680, onExit, onError, spawnImpl = spawn } = {}) {
+function spawnHost(exe, url, { parentPid, width = 760, height = 680, onExit, onError, spawnImpl = spawn } = {}) {
     const started = Date.now();
     let child;
     try {

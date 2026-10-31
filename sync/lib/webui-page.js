@@ -5,8 +5,8 @@
 // Kein Framework: vier Ansichten (Einrichtung, Übersicht, Einstellungen,
 // Verlauf) in einer Seite, umgeschaltet ohne Neuladen.
 //
-// Look: the EventHelper website (dark panels, violet accent, monospace
-// kickers), from the approved mockups of the redesign (issue #26). No
+// Look: plain dark panels, design Canvas A of issue #51 (servers in a
+// sidebar, version colours as the only accent, status as words). No
 // external fonts or scripts: the window must work offline. The WoW icons of
 // the tiles come from webui-icons.js as data URIs.
 //
@@ -24,6 +24,7 @@ const SVG_X = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" strok
 const SVG_MIN = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg>';
 const SVG_BACK ='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>';
 const SVG_RELOAD = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>';
+const SVG_UP = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20V8M7 13l5-5 5 5M5 4h14"/></svg>';
 const SVG_DOWNLOAD = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>';
 
 const CREST = '<span class="crest" aria-hidden="true">' + SVG_LOGO + "</span>";
@@ -63,8 +64,10 @@ module.exports.PAGE = String.raw`<!doctype html>
   :root {
     --bg: #16181d; --panel: #1f232b; --panel2: #272c36; --line: #2c313b; --line2: #23272f;
     --text: #e6e6e6; --muted: #9aa0aa; --faint: #6f7682;
-    --accent: #8a7cff; --accent-ink: #130f26; --accent-soft: rgba(138,124,255,.14); --accent-text: #a99dff;
-    --good: #7fd17f; --medium: #e0a23a; --high: #e0524f; --pending: #60a5fa; --cyan: #4cc3f7;
+    /* Version colours are the only accent (Canvas A, issue #51); status words
+       carry the rest. No gradients, glows or tinted chips. */
+    --tbc: #9bd45a; --fe: #4da3ff; --era: #8fa3b8;
+    --good: #7fd17f; --bad: #e0524f; --wait: #d9a441; --high: #e0524f; --medium: #d9a441; --pending: #9aa0aa;
     --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
     color-scheme: dark;
   }
@@ -77,7 +80,7 @@ module.exports.PAGE = String.raw`<!doctype html>
   button, input, select { font: inherit; color: inherit; }
   button { cursor: pointer; }
   button:disabled { cursor: default; opacity: .55; }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  :focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
   code { font: 12px var(--mono); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
   [hidden] { display: none !important; }
 
@@ -90,21 +93,26 @@ module.exports.PAGE = String.raw`<!doctype html>
   .view.measure .scroll { overflow: visible; }
 
   /* Header */
-  .hdr { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--panel); border-bottom: 1px solid var(--line); flex: none; }
-  .crest { width: 30px; height: 30px; border-radius: 8px; flex: none; display: grid; place-items: center; background: linear-gradient(150deg, #8a7cff, #35d6c4); color: var(--accent-ink); }
-  .brand { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
-  .brand b { font-weight: 800; font-size: 15px; }
-  .brand small { font: 10.5px var(--mono); color: var(--muted); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .hdr-title { font-size: 15px; font-weight: 800; }
-  .pill { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap; border: 1px solid var(--line); background: var(--panel2); color: var(--muted); }
-  .pill .pdot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-  .pill.ok { background: rgba(120,200,120,.14); border-color: rgba(127,209,127,.35); color: var(--good); }
-  .pill.err { background: rgba(224,82,79,.14); border-color: rgba(224,82,79,.4); color: #ff8f8a; }
-  .ibtn { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--muted); display: grid; place-items: center; flex: none; padding: 0; }
-  .ibtn:hover { color: var(--text); border-color: #3a404c; }
-  .back { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px 0 8px; border-radius: 8px; border: 1px solid rgba(56,189,248,.55); background: rgba(56,189,248,.14); color: var(--cyan); font-weight: 600; font-size: 13px; }
-  .back:hover { background: rgba(56,189,248,.22); }
-  .hdr-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .hdr { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 12px 0 16px; background: var(--panel); border-bottom: 1px solid var(--line); flex: none; }
+  .crest { width: 22px; height: 22px; flex: none; display: grid; place-items: center; color: var(--muted); }
+  .crest svg { width: 22px; height: 22px; }
+  .brand { display: flex; align-items: baseline; gap: 8px; line-height: 1.2; min-width: 0; white-space: nowrap; }
+  .brand b { font-weight: 600; font-size: 15px; }
+  .brand small { font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hdr-title { font-size: 15px; font-weight: 600; }
+  .who { margin-left: auto; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .who b { color: var(--text); font-weight: 600; }
+  .who.err { color: var(--bad); }
+  /* Connection state as plain text: the colour of the word is the only signal. */
+  .pill { margin-left: auto; display: inline-flex; align-items: center; font-size: 13px; white-space: nowrap; color: var(--muted); }
+  .pill .pdot { display: none; }
+  .pill.ok { color: var(--good); }
+  .pill.err { color: var(--bad); }
+  .ibtn, .ib { width: 30px; height: 30px; border-radius: 4px; border: 0; background: none; color: var(--muted); display: grid; place-items: center; flex: none; padding: 0; }
+  .ibtn:hover, .ib:hover:not(:disabled) { color: var(--text); background: var(--panel2); }
+  .back { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 10px 0 6px; border-radius: 4px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); font-weight: 600; font-size: 13px; }
+  .back:hover { background: #2d3340; }
+  .hdr-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 
   /* The tool's own window (WebView2, lib/webviewHost.js): no OS title bar, so
      the header is one (moves the window), the edges resize it, and a 1 px
@@ -119,88 +127,109 @@ module.exports.PAGE = String.raw`<!doctype html>
   html[data-edge="top-right"], html[data-edge="top-right"] *, html[data-edge="bottom-left"], html[data-edge="bottom-left"] * { cursor: nesw-resize !important; }
 
   /* Buttons */
-  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); font-size: 13px; font-weight: 700; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 30px; padding: 0 12px; border-radius: 4px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); font-size: 13px; font-weight: 600; }
   .btn:hover:not(:disabled) { border-color: #3a404c; background: #2d3340; }
-  .btn.sm { min-height: 30px; padding: 0 12px; }
-  .btn.lg { min-height: 38px; padding: 0 18px; font-size: 14px; }
-  .btn.primary { border-color: transparent; background: var(--accent); color: var(--accent-ink); }
-  .btn.primary:hover:not(:disabled) { background: #9a8eff; }
-  .btn.blue { border-color: rgba(96,165,250,.45); background: rgba(96,165,250,.14); color: #8fbdfb; }
-  .btn.blue:hover:not(:disabled) { background: rgba(96,165,250,.22); }
-  .sq { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--muted); display: grid; place-items: center; flex: none; padding: 0; }
-  .sq:hover:not(:disabled) { color: var(--text); border-color: #3a404c; }
-  .linkbtn { border: 0; background: none; padding: 4px 0; color: var(--accent-text); font-size: 13px; font-weight: 600; }
-  .linkbtn:hover { color: #c9c2ff; }
+  .btn.sm { min-height: 28px; padding: 0 10px; }
+  .btn.lg { min-height: 36px; padding: 0 16px; font-size: 14px; }
+  .btn.primary, .btn.go { border-color: #3d723d; background: #2f5a2f; color: #eaf6e6; }
+  .btn.primary:hover:not(:disabled), .btn.go:hover:not(:disabled) { background: #376a37; border-color: #4a864a; }
+  .btn.go.big { min-height: 40px; padding: 0 18px; font-size: 15px; font-weight: 600; }
+  .btn.blue { }
+  .btn.link, .linkbtn { border: 0; background: none; min-height: 0; padding: 4px 0; color: var(--text); font-size: 13px; font-weight: 400; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--faint); }
+  .btn.link:hover, .linkbtn:hover { text-decoration-color: var(--text); }
+  .sq { width: 30px; height: 30px; border-radius: 4px; border: 0; background: none; color: var(--muted); display: grid; place-items: center; flex: none; padding: 0; }
+  .sq:hover:not(:disabled) { color: var(--text); background: var(--panel2); }
 
-  .kicker { font: 600 10.5px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .kicker { font-size: 13px; font-weight: 600; color: var(--muted); }
   .hint { font-size: 12px; color: var(--muted); }
-  .err-text { color: #ff9b8f; }
+  .err-text { color: var(--bad); }
   .ok-text { color: var(--good); }
 
   /* Übersicht */
-  .main-body { display: flex; flex-direction: column; gap: 14px; padding: 14px; overflow: auto; }
-  .problems { padding: 9px 12px; border-radius: 8px; background: rgba(224,82,79,.12); border: 1px solid rgba(224,82,79,.45); color: #ffc9c4; font-size: 12.5px; line-height: 1.5; display: flex; flex-direction: column; gap: 4px; word-break: break-word; }
-  .problems .linkbtn { align-self: flex-start; padding: 0; font-size: 12.5px; }
-  .strip { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; background: var(--accent-soft); border: 1px solid rgba(138,124,255,.35); color: var(--accent-text); }
+  /* Notices: neutral panel, a 3 px edge in the status colour, no tint. */
+  .problems, .strip, .sec-err, .notice { padding: 8px 12px; border-radius: 4px; background: var(--panel2); border: 0; border-left: 3px solid var(--muted); color: var(--text); font-size: 13px; line-height: 1.45; word-break: break-word; }
+  .problems { border-left-color: var(--bad); display: flex; flex-direction: column; gap: 4px; }
+  .problems .linkbtn { align-self: flex-start; padding: 0; font-size: 13px; }
+  .strip { display: flex; align-items: center; gap: 10px; color: var(--muted); }
   .strip span { display: flex; flex-direction: column; line-height: 1.3; }
-  .strip b { font-size: 13.5px; color: var(--text); }
-  .strip small { font-size: 12.5px; color: #c9c2ff; }
-  .strip.upd { border-color: rgba(127,209,127,.45); background: rgba(127,209,127,.10); color: var(--good); }
-  .strip.upd small { color: #b8e6b8; }
-  .strip.upd.err { border-color: rgba(224,82,79,.5); background: rgba(224,82,79,.12); color: #ffc9c4; }
-  .strip.upd.err small { color: #ffc9c4; word-break: break-word; }
-  .sec-err { padding: 7px 10px; border-radius: 8px; background: rgba(224,82,79,.12); border: 1px solid rgba(224,82,79,.45); color: #ffc9c4; font-size: 12px; line-height: 1.4; word-break: break-word; }
+  .strip b { font-size: 13.5px; font-weight: 600; color: var(--text); }
+  .strip small { font-size: 12.5px; color: var(--muted); }
+  .strip.upd { border-left-color: var(--good); }
+  .strip.upd.err { border-left-color: var(--bad); }
+  .strip.upd.err small { word-break: break-word; }
+  .sec-err { border-left-color: var(--bad); font-size: 12px; }
+  .notice { border-left-color: var(--wait); }
+  .notice b { font-weight: 600; }
   .strip .upd-text { flex: 1; min-width: 0; }
   .strip .btn, .strip .linkbtn { flex: none; }
-  .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .tile { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); text-align: left; min-width: 0; }
-  button.tile:hover { border-color: #3a404c; background: #232831; }
-  .tile-head { display: flex; align-items: center; gap: 10px; }
-  .tile-head img { width: 30px; height: 30px; border-radius: 6px; border: 1px solid var(--line); flex: none; }
+  .banners { display: flex; flex-direction: column; gap: 8px; padding: 10px 16px 0; flex: none; }
+  .banners:empty, .banners.none { display: none; }
+
+  /* Übersicht: servers on the left, the picked version on the right (Canvas A) */
+  .split { display: flex; min-height: 0; }
+  .side { width: 220px; flex: none; background: #1a1d23; border-right: 1px solid var(--line); padding: 8px 0 12px; display: flex; flex-direction: column; }
+  .srv { display: flex; align-items: center; gap: 10px; padding: 10px 16px 4px; }
+  .srv-ini { width: 28px; height: 28px; border-radius: 6px; flex: none; display: grid; place-items: center; background: var(--panel2); color: var(--muted); font-size: 12px; font-weight: 700; }
+  .srv-name { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .srv.none .srv-name { color: var(--muted); font-weight: 400; }
+  .sv { display: flex; flex-direction: column; width: 100%; padding: 7px 16px 7px 54px; border: 0; background: none; text-align: left; line-height: 1.3; }
+  .sv:hover { background: #20242b; }
+  .sv[aria-current="true"] { background: #272c36; box-shadow: inset 3px 0 0 var(--vc, var(--muted)); }
+  .sv-name { font-size: 13.5px; font-weight: 600; color: var(--vc, var(--text)); }
+  .sv-sub { font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .side-foot { margin-top: auto; padding: 12px 16px 0; font-size: 12px; color: var(--faint); }
+
+  .detail { padding: 16px 22px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .ver-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .ver-title b { font-size: 24px; font-weight: 700; line-height: 1.2; color: var(--vc, var(--text)); }
+  .ver-title span { color: var(--muted); font-size: 13px; }
+  .sec { font-size: 13px; font-weight: 600; color: var(--muted); padding: 12px 0 6px; border-bottom: 1px solid var(--line); }
+
+  .tiles { display: flex; flex-direction: column; }
+  .tile { display: grid; grid-template-columns: 126px minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; padding: 9px 0; border: 0; border-bottom: 1px solid var(--line2); background: none; text-align: left; min-width: 0; width: 100%; }
+  button.tile:hover, div.tile[data-act]:hover { background: #1c1f26; }
+  div.tile[data-act] { cursor: pointer; }
+  .tile-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .tile-head img { display: none; }
   .tile-head .kicker { flex: 1; min-width: 0; }
   .tile-body { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; }
-  .tile-val { font-weight: 800; font-size: 15.5px; overflow-wrap: anywhere; }
-  .tile-head .tbtn { width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel2); color: var(--muted); display: grid; place-items: center; flex: none; padding: 0; }
-  .tile-head .tbtn:hover:not(:disabled) { color: var(--accent); border-color: #3a404c; }
+  .tile-val { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
+  .tile-head .tbtn { width: 24px; height: 24px; border-radius: 4px; border: 0; background: none; color: var(--muted); display: grid; place-items: center; flex: none; padding: 0; }
+  .tile-head .tbtn:hover:not(:disabled) { color: var(--text); background: var(--panel2); }
   .tile-head .tbtn.spin svg { animation: tile-spin .9s linear infinite; }
   @keyframes tile-spin { to { transform: rotate(360deg); } }
-  div.tile[data-act] { cursor: pointer; }
-  div.tile[data-act]:hover { border-color: #3a404c; background: #232831; }
-  .tile-sub { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
-  .tile-sub.err-text { color: #ff9b8f; }
-  .tile .btn { align-self: flex-start; min-height: 32px; padding: 0 12px; }
-  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--muted); box-shadow: 0 0 0 3px rgba(154,160,170,.18); }
-  .dot.good { background: var(--good); box-shadow: 0 0 0 3px rgba(127,209,127,.18); }
-  .dot.high { background: var(--high); box-shadow: 0 0 0 3px rgba(224,82,79,.2); }
-  .dot.medium { background: var(--medium); box-shadow: 0 0 0 3px rgba(224,162,58,.2); }
-  .dot.pending { background: var(--pending); box-shadow: 0 0 0 3px rgba(96,165,250,.2); }
+  .tile-sub { font-size: 12.5px; color: var(--faint); overflow-wrap: anywhere; }
+  .tile-sub.err-text { color: var(--bad); }
+  .tile .btn { justify-self: end; }
+  .tile .sec-err { grid-column: 1 / -1; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--faint); }
+  .dot.good { background: var(--good); }
+  .dot.high { background: var(--bad); }
+  .dot.medium { background: var(--wait); }
+  .dot.pending { background: var(--muted); }
 
-  .raids { display: flex; flex-direction: column; min-height: 170px; flex-shrink: 0; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); overflow: hidden; }
-  .raids-head { padding: 10px 12px 0; font-weight: 700; }
-  .tabs { display: flex; gap: 4px; padding: 8px 12px 0; border-bottom: 1px solid var(--line); flex: none; }
-  .tab { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 12px; background: transparent; border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0; margin-bottom: -1px; color: var(--muted); font-weight: 600; font-size: 13.5px; }
-  .tab:hover { color: var(--text); }
-  .tab[aria-selected="true"] { background: var(--panel2); border-color: var(--line); color: var(--text); }
-  .count { font: 700 11px var(--mono); padding: 0 7px; border-radius: 999px; background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
-  .count.hot-high { background: var(--high); color: var(--bg); border-color: var(--high); }
-  .count.hot-pending { background: var(--pending); color: var(--bg); border-color: var(--pending); }
   .rows { display: flex; flex-direction: column; }
-  .row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--line2); }
-  .chip { width: 28px; height: 28px; border-radius: 7px; flex: none; display: grid; place-items: center; }
-  .chip.ready { background: rgba(224,82,79,.16); color: var(--high); }
-  .chip.wait { background: rgba(96,165,250,.16); color: var(--pending); }
-  .chip.done { background: rgba(120,200,120,.16); color: var(--good); }
-  .chip.empty { background: rgba(224,162,58,.16); color: var(--medium); }
-  .chip.upcoming { background: var(--panel2); color: var(--muted); }
+  .row { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line2); }
+  .state { width: 150px; flex: none; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .state.ready { color: var(--wait); }
+  .state.wait { color: var(--wait); }
+  .state.done { color: var(--good); }
+  .state.empty { color: var(--faint); font-weight: 400; }
+  .state.upcoming { color: var(--faint); font-weight: 400; }
   .row-text { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.3; }
-  .row-title { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .row-sub { font-size: 12.5px; color: var(--muted); }
+  .row-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row-sub { font-size: 12.5px; color: var(--faint); }
   .row .btn { flex: none; }
-  .rows-empty { padding: 14px 12px; color: var(--muted); font-size: 13px; }
-  .more { margin: 8px 12px; align-self: flex-start; }
+  .rows-empty { padding: 12px 0; color: var(--muted); font-size: 13px; }
+  .more { margin: 8px 0; align-self: flex-start; }
 
   .ftr { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--line); background: var(--panel); font-size: 12.5px; color: var(--muted); flex: none; }
   .ftr.end { justify-content: flex-end; gap: 8px; padding: 12px 14px; }
+  .ftr.main { min-height: 64px; padding: 0 12px 0 16px; justify-content: flex-start; gap: 14px; }
+  .f-ready { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; flex: 1; }
+  .f-ready b { font-size: 13.5px; font-weight: 600; color: var(--text); }
+  .f-ready small { font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .f-check { display: flex; align-items: center; gap: 4px; white-space: nowrap; color: var(--faint); font-size: 12.5px; }
 
   /* Einstellungen / Einrichtung */
   .form-body { display: flex; flex-direction: column; gap: 12px; padding: 14px; }
@@ -208,7 +237,7 @@ module.exports.PAGE = String.raw`<!doctype html>
   .field { display: flex; flex-direction: column; gap: 6px; }
   .field > .lbl { font-size: 13px; font-weight: 600; color: var(--muted); }
   .input { width: 100%; min-height: 38px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
-  .input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(138,124,255,.16); }
+  .input:focus { outline: none; border-color: var(--muted); }
   select.input { appearance: none; padding-right: 34px; background-image: linear-gradient(45deg, transparent 50%, #9aa0aa 50%), linear-gradient(135deg, #9aa0aa 50%, transparent 50%); background-position: calc(100% - 17px) 17px, calc(100% - 12px) 17px; background-size: 5px 5px; background-repeat: no-repeat; }
   .inline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .result { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; }
@@ -228,7 +257,7 @@ module.exports.PAGE = String.raw`<!doctype html>
   .poll { display: flex; align-items: center; gap: 12px; }
   .poll-text { flex: 1; display: flex; flex-direction: column; line-height: 1.3; }
   .poll-text b { font-size: 13.5px; font-weight: 600; }
-  .poll input[type="checkbox"] { width: 20px; height: 20px; flex: none; accent-color: var(--accent); cursor: pointer; }
+  .poll input[type="checkbox"] { width: 20px; height: 20px; flex: none; accent-color: #3d723d; cursor: pointer; }
   .poll .input { width: 74px; min-height: 34px; padding: 6px 10px; text-align: right; }
   .static-lines { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--muted); }
   .actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
@@ -241,9 +270,9 @@ module.exports.PAGE = String.raw`<!doctype html>
   .lead { color: var(--muted); font-size: 13.5px; }
   .step { display: flex; gap: 12px; padding: 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); }
   .step-no { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; background: var(--panel2); border: 1px solid var(--line); color: var(--muted); font-weight: 800; font-size: 13px; }
-  .step-no.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-  .step-no.done { background: rgba(120,200,120,.16); border-color: transparent; color: var(--good); }
-  .step-no.warn { background: rgba(224,162,58,.16); border-color: transparent; color: var(--medium); }
+  .step-no.active { background: var(--panel2); border-color: var(--muted); color: var(--text); }
+  .step-no.done { border-color: transparent; color: var(--good); }
+  .step-no.warn { border-color: transparent; color: var(--medium); }
   .step-main { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
   .step-main .linkbtn { align-self: flex-start; padding: 0; font-size: 12.5px; }
 
@@ -251,7 +280,7 @@ module.exports.PAGE = String.raw`<!doctype html>
   .seg { margin-left: auto; display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel2); }
   .seg button { min-height: 30px; padding: 0 11px; border: 0; background: none; color: var(--muted); font-size: 12.5px; font-weight: 700; }
   .seg button + button { border-left: 1px solid var(--line); }
-  .seg button[aria-pressed="true"] { background: rgba(138,124,255,.16); color: var(--accent-text); }
+  .seg button[aria-pressed="true"] { background: #323845; color: var(--text); }
   .log { padding: 6px 0; }
   .line { display: grid; grid-template-columns: 64px 18px minmax(0, 1fr); gap: 8px; align-items: start; padding: 6px 14px; border-bottom: 1px solid #1d2027; }
   .line time { font: 12px var(--mono); color: var(--faint); padding-top: 1px; }
@@ -314,21 +343,27 @@ module.exports.PAGE = String.raw`<!doctype html>
 
 <!-- Übersicht -->
 <section class="view" id="v-main" hidden>
-  <header class="hdr">${CREST}${BRAND}${PILL}${BTN_LOG}${BTN_SETTINGS}${BTN_MIN}${BTN_QUIT}</header>
-  <div class="main-body grow">
+  <header class="hdr">${CREST}${BRAND}<span class="who" id="who" role="status">&nbsp;</span>${BTN_LOG}${BTN_SETTINGS}${BTN_MIN}${BTN_QUIT}</header>
+  <div class="banners" id="banners">
     <div class="strip upd" id="upd" role="status" hidden>${SVG_DOWNLOAD}<span class="upd-text"><b id="upd-title">Update verfügbar</b><small id="upd-text"></small></span><button type="button" class="linkbtn" data-act="update-notes" id="upd-notes">Was ist neu?</button><button type="button" class="btn sm" data-act="update-notes" id="upd-dl" hidden>Neue Version herunterladen</button><button type="button" class="btn sm primary" data-act="update-install" id="upd-btn">Installieren</button></div>
     <div class="problems" id="problems" role="alert" hidden></div>
+    <div class="notice" id="legacy" role="note" hidden></div>
     <div class="strip" id="strip" hidden>${SVG_RELOAD.replace(/14/g, "18")}<span><b>Neue Daten fürs Spiel</b><small id="strip-text"></small></span></div>
-    <div class="tiles" id="tiles"></div>
-    <section class="raids grow" aria-label="Raid-Abende">
-      <div class="raids-head">Raid-Abende</div>
-      <div class="tabs" role="tablist" id="tabs"></div>
-      <div class="rows grow scroll" id="rows" role="tabpanel"></div>
-    </section>
   </div>
-  <footer class="ftr">
-    <span id="f-status">&nbsp;</span>
-    <button type="button" class="btn sm" data-act="check" id="btn-check">${SVG_RELOAD}Jetzt prüfen</button>
+  <div class="split grow">
+    <nav class="side scroll" id="side" aria-label="Server und Versionen"></nav>
+    <main class="detail grow scroll" id="detail">
+      <div class="ver-title" id="ver-title"></div>
+      <div class="sec">Raids · letzte 14 Tage</div>
+      <div class="rows" id="rows"></div>
+      <div class="sec">Weiteres</div>
+      <div class="tiles" id="tiles"></div>
+    </main>
+  </div>
+  <footer class="ftr main">
+    <button type="button" class="btn go big" data-act="upload-all" id="btn-upload">${SVG_UP}Hochladen</button>
+    <span class="f-ready"><b id="f-ready">&nbsp;</b><small id="f-ready-sub">&nbsp;</small></span>
+    <span class="f-check"><span id="f-status">&nbsp;</span><button type="button" class="ib" data-act="check" id="btn-check" aria-label="Jetzt prüfen" title="Jetzt prüfen">${SVG_RELOAD}</button></span>
   </footer>
 </section>
 
@@ -491,6 +526,15 @@ const SVG = {
   check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>',
   warn: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 6v8M12 18v.5"/></svg>',
 };
+const SVG_UP = ${JSON.stringify(SVG_UP)};
+// The status of a raid as a word (Canvas A): the word carries the state.
+const STATE_WORDS = {
+  ready: "Aus dem Spiel bereit",
+  wait: "Wartet in der Inbox",
+  done: "Importiert",
+  empty: "Ohne Loot",
+  upcoming: "Kommend",
+};
 
 // Die zwei Datenquellen: der lokale Stand (/api/state, alle 3 s) und der
 // Raid-Status vom echten Server (/api/raids, alle 12 s — ein Aufruf gegen
@@ -502,9 +546,11 @@ let raidsError = null;
 // Ansicht: "main", "settings" oder "log". Ohne Adresse/Token wird aus
 // "main" und "settings" die Einrichtung.
 let view = "main";
-// Vom Nutzer gewählter Reiter (null: der passende von selbst), und welche
-// Reiter "Weitere anzeigen" aufgeklappt haben — beides übersteht den Poll.
-let pickedTab = null;
+// Welche Listen "Weitere anzeigen" aufgeklappt haben (je Version) und die
+// gewählte Version — beides übersteht den Poll.
+// Sidebar selection "<guildId>:<version>" (null: the first version with work,
+// else the one of the addon file).
+let pickedVersion = null;
 const expanded = {};
 const ROW_LIMIT = 8;
 let logFilter = "all";
@@ -679,7 +725,8 @@ const actions = {
     post("/api/quit").catch(() => {}).finally(closeWindow);
   },
   minimize() { hostPost({ type: "minimize" }); },
-  tab(arg) { pickedTab = arg; render(); },
+  // Sidebar: a version of a server ("<guildId>:<version>").
+  pick(arg) { pickedVersion = arg; render(); },
   more(arg) { expanded[arg] = true; render(); },
   open(arg) { if (arg) openExternal(arg); },
   "upload-all"() {
@@ -964,6 +1011,7 @@ function render() {
   });
   const headerOf = () => document.querySelector(".view:not([hidden]) .hdr");
   safely("Kopfzeile", headerOf, renderChrome);
+  if (id === "v-main") safely("Verbindung", () => $("who"), () => renderWho(lastState));
   safely("Update", () => $("upd"), renderUpdate);
   safely("Version", () => $("ver-lines"), renderVersionCard);
   if (id === "v-setup") safely("Einrichtung", () => $("su-connect"), renderSetup);
@@ -973,7 +1021,8 @@ function render() {
   safely("Fenstergrösse", null, fitWindow);
 }
 
-// Kopfzeile: Version, Host und die Verbindungs-Pille auf jeder Ansicht.
+// Kopfzeile: Version, Host und die Verbindungs-Pille (Einrichtung und
+// Einstellungen; die Hauptansicht zeigt stattdessen "Verbunden als").
 function renderChrome() {
   const d = lastState;
   const host = hostOf(d.config.baseUrl);
@@ -1105,16 +1154,175 @@ function buildGroups() {
   const sessions = (lastState && lastState.sessions) || [];
   const raids = lastRaids || [];
   const matchedIds = new Set(raids.filter((r) => r.matchedSessionId).map((r) => r.matchedSessionId));
-  const ready = raids.filter((r) => r.status === "ready");
-  const pending = raids.filter((r) => r.status === "pending");
-  const rest = raids.filter((r) => r.status !== "ready" && r.status !== "pending");
   const unmatched = sessions.filter((s) => (
     !s.excluded && s.items > 0 && !s.lastUpload && !matchedIds.has(s.sessionId)
   ));
+  return splitRaids(raids, unmatched);
+}
+
+function splitRaids(raids, unmatched) {
+  const ready = raids.filter((r) => r.status === "ready");
+  const pending = raids.filter((r) => r.status === "pending");
+  const rest = raids.filter((r) => r.status !== "ready" && r.status !== "pending");
   const now = Date.now();
   const pastRest = rest.filter((r) => r.startTime * 1000 <= now);
   const upcomingRest = rest.filter((r) => r.startTime * 1000 > now).sort((a, b) => a.startTime - b.startTime);
   return { ready, unmatched, pending, pastRest, upcomingRest };
+}
+
+// --- Servers and their versions (issue #51, Canvas A) ------------------------
+
+// The version colour is the only accent of the overview.
+const VERSION_INFO = {
+  tbc: { label: "TBC Anniversary", color: "var(--tbc)" },
+  forever: { label: "WoW Forever", color: "var(--fe)" },
+  classic: { label: "Classic Era", color: "var(--era)" },
+  era: { label: "Classic Era", color: "var(--era)" },
+};
+function versionInfo(id, short) {
+  return VERSION_INFO[id] || { label: short || id || "Unbekannte Version", color: "var(--muted)" };
+}
+function initials(name) {
+  const words = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return "?";
+  return (words[0][0] + (words[1] ? words[1][0] : words[0].slice(1, 2))).toUpperCase();
+}
+
+// Sidebar model from /api/ingest/me (state.me): servers with their versions,
+// every raid sorted to the version of its server (guildId + gameVersion).
+// Raids no listed version takes go to "Ohne Server". Local sessions without a
+// raid date carry no server: they go to the one version of the addon file's
+// game version, else to "Ohne Server". Without the server list (older server,
+// not fetched yet) a single version of the addon file takes everything.
+function groupServers(me, raids, sessions, fileVersion) {
+  const known = me && !me.unsupported && Array.isArray(me.servers) ? me.servers : [];
+  const mk = (guildId, id, short, realm) => {
+    const info = versionInfo(id, short);
+    return { key: guildId + ":" + id, guildId, id, label: info.label, short: short || "", realm: realm || "", color: info.color, raids: [], sessions: [] };
+  };
+  let servers = known.map((s) => {
+    const guildId = String(s.guildId || "");
+    const name = s.label || s.name || "Server";
+    return { guildId, name, initials: initials(name), versions: (s.versions || []).map((v) => mk(guildId, String(v.id || ""), v.short, v.realm)) };
+  }).filter((s) => s.versions.length);
+  const fallback = !servers.length;
+  if (fallback) servers = [{ guildId: "", name: "Dein Server", initials: "", fallback: true, versions: [mk("", fileVersion || "", "", "")] }];
+  const versions = [].concat(...servers.map((s) => s.versions));
+  const none = mk("", "", "", "");
+  none.key = "none";
+  none.label = "Ohne Server";
+  for (const r of raids || []) {
+    const v = fallback ? versions[0] : versions.find((x) => x.guildId === String(r.guildId || "") && x.id === String(r.gameVersion || ""));
+    (v || none).raids.push(r);
+  }
+  const same = versions.filter((x) => x.id === fileVersion);
+  const home = fallback ? versions[0] : same.length === 1 ? same[0] : none;
+  for (const s of sessions || []) home.sessions.push(s);
+  for (const v of versions.concat(none)) {
+    v.ready = v.raids.filter((r) => r.status === "ready").length + v.sessions.length;
+    v.pending = v.raids.filter((r) => r.status === "pending").length;
+  }
+  return { servers, versions, none: none.raids.length || none.sessions.length ? none : null };
+}
+
+// The picked version, else the first with something to upload, else the one
+// of the addon file, else the first.
+function pickVersion(model, fileVersion) {
+  if (!model) return null;
+  const all = model.versions.concat(model.none ? [model.none] : []);
+  return all.find((v) => v.key === pickedVersion)
+    || all.find((v) => v.ready)
+    || all.find((v) => v.pending)
+    || all.find((v) => v.id === fileVersion)
+    || all[0] || null;
+}
+
+function versionSub(v) {
+  const parts = [];
+  if (v.realm) parts.push(v.realm);
+  if (v.ready) parts.push(v.ready + " bereit");
+  else if (v.pending) parts.push(v.pending + " im Web offen");
+  return parts.join(" · ");
+}
+
+function versionButton(v, picked) {
+  return '<button type="button" class="sv" data-act="pick" data-arg="' + esc(v.key) + '" style="--vc:' + v.color + '"'
+    + ' aria-current="' + (!!picked && picked.key === v.key) + '"><span class="sv-name">' + esc(v.label) + "</span>"
+    + '<span class="sv-sub">' + (esc(versionSub(v)) || "&nbsp;") + "</span></button>";
+}
+
+function renderSide(model, picked) {
+  let html = "";
+  for (const s of model.servers) {
+    html += '<div class="srv">' + (s.initials ? '<span class="srv-ini" aria-hidden="true">' + esc(s.initials) + "</span>" : "")
+      + '<span class="srv-name" title="' + esc(s.name) + '">' + esc(s.name) + "</span></div>"
+      + s.versions.map((v) => versionButton(v, picked)).join("");
+  }
+  if (model.none) {
+    html += '<div class="side-foot">Raids ohne passenden Server</div>' + versionButton(model.none, picked);
+  }
+  setHtml($("side"), html);
+}
+
+function renderVersionTitle(model, v) {
+  if (!v) { setHtml($("ver-title"), ""); return; }
+  const server = model.servers.find((s) => s.versions.indexOf(v) >= 0);
+  const where = [server && !server.fallback ? server.name : "", v.realm].filter(Boolean).join(" · ");
+  setHtml($("ver-title"), '<b style="--vc:' + v.color + '">' + esc(v.label) + "</b>" + (where ? "<span>" + esc(where) + "</span>" : ""));
+}
+
+// "Verbunden als Marc · gilt für 2 Server" in the overview header.
+function renderWho(d) {
+  const el = $("who");
+  const c = d.connection;
+  const me = d.me;
+  let html = "Nicht eingerichtet";
+  let err = false;
+  let title = "Adresse und Token fehlen";
+  if (configured()) {
+    if (c && c.ok === false) { html = "Keine Verbindung"; err = true; title = c.message || ""; }
+    else if (c && c.ok === true) {
+      const n = me && Array.isArray(me.servers) ? me.servers.length : 0;
+      const name = me && me.owner && me.owner.name;
+      html = (name ? "Verbunden als <b>" + esc(name) + "</b>" : "Verbunden") + (n ? " · gilt für " + plural(n, "Server", "Server") : "");
+      title = hostOf(d.config.baseUrl);
+    } else { html = "Verbinde …"; title = "Noch keine Antwort vom Server"; }
+  }
+  el.classList.toggle("err", err);
+  el.title = title;
+  setHtml(el, html);
+}
+
+// An old server key still works, but only for its one server: say so, no
+// forced switch.
+function renderLegacy(d) {
+  const legacy = d.me && d.me.legacy;
+  const el = $("legacy");
+  el.hidden = !legacy;
+  if (!legacy) return;
+  const server = ((d.me && d.me.servers) || []).find((s) => String(s.guildId) === String(legacy.guildId));
+  const name = server ? server.label || server.name : "einen Server";
+  setHtml(el, "Alter Server-Schlüssel: gilt nur für <b>" + esc(name) + "</b>. Er läuft weiter; für alle deine Server "
+    + "auf der Webseite unter Mein Profil einen eigenen Schlüssel anlegen.");
+}
+
+// The notice area takes no space when every notice in it is hidden.
+function renderBanners() {
+  const shown = ["upd", "problems", "legacy", "strip"].some((id) => $(id) && !$(id).hidden);
+  $("banners").classList.toggle("none", !shown);
+}
+
+// Council categories and handout banks of the picked version. Data without
+// server tags (older web server) shows everywhere.
+function councilFor(c, v) {
+  if (!c || !v || !v.guildId) return c;
+  const cats = (c.categories || []).filter((k) => !k.guildId || (k.guildId === v.guildId && (!k.gameVersion || k.gameVersion === v.id)));
+  return { ...c, categories: cats, raiders: cats.reduce((sum, k) => sum + (k.raiders || 0), 0) };
+}
+function handoutsFor(h, v) {
+  if (!h || !v || !v.guildId || !Array.isArray(h.perBank) || !h.perBank.length) return h;
+  const banks = h.perBank.filter((b) => b.guildId === v.guildId && (!b.gameVersion || b.gameVersion === v.id));
+  return { ...h, banks: banks.length, handouts: banks.reduce((sum, b) => sum + (b.handouts || 0), 0) };
 }
 
 function councilSummary(c) {
@@ -1144,33 +1352,6 @@ function tileHtml(t) {
   return '<div class="tile"' + (t.title ? ' title="' + esc(t.title) + '"' : "") + ">" + head + body + (t.action || "") + "</div>";
 }
 
-function uploadTile(d, g) {
-  const readyCount = g.ready.length + g.unmatched.length;
-  const t = { kicker: "Loot-Upload", icon: ICON.upload, dot: "good", dotTitle: "Alles hochgeladen" };
-  if (!d.file) {
-    return { ...t, value: "Keine Addon-Datei", sub: "Siehe Hinweis oben", dot: "", dotTitle: "Keine Addon-Datei" };
-  }
-  if (lastRaids === null && !raidsError && configured()) {
-    t.value = "Wird geladen …";
-    t.dot = "";
-  } else if (readyCount) {
-    t.value = readyCount + (readyCount === 1 ? " Abend bereit" : " Abende bereit");
-    t.dot = "high";
-    t.dotTitle = "Es gibt etwas hochzuladen";
-    const working = busy.has("upload") || d.uploading;
-    t.action = '<button type="button" class="btn primary" data-act="upload-all"' + (working ? " disabled" : "") + ">"
-      + (working ? "Lädt hoch …" : "Alles hochladen") + "</button>";
-  } else {
-    t.value = "Alles hochgeladen";
-    if (g.pending.length) { t.dot = "pending"; t.dotTitle = "Wartet auf Bestätigung"; }
-  }
-  if (d.uploading) t.sub = "Lädt hoch …";
-  else if (g.pending.length) t.sub = g.pending.length + (g.pending.length === 1 ? " wartet" : " warten") + " auf Bestätigung in der Inbox";
-  else if (d.lastUpload) t.sub = "Zuletzt hochgeladen " + stamp(d.lastUpload.at);
-  else t.sub = "Wartet auf neuen Loot";
-  return t;
-}
-
 // Abfrage-Knopf in der Kachel; während des Holens gesperrt, Unterzeile "wird geholt …".
 function withFetch(t, act, label, isBusy) {
   const r = { ...t, fetchAct: act, fetchLabel: label, fetching: isBusy };
@@ -1192,9 +1373,10 @@ function councilTileBase(c) {
     return { ...t, value: c.lastFetch ? councilSummary(c) : "Nicht geholt", sub: c.lastError.message, subErr: true, dot: "high", dotTitle: "Fehler" };
   }
   if (!c.lastFetch) return { ...t, value: "Wird geholt …", sub: "", dot: "", dotTitle: "" };
+  // No council here is a normal state (a version without loot council), not an error: grey.
   if (!cats.length) {
     return {
-      ...t, value: "Keine Kategorie", dot: "high", dotTitle: "Keine Kategorie mit Loot-Council", subErr: true,
+      ...t, value: "Keine Kategorie", dot: "", dotTitle: "Keine Kategorie mit Loot-Council",
       sub: "Auf der Webseite unter Einstellungen › Kategorien das Lootsystem auf Loot-Council stellen.",
     };
   }
@@ -1305,7 +1487,7 @@ function handoutsTileBase(h) {
 }
 
 function rowHtml(r) {
-  let html = '<div class="row"><span class="chip ' + r.kind + '">' + SVG[r.kind] + "</span>"
+  let html = '<div class="row"><span class="state ' + r.kind + '">' + esc(STATE_WORDS[r.kind]) + "</span>"
     + '<span class="row-text"><span class="row-title" title="' + esc(r.title) + '">' + esc(r.title) + "</span>"
     + '<span class="row-sub">' + esc(r.sub) + "</span></span>";
   if (r.primary) {
@@ -1356,14 +1538,14 @@ function buildRows(d, g) {
     title: r.title,
     sub: fmtDay(r.startTime * 1000) + " · " + (r.inboxItems ? plural(r.inboxItems, "Item wartet", "Items warten") + " in der Inbox" : "Hochgeladen, wartet in der Inbox"),
     // Bestätigt wird in der Addon-Inbox, nicht am Event.
-    primary: inbox ? { label: "Bestätigen", act: "open", arg: inbox, cls: "blue", title: "In der Addon-Inbox auf der Website bestätigen" } : null,
+    primary: inbox ? { label: "Im Web zuordnen", act: "open", arg: inbox, cls: "link", title: "In der Addon-Inbox auf der Website bestätigen" } : null,
   }));
   const done = g.pastRest.map((r) => {
     const isDone = r.status === "done";
     return {
       kind: isDone ? "done" : "empty",
       title: r.title,
-      sub: fmtDay(r.startTime * 1000) + " · " + (isDone ? "Importiert" : "Kein Loot gefunden"),
+      sub: fmtDay(r.startTime * 1000) + (isDone && r.itemCount ? " · " + plural(r.itemCount, "Item", "Items") : ""),
       // Mit Loot dahin, wo der Loot steht (Historie); ohne Loot zum Event.
       link: eventUrl(r.eventId, isDone ? "/history/event" : "/raids/detail"),
     };
@@ -1377,22 +1559,25 @@ function buildRows(d, g) {
   return { ready, wait, done, upcoming };
 }
 
-const TABS = [
-  { id: "ready", label: "Bereit", hot: "hot-high", empty: "Nichts bereit zum Hochladen." },
-  { id: "wait", label: "Wartet", hot: "hot-pending", empty: "Nichts wartet auf Bestätigung." },
-  { id: "done", label: "Erledigt", hot: "", empty: "Keine Raid-Termine der letzten Wochen gefunden." },
-  { id: "upcoming", label: "Kommend", hot: "", empty: "Keine kommenden Raids." },
-];
-
 function renderMain() {
   const d = lastState;
   let g = null;
-  safely("Raid-Daten", () => $("tiles"), () => { g = buildGroups(); });
+  let model = null;
+  let picked = null;
+  safely("Raid-Daten", () => $("rows"), () => {
+    g = buildGroups();
+    model = groupServers(d.me, lastRaids || [], g.unmatched, d.fileVersion || "");
+    picked = pickVersion(model, d.fileVersion || "");
+  });
   safely("Hinweise", () => $("problems"), () => renderProblems(d));
+  safely("Alter Schlüssel", () => $("legacy"), () => renderLegacy(d));
   safely("Neue Daten", () => $("strip"), () => renderDataStrip(d));
-  safely("Kacheln", () => $("tiles"), () => renderTiles(d, g));
-  safely("Raid-Abende", () => $("rows"), () => renderRaidNights(d, g));
-  safely("Fusszeile", () => $("btn-check"), () => renderMainFooter(d));
+  safely("Server", () => $("side"), () => renderSide(model, picked));
+  safely("Auswahl", () => $("ver-title"), () => renderVersionTitle(model, picked));
+  safely("Raid-Abende", () => $("rows"), () => renderRaidNights(d, picked));
+  safely("Kacheln", () => $("tiles"), () => renderTiles(d, picked));
+  safely("Fusszeile", () => $("btn-check"), () => renderMainFooter(d, g));
+  safely("Hinweisleiste", () => $("banners"), renderBanners);
 }
 
 function renderProblems(d) {
@@ -1427,39 +1612,59 @@ function renderDataStrip(d) {
 
 }
 
-function renderTiles(d, g) {
-  const tiles = [uploadTile(d, g), councilTile(d.council), guildBankTile(d.guildBank), handoutsTile(d.handouts)];
+// "Weiteres" of the picked version: Council and handouts of its server, the
+// guild bank scan when the addon file is of this game version, Bestzeiten.
+function renderTiles(d, v) {
+  const tiles = [councilTile(councilFor(d.council, v))];
+  if (!v || !v.id || v.id === d.fileVersion) tiles.push(guildBankTile(d.guildBank));
+  tiles.push(handoutsTile(handoutsFor(d.handouts, v)));
   if (d.levelHelper && d.levelHelper.show) tiles.push(levelHelperTile(d.levelHelper));
   setHtml($("tiles"), tiles.map(tileHtml).join(""));
 }
 
-function renderRaidNights(d, g) {
-  // Reiter
-  const rows = buildRows(d, g);
-  const counts = { ready: rows.ready.length, wait: rows.wait.length, done: rows.done.length, upcoming: rows.upcoming.length };
-  const tab = pickedTab || (counts.ready ? "ready" : counts.wait ? "wait" : "done");
-  setHtml($("tabs"), TABS.map((t) => '<button type="button" role="tab" class="tab" data-act="tab" data-arg="' + t.id
-    + '" aria-selected="' + (t.id === tab) + '" id="tab-' + t.id + '">' + t.label
-    + '<span class="count ' + (t.hot && counts[t.id] ? t.hot : "") + '">' + counts[t.id] + "</span></button>").join(""));
-  $("rows").setAttribute("aria-labelledby", "tab-" + tab);
-
-  const list = rows[tab];
+// One list per version, no tabs: ready, waiting, past, upcoming.
+function renderRaidNights(d, v) {
+  const key = v ? v.key : "";
+  const rows = v ? buildRows(d, splitRaids(v.raids, v.sessions)) : { ready: [], wait: [], done: [], upcoming: [] };
+  const list = rows.ready.concat(rows.wait, rows.done, rows.upcoming);
   let html;
   const loading = lastRaids === null && configured();
   if (!list.length) {
-    const def = TABS.find((t) => t.id === tab);
-    html = '<div class="rows-empty">' + (loading ? (raidsError ? "Raid-Liste nicht geladen." : "Raid-Liste wird geladen …") : def.empty) + "</div>";
+    html = '<div class="rows-empty">' + (loading ? (raidsError ? "Raid-Liste nicht geladen." : "Raid-Liste wird geladen …")
+      : "Keine Raid-Termine der letzten Wochen gefunden.") + "</div>";
   } else {
-    const shown = expanded[tab] ? list : list.slice(0, ROW_LIMIT);
+    const shown = expanded[key] ? list : list.slice(0, ROW_LIMIT);
     html = shown.map(rowHtml).join("");
     if (shown.length < list.length) {
-      html += '<button type="button" class="linkbtn more" data-act="more" data-arg="' + tab + '">Weitere ' + (list.length - shown.length) + " anzeigen</button>";
+      html += '<button type="button" class="linkbtn more" data-act="more" data-arg="' + esc(key) + '">Weitere ' + (list.length - shown.length) + " anzeigen</button>";
     }
   }
   setHtml($("rows"), html);
 }
 
-function renderMainFooter(d) {
+// Footer: one "Hochladen" for every server, what it would upload, the check.
+function renderMainFooter(d, g) {
+  const count = g ? g.ready.length + g.unmatched.length : 0;
+  const working = busy.has("upload") || !!d.uploading;
+  const loading = lastRaids === null && !raidsError && configured();
+  let title;
+  let sub;
+  if (!d.file) { title = "Keine Addon-Datei"; sub = "Siehe Hinweis oben"; }
+  else if (working) { title = "Lädt hoch …"; sub = count ? plural(count, "Abend", "Abende") + " für alle Server" : ""; }
+  else if (count) {
+    title = plural(count, "Abend", "Abende") + " aus dem Spiel bereit";
+    sub = g.ready.map((r) => r.title).concat(g.unmatched.map((s) => s.instance || "Unbekannter Raid")).join(", ") + " · für alle Server";
+  } else if (loading) { title = "Raid-Liste wird geladen …"; sub = ""; }
+  else {
+    title = "Nichts hochzuladen";
+    sub = d.lastUpload ? "Zuletzt hochgeladen " + stamp(d.lastUpload.at) : "Wartet auf neuen Loot";
+  }
+  $("f-ready").textContent = title;
+  $("f-ready-sub").textContent = sub || " ";
+  const btn = $("btn-upload");
+  btn.disabled = working || !count;
+  setHtml(btn, SVG_UP + (working ? "Lädt hoch …" : "Hochladen"));
+  btn.title = count ? "Lädt alle bereiten Abende hoch, für alle Server" : "Nichts hochzuladen";
   $("f-status").textContent = d.file ? "Addon-Datei geprüft " + ago(d.lastCheck) : "Warte auf die Addon-Datei …";
   $("btn-check").disabled = busy.has("check");
 }
@@ -1598,9 +1803,9 @@ function renderSetupSteps() {
 // Höhe des Inhalts ändert (Ansicht, Reiter, Raid-Liste geladen), damit eine
 // eigene Grösse nicht bei jedem 3-s-Poll überschrieben wird. Im normalen
 // Browser-Tab (Fallback) ignoriert der Browser resizeTo() ohnehin.
-// 560: zwei Kacheln nebeneinander und eine Raid-Zeile mit drei Knöpfen, ohne
-// dass die Unterzeile ("Mi, 1.10.2026 · 14 Items · RCLootCouncil") umbricht.
-const APP_WIDTH = 560;
+// 760: links die Server-Leiste, rechts eine Raid-Zeile mit Status-Wort und
+// Knöpfen, ohne dass die Unterzeile umbricht (Canvas-Variante A).
+const APP_WIDTH = 760;
 let fittedHeight = 0;
 function fitWindow() {
   const v = activeView();

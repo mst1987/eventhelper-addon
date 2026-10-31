@@ -144,7 +144,7 @@ function loadPage({ state, raids = [], routes = {} }) {
 
     const sandbox = {
         document: doc,
-        window: { outerWidth: 600, innerWidth: 560, outerHeight: 700, innerHeight: 680, resizeTo() {}, close() {} },
+        window: { outerWidth: 800, innerWidth: 760, outerHeight: 700, innerHeight: 680, resizeTo() {}, close() {} },
         screen: { availHeight: 1000 },
         navigator: {},
         location: { search: "?key=test" },

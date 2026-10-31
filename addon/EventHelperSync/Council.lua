@@ -136,28 +136,78 @@ local function normalizeCategory(raw, index)
 end
 
 -- Load() baut die Kategorien einmal je Datentabelle (die aendert sich nur
--- mit einem /reload) - und dieselbe Tabelle haelt die Caches darunter.
+-- mit einem /reload) und Server - und dieselbe Tabelle haelt die Caches darunter.
 local loadedCache = setmetatable({}, { __mode = "k" })
+
+-- Gilden- und Realm-Namen fuer den Vergleich: klein, ohne Leerzeichen,
+-- Bindestrich und Apostroph ("Die Silberne Hand" = "die-silberne-hand").
+local function guildKey(text)
+    return (tostring(text or ""):lower():gsub("[%s%-']", ""))
+end
+
+--- Wer spielt gerade: Gilde und Realm des Charakters. Vor dem ersten
+-- Gilden-Update (kurz nach dem Login) ist die Gilde noch leer. Die einzigen
+-- Client-Aufrufe dieser Datei neben date(), beide optional.
+-- @return { guild, realm }
+function Council.Who()
+    local guild = _G.GetGuildInfo and _G.GetGuildInfo("player") or nil
+    local realm = _G.GetRealmName and _G.GetRealmName() or nil
+    return { guild = guild or "", realm = realm or "" }
+end
+
+local function serverMatches(server, who)
+    local guild, realm = guildKey(who.guild), guildKey(who.realm)
+    if guild == "" then return false end
+    for _, version in ipairs(type(server.versions) == "table" and server.versions or {}) do
+        for _, g in ipairs(type(version.guilds) == "table" and version.guilds or {}) do
+            if type(g) == "table" and guildKey(g.name) == guild then
+                local gRealm = guildKey((g.realm ~= nil and g.realm ~= "") and g.realm or version.realm)
+                if gRealm == "" or realm == "" or gRealm == realm then return true end
+            end
+        end
+    end
+    return false
+end
+
+--- Der Discord-Server, dessen Kategorien gelten (Daten ab Sync 1.19.0 mit
+-- `servers`): der, dessen WoW-Gilde der Charakter angehoert; sonst der
+-- einzige Server; sonst keiner (dann zeigt das Fenster alle Kategorien).
+function Council.ChooseServer(servers, who)
+    if type(servers) ~= "table" then return nil end
+    for _, server in ipairs(servers) do
+        if type(server) == "table" and serverMatches(server, who or {}) then return server end
+    end
+    if #servers == 1 and type(servers[1]) == "table" then return servers[1] end
+    return nil
+end
 
 --- Die Council-Daten, sofern brauchbar, immer in der Form von Version 3:
 -- { format, version = 3, generatedAt, weights, categories = { {id, name,
 -- filter, instances, avgLootCount, raiders [, weights, itemWeights,
 -- itemClasses, avgLootPoints]}, ... }, fromVersion }. Gelesen werden
--- Version 1, 2 und 3.
+-- Version 1, 2 und 3. Hat die Datei `servers` (Sync ab 1.19.0, mehrere
+-- Discord-Server), gelten nur die Kategorien des Servers, dessen Gilde der
+-- Charakter angehoert (ChooseServer); der steht dann in data.server.
 -- @param raw optional, sonst die globale Variable aus CouncilData.lua
+-- @param who optional { guild, realm }, sonst Council.Who()
 -- @return data|nil, status  status: "ok" | "none" | "format" | "version"
-function Council.Load(raw)
+function Council.Load(raw, who)
     if raw == nil then raw = _G.EventHelperSync_Council end
     if type(raw) ~= "table" then return nil, "none" end
     if raw.format ~= Council.FORMAT then return nil, "format" end
     local version = tonumber(raw.version)
     if not version then return nil, "format" end
     if version > Council.VERSION then return nil, "version" end
-    if loadedCache[raw] then return loadedCache[raw], "ok" end
+
+    local server
+    if type(raw.servers) == "table" then server = Council.ChooseServer(raw.servers, who or Council.Who()) end
+    local cacheKey = server and tostring(server.guildId or "") or ""
+    local cached = loadedCache[raw]
+    if cached and cached[cacheKey] then return cached[cacheKey], "ok" end
 
     local data = {
         format = raw.format, version = Council.VERSION, generatedAt = raw.generatedAt,
-        weights = raw.weights, categories = {},
+        weights = raw.weights, categories = {}, server = server,
     }
     if version < 2 then
         -- Version 1: eine Kategorie, gefiltert vom Sync-Tool.
@@ -174,13 +224,22 @@ function Council.Load(raw)
     else
         if type(raw.categories) ~= "table" then return nil, "format" end
         data.fromVersion = raw.fromVersion
+        local onlyGuild = server and tostring(server.guildId or "") or nil
         for index, category in ipairs(raw.categories) do
-            if type(category) == "table" and type(category.raiders) == "table" then
-                data.categories[#data.categories + 1] = normalizeCategory(category, index)
+            if type(category) == "table" and type(category.raiders) == "table"
+                and (not onlyGuild or category.guildId == nil or tostring(category.guildId) == onlyGuild) then
+                local normalized = normalizeCategory(category, index)
+                normalized.guildId = category.guildId ~= nil and tostring(category.guildId) or nil
+                normalized.gameVersion = category.gameVersion
+                data.categories[#data.categories + 1] = normalized
             end
         end
     end
-    loadedCache[raw] = data
+    if not cached then
+        cached = {}
+        loadedCache[raw] = cached
+    end
+    cached[cacheKey] = data
     return data, "ok"
 end
 

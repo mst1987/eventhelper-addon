@@ -41,13 +41,13 @@ const MAX_CHARACTERS = 200;
 // Zwei Berichte desselben Laufs (wie DungeonTimer.lua: SAME_RUN_START).
 const SAME_RUN_START = 120;
 
-// Welche Variante-Ordner zu welcher Spielversion gehören. WoW Forever läuft im
-// Ordner `_classic_beta_`; was hier fehlt, wird nicht hochgeladen (eine falsche
-// versionId wäre schlimmer als keine).
-const FLAVOR_VERSIONS = {
-    _classic_beta_: "forever",
-    _anniversary_: "tbc",
-};
+// Welche Variante-Ordner zu welcher Spielversion gehören, steht an einer Stelle
+// in wowPaths (gemeinsam mit dem Loot-Upload); was dort fehlt, wird nicht
+// hochgeladen (eine falsche versionId wäre schlimmer als keine). _classic_era_
+// bleibt draußen: dort laufen auch Season of Discovery und Hardcore, deren
+// Läufe nicht als "classic" in die Bestzeiten gehören.
+const FLAVOR_VERSIONS = Object.fromEntries(
+    Object.entries(wowPaths.FLAVOR_VERSIONS).filter(([flavor]) => flavor !== "_classic_era_"));
 
 // CLASS_LIST aus DungeonTimer.lua: der Klassen-Index im Addon.
 const CLASS_LIST = ["WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK",

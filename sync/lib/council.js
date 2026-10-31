@@ -17,7 +17,10 @@
  *
  * Das Format `eventhelper-council` ist mit dem Server (Repo
  * d:/programming/eventhelper, Route GET /api/ingest/council, docs/loot-import.md)
- * abgestimmt. Version 3 (`?v=3`, ab 1.14.0) ist Version 2 mit allen fünf
+ * abgestimmt. Version 4 (`?v=4`, ab 1.19.0) gliedert die Kategorien von
+ * Version 3 nach Discord-Server und Spielversion; die Datei bleibt Version 3
+ * (Kategorien mit guildId/gameVersion plus `servers`), je Addon-Ordner nur mit
+ * den Kategorien seiner Spielversion. Version 3 (`?v=3`, ab 1.14.0) ist Version 2 mit allen fünf
  * Rollen, Roster-Status, Loot-Punkten, Zugehörigkeit und je Kategorie ihrer
  * Gewichtung samt Item-Klassen. Version 2 (`?v=2`) liefert jede Raid-Kategorie,
  * deren Lootsystem Loot-Council ist, mit den Filtern der Webseite
@@ -36,6 +39,9 @@ const { getJson, UploadError, SYNC_VERSION } = require("./uploader");
 
 const COUNCIL_FORMAT = "eventhelper-council";
 const COUNCIL_VERSION = 3;
+// The highest version the server may answer with (4 = grouped by server and
+// game version). The file keeps version 3 plus `servers`, see normalizeCouncilV4().
+const COUNCIL_SERVER_VERSION = 4;
 const COUNCIL_FILE = "CouncilData.lua";
 // Die globale Variable, die das Addon liest (Council.lua).
 const COUNCIL_GLOBAL = "EventHelperSync_Council";
@@ -185,9 +191,9 @@ function validateCouncil(payload) {
     if (typeof version !== "number" || !Number.isInteger(version) || version < 1) {
         throw new CouncilError(`Ungültige Version der Council-Daten: ${JSON.stringify(version)}.`);
     }
-    if (version > COUNCIL_VERSION) {
+    if (version > COUNCIL_SERVER_VERSION) {
         throw new CouncilError(
-            `Die Council-Daten haben Version ${version}, dieses Sync-Tool kennt nur Version ${COUNCIL_VERSION}. `
+            `Die Council-Daten haben Version ${version}, dieses Sync-Tool kennt nur Version ${COUNCIL_SERVER_VERSION}. `
             + "Bitte EventHelper Sync aktualisieren.",
         );
     }
@@ -197,10 +203,33 @@ function validateCouncil(payload) {
         }
         return payload;
     }
+    if (version === 4) {
+        if (!Array.isArray(payload.servers)) {
+            throw new CouncilError("Die Council-Daten enthalten keine Server-Liste.");
+        }
+        for (const server of payload.servers) {
+            if (!isPlainObject(server) || !Array.isArray(server.versions)) {
+                throw new CouncilError("Ein Server der Council-Daten hat keine Versionen-Liste.");
+            }
+            for (const v of server.versions) {
+                if (!isPlainObject(v) || !Array.isArray(v.categories)) {
+                    throw new CouncilError("Eine Version der Council-Daten hat keine Kategorien-Liste.");
+                }
+                validateCategories(v.categories);
+            }
+        }
+        return payload;
+    }
     if (!Array.isArray(payload.categories)) {
         throw new CouncilError("Die Council-Daten enthalten keine Kategorien-Liste.");
     }
-    for (const category of payload.categories) {
+    validateCategories(payload.categories);
+    return payload;
+}
+
+/** Jede Kategorie mit Raider-Liste, die Gewichtung (Version 3) als Tabellen. */
+function validateCategories(categories) {
+    for (const category of categories) {
         if (!category || typeof category !== "object" || !Array.isArray(category.raiders)) {
             throw new CouncilError("Eine Kategorie der Council-Daten hat keine Raider-Liste.");
         }
@@ -211,7 +240,6 @@ function validateCouncil(payload) {
             }
         }
     }
-    return payload;
 }
 
 const isPlainObject = (v) => !!v && typeof v === "object" && !Array.isArray(v);
@@ -282,6 +310,11 @@ const PICTOGRAPHS = /\p{Extended_Pictographic}|\p{Emoji_Modifier}|\p{Regional_In
  * "Kategorie <id>".
  */
 function cleanCategoryName(name, id = "") {
+    return cleanGameText(name) || `Kategorie ${id}`.trim();
+}
+
+/** Wie cleanCategoryName, aber ohne Ersatznamen: bleibt nichts übrig, "". */
+function cleanGameText(name) {
     let text = String(name ?? "").normalize("NFC").replace(PICTOGRAPHS, "");
     // Was toLatin1() zu "?" machen würde, fällt hier ganz weg.
     text = [...text].filter((ch) => ASCII_REPLACEMENTS[ch] !== undefined || ch.codePointAt(0) <= 0xff).join("");
@@ -290,7 +323,7 @@ function cleanCategoryName(name, id = "") {
         .replace(/^[\s\-|·:/,;*~_.]+/, "")
         .replace(/[\s\-|·:/,;*~_]+$/, "")
         .trim();
-    return text || `Kategorie ${id}`.trim();
+    return text;
 }
 
 /**
@@ -361,6 +394,66 @@ function normalizeCouncil(payload) {
     return out;
 }
 
+const str = (v) => (v === undefined || v === null ? "" : String(v));
+
+/**
+ * Version 4 (nach Server und Spielversion gegliedert) als Datei in Version 3,
+ * damit auch ein älteres Addon sie liest: `categories` ist die flache Liste
+ * aller Kategorien, jede zusätzlich mit `guildId` und `gameVersion`; daneben
+ * `servers` mit den Köpfen (Name, Versionen samt Realm und WoW-Gilden) — damit
+ * wählt das Addon den Server nach Gilde und Realm (Council.lua) und zeigt nur
+ * dessen Kategorien.
+ */
+function normalizeCouncilV4(payload) {
+    const categories = [];
+    const servers = payload.servers.map((server) => {
+        const guildId = str(server.guildId);
+        return {
+            guildId,
+            name: cleanGameText(server.name),
+            label: cleanGameText(server.label),
+            versions: server.versions.map((v) => {
+                const id = str(v.id);
+                for (const category of v.categories) categories.push({ ...category, guildId, gameVersion: id });
+                return {
+                    id,
+                    short: str(v.short) || id,
+                    realm: str(v.realm),
+                    guilds: (Array.isArray(v.guilds) ? v.guilds : []).filter(isPlainObject)
+                        .map((g) => ({ name: str(g.name), realm: str(g.realm), region: str(g.region) })),
+                };
+            }),
+        };
+    });
+    const out = normalizeCouncil({
+        format: COUNCIL_FORMAT,
+        version: COUNCIL_VERSION,
+        generatedAt: payload.generatedAt,
+        weights: payload.weights,
+        categories,
+    });
+    out.servers = servers;
+    return out;
+}
+
+/**
+ * Die Datei für einen Addon-Ordner einer Spielversion: nur deren Kategorien
+ * und Server-Versionen (strenge Trennung der Versionen). Ohne `servers` (eine
+ * Antwort älter als Version 4) oder bei unbekannter Version bleibt alles drin.
+ * @param {object} payload  aus loadCouncil()
+ * @param {string} gameVersion  tbc/classic/forever oder ""
+ */
+function councilForVersion(payload, gameVersion) {
+    if (!payload || !Array.isArray(payload.servers) || !gameVersion) return payload;
+    return {
+        ...payload,
+        categories: payload.categories.filter((c) => c.gameVersion === gameVersion),
+        servers: payload.servers
+            .map((server) => ({ ...server, versions: server.versions.filter((v) => v.id === gameVersion) }))
+            .filter((server) => server.versions.length),
+    };
+}
+
 /**
  * Den Payload vom Server holen (noch ungeprüft).
  * @param {{ v?: number, v2?: boolean, category?: string, role?: string }} [options]
@@ -402,7 +495,8 @@ async function fetchValid(config, options) {
 }
 
 /**
- * Die Council-Daten in der Form von Version 3 holen. Erst `?v=3`; ein Server
+ * Die Council-Daten in der Form von Version 3 holen. Erst `?v=4` (nach Server
+ * und Spielversion gegliedert, normalizeCouncilV4), dann `?v=3`; ein Server
  * ohne Version 3 antwortet darauf mit Version 1 (er kennt den Wert nicht) oder
  * 404 — dann `?v=2`, verpackt als Version 3 ohne Gewichtung. Kennt er auch
  * die nicht: die alte Anfrage mit Kategorie und Rolle aus der Konfiguration,
@@ -410,6 +504,9 @@ async function fetchValid(config, options) {
  * @returns {Promise<object>} geprüft, Version 3
  */
 async function loadCouncil(config) {
+    const grouped = await fetchValid(config, { v: 4 });
+    if (grouped && grouped.version === 4) return normalizeCouncilV4(grouped);
+    if (grouped && grouped.version >= 2) return normalizeCouncil(grouped);
     const first = await fetchValid(config, { v: 3 });
     if (first && first.version >= 2) return normalizeCouncil(first);
     const second = await fetchValid(config, { v: 2 });
@@ -464,7 +561,8 @@ function writeAtomic(file, text) {
  */
 async function syncCouncil(config, { now = new Date(), roots } = {}) {
     const payload = await loadCouncil(config);
-    const text = buildCouncilFile(payload, { now });
+    // Je Addon-Ordner nur die Kategorien seiner Spielversion (Version 4).
+    const text = ({ flavor }) => buildCouncilFile(councilForVersion(payload, wowPaths.versionOfFlavor(flavor)), { now });
     const { dirs, files, errors } = writeToAddonDirs(config, COUNCIL_FILE, text, { roots });
     return {
         payload, categories: payload.categories.length, raiders: countRaiders(payload), dirs, files, errors,
@@ -479,7 +577,8 @@ async function syncCouncil(config, { now = new Date(), roots } = {}) {
  * (lib/guildbankHandouts.js).
  * @param {object} config  wie aus lib/config.js
  * @param {string} fileName  z.B. "CouncilData.lua"
- * @param {string} text  der ganze Inhalt
+ * @param {string|function({ flavor: string, dir: string }): string} text  der ganze Inhalt, oder eine
+ *   Funktion, die ihn je Addon-Ordner liefert (Council-Daten je Spielversion)
  * @param {{ roots?: string[] }} [options]  roots nur für Tests
  * @returns {{ dirs: object[], files: string[], errors: string[] }}
  */
@@ -490,10 +589,10 @@ function writeToAddonDirs(config, fileName, text, { roots } = {}) {
     });
     const files = [];
     const errors = [];
-    for (const { dir } of dirs) {
-        const file = path.join(dir, fileName);
+    for (const entry of dirs) {
+        const file = path.join(entry.dir, fileName);
         try {
-            writeAtomic(file, text);
+            writeAtomic(file, typeof text === "function" ? text(entry) : text);
             files.push(file);
         } catch (e) {
             errors.push(`${file}: ${e.message}`);
@@ -503,6 +602,7 @@ function writeToAddonDirs(config, fileName, text, { roots } = {}) {
 }
 
 module.exports = {
-    syncCouncil, fetchCouncil, loadCouncil, validateCouncil, wrapV1, normalizeCouncil, cleanCategoryName, countRaiders,
-    buildCouncilFile, toLua, luaString, toLatin1, writeAtomic, writeToAddonDirs, CouncilError, COUNCIL_FORMAT, COUNCIL_VERSION, COUNCIL_FILE, COUNCIL_GLOBAL,
+    syncCouncil, fetchCouncil, loadCouncil, validateCouncil, wrapV1, normalizeCouncil, normalizeCouncilV4, councilForVersion,
+    cleanCategoryName, countRaiders, buildCouncilFile, toLua, luaString, toLatin1, writeAtomic, writeToAddonDirs, CouncilError,
+    COUNCIL_FORMAT, COUNCIL_VERSION, COUNCIL_SERVER_VERSION, COUNCIL_FILE, COUNCIL_GLOBAL,
 };

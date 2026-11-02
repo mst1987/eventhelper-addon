@@ -94,6 +94,25 @@ describe("Seiten-Skript im Sandkasten", () => {
         expect(page.consoleErrors).toEqual([]);
     });
 
+    it("zeigt das Discord-Icon des Servers, sonst das Kürzel", async () => {
+        const icon = "https://cdn.discordapp.com/icons/g1/abc.webp?size=64";
+        const page = await open({
+            me: {
+                owner: { name: "Marc" }, legacy: null, unsupported: false,
+                servers: [
+                    { guildId: "g1", name: "Pulse Fresh", iconUrl: icon, versions: [{ id: "tbc" }] },
+                    { guildId: "g2", name: "Pulse PuGs", iconUrl: "", versions: [{ id: "forever" }] },
+                    { guildId: "g3", name: "Fremd", iconUrl: "https://example.test/x.png", versions: [{ id: "forever" }] },
+                ],
+            },
+        });
+        const html = page.byId.side.innerHTML;
+        expect(html).toContain(">PF<img src=\"" + icon + "\"");
+        expect(html).toMatch(/>PP<\/span>/);
+        expect(html).not.toContain("example.test");
+        expect(page.consoleErrors).toEqual([]);
+    });
+
     it("zeigt ohne Adresse und Token die Einrichtung", async () => {
         const page = await open({ config: { baseUrl: "", hasToken: false, tokenHint: "", pollSeconds: 15, savedVariablesPath: "" } });
         expect(page.byId["v-setup"].hidden).toBe(false);

@@ -169,7 +169,8 @@ module.exports.PAGE = String.raw`<!doctype html>
   .split { display: flex; min-height: 0; }
   .side { width: 220px; flex: none; background: #1a1d23; border-right: 1px solid var(--line); padding: 8px 0 12px; display: flex; flex-direction: column; }
   .srv { display: flex; align-items: center; gap: 10px; padding: 10px 16px 4px; }
-  .srv-ini { width: 28px; height: 28px; border-radius: 6px; flex: none; display: grid; place-items: center; background: var(--panel2); color: var(--muted); font-size: 12px; font-weight: 700; }
+  .srv-ini { position: relative; overflow: hidden; width: 28px; height: 28px; border-radius: 6px; flex: none; display: grid; place-items: center; background: var(--panel2); color: var(--muted); font-size: 12px; font-weight: 700; }
+  .srv-ini img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--panel2); }
   .srv-name { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .srv.none .srv-name { color: var(--muted); font-weight: 400; }
   .sv { display: flex; flex-direction: column; width: 100%; padding: 7px 16px 7px 54px; border: 0; background: none; text-align: left; line-height: 1.3; }
@@ -879,6 +880,10 @@ document.addEventListener("click", (ev) => {
   fn(el.dataset.arg);
 });
 
+// Load errors do not bubble, hence the capture phase.
+document.addEventListener("error", (ev) => {
+  if (ev.target && ev.target.tagName === "IMG" && ev.target.parentNode) ev.target.parentNode.removeChild(ev.target);
+}, true);
 document.addEventListener("keydown", (ev) => {
   const tile = ev.target.closest && ev.target.closest('div.tile[data-act="open"]');
   if (tile && tile === ev.target && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); actions.open(tile.dataset.arg); return; }
@@ -1188,6 +1193,12 @@ function initials(name) {
   return (words[0][0] + (words[1] ? words[1][0] : words[0].slice(1, 2))).toUpperCase();
 }
 
+/** A server icon from Discord's CDN, else "" (the sidebar then shows the initials). */
+function discordIcon(url) {
+  const text = String(url || "");
+  return text.startsWith("https://cdn.discordapp.com/") ? text : "";
+}
+
 // Sidebar model from /api/ingest/me (state.me): servers with their versions,
 // every raid sorted to the version of its server (guildId + gameVersion).
 // Raids no listed version takes go to "Ohne Server". Local sessions without a
@@ -1203,7 +1214,7 @@ function groupServers(me, raids, sessions, fileVersion) {
   let servers = known.map((s) => {
     const guildId = String(s.guildId || "");
     const name = s.label || s.name || "Server";
-    return { guildId, name, initials: initials(name), versions: (s.versions || []).map((v) => mk(guildId, String(v.id || ""), v.short, v.realm)) };
+    return { guildId, name, initials: initials(name), iconUrl: discordIcon(s.iconUrl), versions: (s.versions || []).map((v) => mk(guildId, String(v.id || ""), v.short, v.realm)) };
   }).filter((s) => s.versions.length);
   const fallback = !servers.length;
   if (fallback) servers = [{ guildId: "", name: "Dein Server", initials: "", fallback: true, versions: [mk("", fileVersion || "", "", "")] }];
@@ -1251,10 +1262,17 @@ function versionButton(v, picked) {
     + '<span class="sv-sub">' + (esc(versionSub(v)) || "&nbsp;") + "</span></button>";
 }
 
+// The initials stay underneath: an icon that fails to load is removed (below) and they show.
+function serverIcon(s) {
+  if (!s.initials) return "";
+  const img = s.iconUrl ? '<img src="' + esc(s.iconUrl) + '" alt="">' : "";
+  return '<span class="srv-ini" aria-hidden="true">' + esc(s.initials) + img + "</span>";
+}
+
 function renderSide(model, picked) {
   let html = "";
   for (const s of model.servers) {
-    html += '<div class="srv">' + (s.initials ? '<span class="srv-ini" aria-hidden="true">' + esc(s.initials) + "</span>" : "")
+    html += '<div class="srv">' + serverIcon(s)
       + '<span class="srv-name" title="' + esc(s.name) + '">' + esc(s.name) + "</span></div>"
       + s.versions.map((v) => versionButton(v, picked)).join("");
   }
